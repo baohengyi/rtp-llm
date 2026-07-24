@@ -1,8 +1,8 @@
 package(default_visibility = ["//visibility:public"])
 
 # Framework source files for cross-package smoke tests.
-# Used as data dep (not srcs/deps) to avoid __init__.py creation
-# that breaks namespace package merging with internal smoke/.
+# Used as data dep (not srcs/deps) so internal smoke targets can merge their
+# own smoke/ children through smoke.__path__ without duplicating runner srcs.
 filegroup(
     name = "smoke_framework_srcs",
     srcs = glob(["*.py"]),

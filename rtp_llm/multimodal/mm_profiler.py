@@ -31,15 +31,6 @@ class MMProfiler:
         self._last_averages: Optional[Any] = None
         self._finished = False
 
-        # Per-session snapshots so a stop/early-exit does not race with a follow-up
-        # start_profile that changes the output path.  end_profile waits for the
-        # active request (if any) to finish before writing summary files.
-        self._session_id = 0
-        self._session_output_path = self._output_path
-        self._stop_requested = False
-        self._active_profile_count = 0
-        self._active_cv = threading.Condition(self._lock)
-
     # ------------------------------------------------------------------ #
     #  HTTP API
     # ------------------------------------------------------------------ #
@@ -81,10 +72,6 @@ class MMProfiler:
                 self._output_path = f"./vit_profile/rank_{rank}"
             os.makedirs(self._output_path, exist_ok=True)
 
-            self._session_id += 1
-            self._session_output_path = self._output_path
-            self._stop_requested = False
-
             self._target_count = count
             self._profiled_count = 0
             self._profile_cfg = {
@@ -97,7 +84,7 @@ class MMProfiler:
             self._armed = True
 
             logging.info(
-                f"MMProfiler: armed for {count} requests, output={self._output_path}"
+                f"MMProfiler: armed for {count} forwards, output={self._output_path}"
             )
             return {
                 "status": "started",
@@ -114,12 +101,6 @@ class MMProfiler:
                 }
 
             self._armed = False
-            self._stop_requested = True
-
-            # Wait for any profile_request that is still running inside the
-            # profiler context to finish BEFORE reading its trace/averages.
-            while self._active_profile_count > 0:
-                self._active_cv.wait()
 
             profiled = self._profiled_count
             target = self._target_count
@@ -129,7 +110,7 @@ class MMProfiler:
             # Snapshot path under the lock so a concurrent start_profile (after
             # we clear _finished below) can't repoint _output_path before we
             # write summary/ops files. Use the local copy for all I/O.
-            output_path = self._session_output_path
+            output_path = self._output_path
 
         if averages is not None:
             summary_file = os.path.join(output_path, "summary.txt")
@@ -152,12 +133,11 @@ class MMProfiler:
                 "top_operations", os.path.join(output_path, "top_operations.json")
             )
 
-        # Clear _finished/_stop_requested only after all I/O completes so a fast
-        # follow-up start_profile (gated on `_armed or _finished`) won't repoint
-        # state while we're still writing.
+        # Clear _finished only after all I/O completes so a fast follow-up
+        # start_profile (gated on `_armed or _finished`) won't repoint state
+        # while we're still writing.
         with self._lock:
             self._finished = False
-            self._stop_requested = False
 
         return {
             "status": "completed" if finished else "stopped_early",
@@ -186,24 +166,17 @@ class MMProfiler:
     # ------------------------------------------------------------------ #
 
     @contextmanager
-    def profile_request(self):
-        """Wrap request computation.  If profiling is armed, the request
-        waits for its turn (only one profiled at a time to avoid CUPTI
-        conflicts), then runs with full CPU + GPU tracing on the same
-        worker thread.  Non-profiled requests pass through immediately.
+    def profile_forward(self):
+        """Wrap ONE embedding forward (a batch) on the scheduler thread. If
+        profiling is armed, the forward waits for its turn (only one profiled at a
+        time to avoid CUPTI conflicts), then runs with full CPU + GPU tracing on
+        that thread. Non-profiled forwards pass through immediately.
 
-        Each profiled request captures the current session id/output path so a
-        concurrent or follow-up end_profile/start_profile cannot make it write
-        traces into the wrong directory.
+        NOTE: the unit is per-forward/per-batch (a forward may merge several
+        requests), NOT per-request — start_profile(count) counts forwards.
         """
-        session_id: Optional[int] = None
-        output_path: Optional[str] = None
-        request_idx: Optional[int] = None
         with self._lock:
             want_profile = self._armed and self._profiled_count < self._target_count
-            if want_profile:
-                session_id = self._session_id
-                output_path = self._session_output_path
 
         if not want_profile:
             yield
@@ -211,27 +184,25 @@ class MMProfiler:
 
         # Wait for the single-profile slot (CUPTI requires serialized profilers).
         self._profile_slot.acquire()
+
+        # Re-check state after acquiring the slot: armed/target_count may have
+        # changed while we were waiting.  Decide bail vs. profile under _lock,
+        # then drop _lock before doing any long work (yield / profiler setup).
+        with self._lock:
+            if self._armed and self._profiled_count < self._target_count:
+                request_idx = self._profiled_count
+            else:
+                request_idx = None
+
+        if request_idx is None:
+            # Bail out: release the slot BEFORE yielding so that neither lock is
+            # held during request execution; otherwise start/end/get_status and
+            # subsequent profile_forward callers would all block on this forward.
+            self._profile_slot.release()
+            yield
+            return
+
         try:
-            # Re-check state after acquiring the slot: armed/target_count/session may
-            # have changed while we were waiting.  Decide bail vs. profile under _lock,
-            # then drop _lock before doing any long work (yield / profiler setup).
-            with self._lock:
-                bail_out = not (
-                    self._armed
-                    and self._session_id == session_id
-                    and self._profiled_count < self._target_count
-                )
-                if not bail_out:
-                    request_idx = self._profiled_count
-                    self._profiled_count += 1
-
-            if bail_out:
-                yield
-                return
-
-            assert output_path is not None
-            assert request_idx is not None
-
             activities = [torch.profiler.ProfilerActivity.CPU]
             if torch.cuda.is_available():
                 activities.append(torch.profiler.ProfilerActivity.CUDA)
@@ -244,47 +215,34 @@ class MMProfiler:
                 with_stack=cfg.get("with_stack", True),
             )
 
-            # Only bump the active counter after the profiler is successfully
-            # created. If profile() raises, we must not leak the count.
-            with self._lock:
-                self._active_profile_count += 1
-
             try:
                 with prof:
                     yield
             finally:
+                trace_file = os.path.join(
+                    self._output_path, f"timeline_{request_idx}.json"
+                )
                 try:
-                    trace_file = os.path.join(
-                        output_path, f"timeline_{request_idx}.json"
+                    prof.export_chrome_trace(trace_file)
+                except Exception as e:
+                    logging.error(
+                        f"MMProfiler: export failed for request {request_idx}: {e}"
                     )
-                    try:
-                        prof.export_chrome_trace(trace_file)
-                    except Exception as e:
-                        logging.error(
-                            f"MMProfiler: export failed for request {request_idx}: {e}"
-                        )
 
-                    try:
-                        self._last_averages = prof.key_averages()
-                    except Exception:
-                        pass
-
-                    with self._lock:
-                        if self._armed and self._session_id == session_id:
-                            logging.info(
-                                f"MMProfiler: profiled {self._profiled_count}/{self._target_count}"
-                            )
-                            if self._profiled_count >= self._target_count:
-                                self._armed = False
-                                self._finished = True
-                                logging.info("MMProfiler: all requests profiled")
-                        self._active_profile_count -= 1
-                        self._active_cv.notify_all()
+                try:
+                    self._last_averages = prof.key_averages()
                 except Exception:
-                    with self._lock:
-                        self._active_profile_count -= 1
-                        self._active_cv.notify_all()
-                    raise
+                    pass
+
+                with self._lock:
+                    self._profiled_count += 1
+                    logging.info(
+                        f"MMProfiler: profiled {self._profiled_count}/{self._target_count}"
+                    )
+                    if self._profiled_count >= self._target_count:
+                        self._armed = False
+                        self._finished = True
+                        logging.info("MMProfiler: all forwards profiled")
         finally:
             self._profile_slot.release()
 

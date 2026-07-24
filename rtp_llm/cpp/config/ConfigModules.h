@@ -29,6 +29,8 @@ enum class CPRotateMethod {
 struct PrefillCPConfig {
     CPRotateMethod method           = CPRotateMethod::DISABLED;
     size_t         comm_buffer_size = 512 * 1024 * 1024;  // 512MB
+    bool           kv_cache_sharded = false;
+    int64_t        prefill_cp_size  = 0;
     bool           is_enabled() const {
         return method != CPRotateMethod::DISABLED && method != CPRotateMethod::UNKNOWN
                && method != CPRotateMethod::PREFILL_CP;
@@ -68,6 +70,8 @@ struct ParallelismConfig {
     int64_t ffn_tp_rank      = 0;
     bool    enable_sp        = false;
     bool    use_ub_comm      = false;
+
+    RoleType role_type = RoleType::PDFUSION;
 
     FfnDisAggregateConfig ffn_disaggregate_config;  // FFN disaggregate configuration
 
@@ -121,30 +125,38 @@ struct KVCacheConfig {
     std::string                             multi_task_prompt     = "";
     std::string                             multi_task_prompt_str = "";
     std::map<std::string, std::vector<int>> multi_task_prompt_tokens;
-    int64_t                                 reserve_block_ratio          = 5;
-    int                                     max_block_size_per_item      = 16;
-    int64_t                                 memory_cache_size_mb         = 0;
-    int64_t                                 memory_cache_sync_timeout_ms = 10000;
-    int                                     linear_step                  = 1;  // for linear attention cache reuse
+    int64_t                                 reserve_block_ratio               = 5;
+    int                                     max_block_size_per_item           = 16;
+    int64_t                                 memory_cache_size_mb              = 0;
+    int64_t                                 memory_cache_sync_timeout_ms      = 10000;
+    bool                                    enable_memory_cache_disk          = false;
+    std::string                             memory_cache_disk_paths           = "";
+    int64_t                                 memory_cache_disk_size_mb         = 0;
+    bool                                    memory_cache_disk_buffered_io     = true;
+    int64_t                                 memory_cache_disk_sync_timeout_ms = 30000;
+    int                                     linear_step                       = 1;  // for linear attention cache reuse
     // Fields merged from PyKvCacheConfig
-    int         int8_kv_cache                = 0;
-    int         fp8_kv_cache                 = 0;
-    std::string ssm_state_dtype              = "bf16";
-    int64_t     kv_cache_mem_mb              = -1;
-    int         seq_size_per_block           = 64;
-    int         kernel_seq_size_per_block    = 0;
-    int         test_block_num               = 0;
-    int         use_block_cache              = -1;  // -1 means not set, use Optional<int> equivalent
-    bool        enable_device_cache          = true;
-    bool        enable_memory_cache          = false;
+    int         fp8_kv_cache              = 0;
+    std::string ssm_state_dtype           = "bf16";
+    int64_t     kv_cache_mem_mb           = -1;
+    int         seq_size_per_block        = 64;
+    int         kernel_seq_size_per_block = 0;
+    int         test_block_num            = 0;
+    int         use_block_cache           = -1;  // -1 means not set, use Optional<int> equivalent
+    bool        enable_device_cache       = true;
+    bool        enable_memory_cache       = false;
     // When true, memory-cache H2D/D2H may use split-KV SM scatter/gather (CUDA) when layout is eligible.
-    bool        enable_memory_cache_sm_copy  = false;
-    bool        enable_remote_cache          = false;
-    bool        write_cache_sync             = false;
-    bool        enable_tiered_memory_cache   = false;
-    int64_t     device_cache_min_free_blocks = 0;
-    int         load_cache_retry_times       = 1;  // Maximum retry attempts for load cache transfer failures
-
+    bool    enable_memory_cache_sm_copy             = false;
+    bool    enable_remote_cache                     = false;
+    bool    write_cache_sync                        = false;
+    bool    enable_tiered_memory_cache              = false;
+    bool    enable_gpu_prefix_tree                  = false;
+    bool    enable_prefix_tree_memory_cache         = false;
+    bool    enable_legacy_memory_connector_fallback = true;
+    int64_t prefix_tree_memory_state_swa_pool_ratio = 0;
+    bool    enable_independent_group_eviction       = false;
+    int64_t device_cache_min_free_blocks            = 0;
+    int     load_cache_retry_times                  = 1;  // Maximum retry attempts for load cache transfer failures
 
     // Remote connector configuration fields
     bool        reco_enable_vipserver                = false;
@@ -187,6 +199,7 @@ struct ProfilingDebugLoggingConfig {
     bool        debug_start_fake_process  = false;
     bool        enable_detail_log         = false;
     bool        check_nan                 = false;
+    bool        enable_model_inputs_log   = false;
 
     std::string to_string() const;
 };
@@ -327,6 +340,7 @@ struct FIFOSchedulerConfig {
     //   "ratio" -> PDFusionRatioScheduler with decode_prefill_ratio
     std::string pdfusion_scheduler_mode = "";
     // PDFusionRatioScheduler cadence knob, as a decode:prefill round ratio string.
+    //   "0"   -> always try PREFILL first when a waiting stream exists.
     //   "N"   -> 1 prefill : N decode (decode-heavy); "1" = strict alternation.
     //   "1/X" -> X prefill : 1 decode (prefill-heavy).
     //   invalid input falls back to "1".
@@ -535,7 +549,8 @@ enum class HybridAttentionType {
 };
 
 struct HybridAttentionConfig {
-    bool                             enable_hybrid_attention = false;
+    bool                             enable_hybrid_attention           = false;
+    bool                             enable_independent_kv_cache_pools = false;
     std::vector<HybridAttentionType> hybrid_attention_types;
     std::string                      to_string() const;
 };

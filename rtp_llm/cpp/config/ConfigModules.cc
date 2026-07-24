@@ -43,7 +43,9 @@ std::string PrefillCPConfig::to_string() const {
             oss << "UNKNOWN";
             break;
     }
-    oss << "\n comm_buffer_size: " << comm_buffer_size << "\n";
+    oss << "\n comm_buffer_size: " << comm_buffer_size << "\n"
+        << " kv_cache_sharded: " << kv_cache_sharded << "\n"
+        << " prefill_cp_size: " << prefill_cp_size << "\n";
     return oss.str();
 }
 
@@ -119,6 +121,11 @@ std::string KVCacheConfig::to_string() const {
         << "max_block_size_per_item: " << max_block_size_per_item << "\n"
         << "memory_cache_size_mb: " << memory_cache_size_mb << "\n"
         << "memory_cache_sync_timeout_ms: " << memory_cache_sync_timeout_ms << "\n"
+        << "enable_memory_cache_disk: " << enable_memory_cache_disk << "\n"
+        << "memory_cache_disk_paths: " << memory_cache_disk_paths << "\n"
+        << "memory_cache_disk_size_mb: " << memory_cache_disk_size_mb << "\n"
+        << "memory_cache_disk_buffered_io: " << memory_cache_disk_buffered_io << "\n"
+        << "memory_cache_disk_sync_timeout_ms: " << memory_cache_disk_sync_timeout_ms << "\n"
         << "linear_step: " << linear_step << "\n"
         << "fp8_kv_cache: " << fp8_kv_cache << "\n"
         << "ssm_state_dtype: " << ssm_state_dtype << "\n"
@@ -129,9 +136,15 @@ std::string KVCacheConfig::to_string() const {
         << "use_block_cache: " << use_block_cache << "\n"
         << "enable_device_cache: " << enable_device_cache << "\n"
         << "enable_memory_cache: " << enable_memory_cache << "\n"
+        << "enable_memory_cache_sm_copy: " << enable_memory_cache_sm_copy << "\n"
         << "enable_remote_cache: " << enable_remote_cache << "\n"
         << "write_cache_sync: " << write_cache_sync << "\n"
         << "enable_tiered_memory_cache: " << enable_tiered_memory_cache << "\n"
+        << "enable_gpu_prefix_tree: " << enable_gpu_prefix_tree << "\n"
+        << "enable_prefix_tree_memory_cache: " << enable_prefix_tree_memory_cache << "\n"
+        << "enable_legacy_memory_connector_fallback: " << enable_legacy_memory_connector_fallback << "\n"
+        << "prefix_tree_memory_state_swa_pool_ratio: " << prefix_tree_memory_state_swa_pool_ratio << "\n"
+        << "enable_independent_group_eviction: " << enable_independent_group_eviction << "\n"
         << "device_cache_min_free_blocks: " << device_cache_min_free_blocks << "\n"
         << "load_cache_retry_times: " << load_cache_retry_times << "\n";
     return oss.str();
@@ -154,7 +167,8 @@ std::string ProfilingDebugLoggingConfig::to_string() const {
         << "hack_layer_num: " << hack_layer_num << "\n"
         << "debug_start_fake_process: " << debug_start_fake_process << "\n"
         << "enable_detail_log: " << enable_detail_log << "\n"
-        << "check_nan: " << check_nan << "\n";
+        << "check_nan: " << check_nan << "\n"
+        << "enable_model_inputs_log: " << enable_model_inputs_log << "\n";
     return oss.str();
 }
 

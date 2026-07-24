@@ -76,3 +76,12 @@ cc_test(
     },
     exec_properties = {"gpu": "A10"},
 )
+
+cc_test(
+    name = "device_pin_test",
+    srcs = [
+        "DevicePinTest.cc",
+    ],
+    copts = copts(),
+    deps = google_test_deps + ["//rtp_llm/cpp/utils:device_pin"],
+)

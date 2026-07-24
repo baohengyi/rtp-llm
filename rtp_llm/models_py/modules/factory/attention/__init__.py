@@ -61,8 +61,8 @@ else:
             PyFlashinferPrefillImpl,
         )
         from rtp_llm.models_py.modules.factory.attention.cuda_impl.trt import (
-            TRTMHAImpl,
-            TRTPagedMHAImpl,
+            FlashInferTRTLLMFMHAv2PagedPrefillImpl,
+            FlashInferTRTLLMFMHAv2PrefillImpl,
         )
         from rtp_llm.models_py.modules.factory.attention.cuda_impl.trtllm_gen import (
             FlashInferTRTLLMDecodeImpl,
@@ -80,10 +80,10 @@ else:
                 HeadWisePrefillImpl,
                 FlashInferTRTLLMSpecDecodeImpl,
                 FlashInferTRTLLMPrefillImpl,
-                TRTMHAImpl,
+                FlashInferTRTLLMFMHAv2PrefillImpl,
                 PyFlashinferPrefillImpl,
                 PyFlashinferPagedPrefillImpl,
-                TRTPagedMHAImpl,
+                FlashInferTRTLLMFMHAv2PagedPrefillImpl,
             ]
         )
         DECODE_MHA_IMPS.extend([FlashInferTRTLLMDecodeImpl])
