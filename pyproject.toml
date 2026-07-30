@@ -126,11 +126,12 @@ base-dependencies = [
     "importlib_metadata",
 
     # ML/Transformers
-    # transformers is pinned to 4.51.2 to stay aligned with tokenizers 0.21.4 and
-    # ROCm/ARM wheel availability. Bumping to 4.57.x requires validating tokenizer
-    # and generation behavior across all supported platforms.
-    "transformers==4.51.2",
-    "tokenizers==0.21.4",
+    # transformers is bumped to 5.2.0 to match the upstream/main merge, which
+    # introduced qwen3_vl / qwen3_vl_moe support (rtp_llm/models/qwen3_vl.py
+    # imports Qwen3VLConfig, first exposed in transformers 4.57.0). tokenizers
+    # 0.22.2 is the minimum required by transformers 5.2 (>=0.22.0,<=0.23.0).
+    "transformers==5.2.0",
+    "tokenizers==0.22.2",
     "huggingface-hub>=0.30.0,<1.0",
     "sentencepiece==0.2.0",
     "safetensors",
@@ -181,7 +182,7 @@ base-dependencies = [
 
     # NLP/AI
     "onnx==1.16.0",
-    "sentence-transformers==2.7.0",
+    "sentence-transformers==5.2.0",
     "json5",
     "dashscope>=1.11.0",
     "jieba",
