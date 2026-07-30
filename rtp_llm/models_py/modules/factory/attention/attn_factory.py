@@ -10,6 +10,8 @@ from rtp_llm.ops import AttentionConfigs, FMHAConfig, KvCacheDataType, Paralleli
 from rtp_llm.ops.compute_ops import PyAttentionInputs
 from rtp_llm.utils.model_weight import W
 
+AttentionImpl = Union[FMHAImplBase, MlaImplBase]
+
 # Lists to store registered implementations
 PREFILL_MHA_IMPS: List[type[FMHAImplBase]] = []
 DECODE_MHA_IMPS: List[type[FMHAImplBase]] = []
