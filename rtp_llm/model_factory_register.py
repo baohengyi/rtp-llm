@@ -1,3 +1,4 @@
+import inspect
 import logging
 import os
 import sys
@@ -9,6 +10,35 @@ sys.path.append(os.path.join(str(CUR_PATH), ".."))
 _model_factory: Dict[str, Type[Any]] = {}
 
 
+def _is_same_source_class(existing: Any, incoming: Any) -> bool:
+    """True iff ``existing`` and ``incoming`` are the SAME class definition
+    loaded under different module identities.
+
+    Phase-25 namespace merge extends ``rtp_llm.__path__`` with the sibling
+    ``internal_source/rtp_llm`` tree, so ``internal_source/rtp_llm/models/X.py``
+    can be imported under both ``rtp_llm.models.X`` (via the extended path) and
+    ``internal_source.rtp_llm.models.X`` (via full-prefix imports still present
+    in a handful of internal_source files). Python creates two distinct
+    module objects, so the top-level class definition executes twice — the
+    resulting class objects fail identity/equality checks even though they
+    share source. Recognize this case by matching ``__qualname__`` AND source
+    file path so duplicate registrations from the same source file are
+    tolerated while genuinely different classes still raise.
+    """
+    if existing is incoming:
+        return True
+    if not (inspect.isclass(existing) and inspect.isclass(incoming)):
+        return False
+    if getattr(existing, "__qualname__", None) != getattr(
+        incoming, "__qualname__", None
+    ):
+        return False
+    try:
+        return inspect.getsourcefile(existing) == inspect.getsourcefile(incoming)
+    except (TypeError, OSError):
+        return False
+
+
 def register_model(
     name: str,
     model_type: Any,
@@ -17,9 +47,15 @@ def register_model(
 ):
     global _model_factory
     if name in _model_factory and _model_factory[name] != model_type:
-        raise Exception(
-            f"try register model {name} with type {_model_factory[name]} and {model_type}, confict!"
-        )
+        if not _is_same_source_class(_model_factory[name], model_type):
+            raise Exception(
+                f"try register model {name} with type {_model_factory[name]} and {model_type}, confict!"
+            )
+        # Phase-25 namespace merge: same class re-imported under a different
+        # module path. Skip the duplicate registration (including architecture
+        # / repo re-registration below, which would compare the string model
+        # name against itself and be a no-op anyway).
+        return
     _model_factory[name] = model_type
 
     for architecture in support_architectures:
