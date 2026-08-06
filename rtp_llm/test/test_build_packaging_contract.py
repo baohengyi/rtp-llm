@@ -74,6 +74,58 @@ def _load_setup_module():
 
 
 class BuildPackagingContractTest(TestCase):
+    def _bazel_cmd_prefix(self, setup_module, scope=None):
+        env = {"XDG_CACHE_HOME": "/tmp/rtp-llm-test-cache"}
+        if scope is not None:
+            env["RTP_BAZEL_CACHE_SCOPE"] = scope
+        with (
+            patch.dict(os.environ, env, clear=False),
+            patch.object(
+                setup_module,
+                "parse_bazel_config",
+                return_value=["--config=cuda12_9"],
+            ),
+            patch.object(setup_module, "_get_remote_bazel_args", return_value=[]),
+            patch.object(setup_module, "_get_local_jobs_args", return_value=[]),
+        ):
+            if scope is None:
+                os.environ.pop("RTP_BAZEL_CACHE_SCOPE", None)
+            return setup_module._get_bazel_cmd_prefix("cuda12_9")
+
+    def test_bazel_cache_scope_defaults_to_platform_cache(self):
+        setup_module = _load_setup_module()
+
+        cmd, build_args = self._bazel_cmd_prefix(setup_module)
+
+        self.assertEqual(
+            cmd,
+            [
+                "bazelisk",
+                "--output_user_root=/tmp/rtp-llm-test-cache/bazel_cuda12_9_cache",
+            ],
+        )
+        self.assertEqual(build_args, ["--config=cuda12_9"])
+
+    def test_bazel_cache_scope_isolates_cpp_ut_cache(self):
+        setup_module = _load_setup_module()
+
+        cmd, build_args = self._bazel_cmd_prefix(setup_module, scope="cpp_ut")
+
+        self.assertEqual(
+            cmd,
+            [
+                "bazelisk",
+                "--output_user_root=/tmp/rtp-llm-test-cache/bazel_cuda12_9_cpp_ut_cache",
+            ],
+        )
+        self.assertEqual(build_args, ["--config=cuda12_9"])
+
+    def test_bazel_cache_scope_rejects_unsafe_path_content(self):
+        setup_module = _load_setup_module()
+
+        with self.assertRaisesRegex(ValueError, "RTP_BAZEL_CACHE_SCOPE"):
+            self._bazel_cmd_prefix(setup_module, scope="../../cpp-ut")
+
     def test_dynamic_version_uses_release_version(self):
         setup_module = _load_setup_module()
         release_text = (PROJECT_ROOT / "rtp_llm" / "release_version.py").read_text(

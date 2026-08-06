@@ -404,6 +404,19 @@ def _is_arm_bazel_config(bazel_args: list) -> bool:
     return False
 
 
+def _bazel_cache_scope() -> str:
+    """Return an optional, path-safe suffix for the local Bazel cache."""
+    scope = os.environ.get("RTP_BAZEL_CACHE_SCOPE", "").strip()
+    if not scope:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", scope):
+        raise ValueError(
+            "RTP_BAZEL_CACHE_SCOPE must be 1-64 characters and contain only "
+            "letters, digits, '.', '_' or '-' (starting with a letter or digit)"
+        )
+    return scope
+
+
 def _get_bazel_cmd_prefix(build_config: str) -> tuple:
     """Get bazel command prefix and build args, shared by build and test.
 
@@ -422,7 +435,11 @@ def _get_bazel_cmd_prefix(build_config: str) -> tuple:
         cache_base = os.environ.get(
             "XDG_CACHE_HOME", os.path.join(os.path.expanduser("~"), ".cache")
         )
-        cache_dir = os.path.join(cache_base, f"bazel_{build_config}_cache")
+        cache_scope = _bazel_cache_scope()
+        cache_name = f"bazel_{build_config}"
+        if cache_scope:
+            cache_name += f"_{cache_scope}"
+        cache_dir = os.path.join(cache_base, f"{cache_name}_cache")
         cmd.append(f"--output_user_root={cache_dir}")
         print(f"Using platform-specific cache: {cache_dir}")
 
