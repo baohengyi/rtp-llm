@@ -737,18 +737,24 @@ class RemoteExecutor:
     def _parse(self, op) -> ExecutionResult:
         # LRO operation errors indicate infrastructure-level failures; fail fast
         # instead of trying to unpack a response that may be of the wrong type.
-        if op.error and op.error.code != 0:
-            err_msg = f"LRO operation failed: code={op.error.code}, message={op.error.message!r}"
+        # Older generated Operation classes predate the error field, so tolerate
+        # its absence while those clients are still in use.
+        operation_error = getattr(op, "error", None)
+        error_code = getattr(operation_error, "code", 0)
+        error_message = getattr(operation_error, "message", "") or ""
+        if error_code != 0:
+            err_msg = (
+                f"LRO operation failed: code={error_code}, message={error_message!r}"
+            )
             log.error(err_msg)
             # Classify the error: recoverable infra failures (worker setup,
             # GPU Xid, etc.) should return exit_code=-1 with infra_category
             # so the caller can failover/retry.  Non-recoverable errors are
             # treated as normal test failures (exit_code=1).
-            status_message = op.error.message or ""
             infra_category = self._classify_execute_response_infra(
-                exit_code=op.error.code,
-                status_code=op.error.code,
-                status_message=status_message,
+                exit_code=error_code,
+                status_code=error_code,
+                status_message=error_message,
                 stdout_raw=b"",
                 stderr_raw=err_msg.encode("utf-8"),
             )
@@ -765,12 +771,24 @@ class RemoteExecutor:
             )
 
         resp = re_pb2.ExecuteResponse()
+        operation_response = getattr(op, "response", None)
+        if operation_response is None:
+            return ExecutionResult(
+                exit_code=-1,
+                stderr_raw=(
+                    b"Completed LRO operation has neither an error nor a response\n"
+                    b"[reapi-targets] "
+                    + self.reapi_targets_combined.encode()
+                ),
+                executor_endpoint=self.grpc_uri,
+                infra_category="executor_response",
+            )
         # Unpack returns False when the type_url does not match ExecuteResponse.
-        if not op.response.Unpack(resp):
+        if not operation_response.Unpack(resp):
             try:
                 # Fallback: parse raw value bytes (older REAPI endpoints may not
                 # set type_url correctly).
-                resp.ParseFromString(op.response.value)
+                resp.ParseFromString(operation_response.value)
             except Exception:
                 return ExecutionResult(
                     exit_code=-1,

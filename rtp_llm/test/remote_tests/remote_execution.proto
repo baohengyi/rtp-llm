@@ -212,7 +212,10 @@ message Operation {
   string name = 1;
   google.protobuf.Any metadata = 2;
   bool done = 3;
-  google.protobuf.Any response = 5;
+  oneof result {
+    Status error = 4;
+    google.protobuf.Any response = 5;
+  }
 }
 
 // ---- ActionCache RPCs ----
