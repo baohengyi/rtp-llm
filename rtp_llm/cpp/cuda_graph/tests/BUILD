@@ -27,7 +27,10 @@ cc_binary(
 
 py_library(
     name = "cuda_graph_test_utils",
-    srcs = ["cuda_graph_test_utils.py"],
+    srcs = [
+        "cuda_graph_test_utils.py",
+        "single_group_kv_cache.py",
+    ],
     deps = [
         "//rtp_llm/test/model_test/test_util:test_util",
     ],
