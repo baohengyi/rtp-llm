@@ -84,4 +84,5 @@ cc_test(
     ],
     copts = copts(),
     deps = google_test_deps + ["//rtp_llm/cpp/utils:device_pin"],
+    env = {"GPU_COUNT": "0"},
 )
