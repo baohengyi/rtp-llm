@@ -323,6 +323,7 @@ markexpr = "MI308X and not smoke and not perf and not manual"
 
 [tool.rtp_llm.pytest_ci.profiles.py_ut_frontend]
 description = "Frontend Python UT (py-ut-frontend)"
+gpu_type = "A10"
 paths = ["rtp_llm/frontend/test", "rtp_llm/test/frontend_test"]
 markexpr = "not manual and not rocm and not cpu"
 

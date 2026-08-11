@@ -670,6 +670,15 @@ def test_resolve_ci_profile_gpu_type(monkeypatch):
     )
 
 
+def test_frontend_ci_profile_declares_a10_gpu_type():
+    repo_root = Path(__file__).resolve().parents[3]
+
+    assert (
+        remote_exec_rtp.resolve_ci_profile_gpu_type(repo_root, "py_ut_frontend")
+        == "A10"
+    )
+
+
 def test_resolve_ci_profile_remote_env(monkeypatch):
     monkeypatch.setattr(
         remote_exec_rtp,
