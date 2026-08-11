@@ -126,6 +126,53 @@ class BuildPackagingContractTest(TestCase):
         with self.assertRaisesRegex(ValueError, "RTP_BAZEL_CACHE_SCOPE"):
             self._bazel_cmd_prefix(setup_module, scope="../../cpp-ut")
 
+    def test_cuda129_stages_cuda_graph_pytest_binding_outside_wheel_glob(self):
+        setup_module = _load_setup_module()
+
+        staged = setup_module._selected_bazel_staged_outputs(
+            "cuda12_9", ["--config=cuda12_9"]
+        )
+        runner = [
+            entry
+            for entry in staged
+            if entry[1] == "//rtp_llm/cpp/cuda_graph/tests:test_cuda_graph_runner"
+        ]
+
+        self.assertEqual(
+            runner,
+            [
+                (
+                    "test",
+                    "//rtp_llm/cpp/cuda_graph/tests:test_cuda_graph_runner",
+                    (
+                        (
+                            "libtest_cuda_graph_runner.so",
+                            "test/libtest_cuda_graph_runner.so",
+                        ),
+                    ),
+                )
+            ],
+        )
+
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+        excluded = pyproject["tool"]["setuptools"]["exclude-package-data"][
+            "rtp_llm"
+        ]
+        self.assertIn("libs/test/*", excluded)
+
+    def test_non_cuda129_builds_do_not_stage_cuda_graph_pytest_binding(self):
+        setup_module = _load_setup_module()
+
+        staged = setup_module._selected_bazel_staged_outputs(
+            "rocm", ["--config=rocm"]
+        )
+
+        self.assertNotIn(
+            "//rtp_llm/cpp/cuda_graph/tests:test_cuda_graph_runner",
+            [entry[1] for entry in staged],
+        )
+
     def test_dynamic_version_uses_release_version(self):
         setup_module = _load_setup_module()
         release_text = (PROJECT_ROOT / "rtp_llm" / "release_version.py").read_text(

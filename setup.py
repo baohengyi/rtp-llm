@@ -616,6 +616,7 @@ _REAPI_MAX_RETRIES = reapi_max_retries()
 
 _STAGED_OUTPUT_CORE = "core"
 _STAGED_OUTPUT_RUNTIME = "runtime"
+_STAGED_OUTPUT_TEST = "test"
 
 _CORE_BAZEL_STAGED_OUTPUTS = [
     (
@@ -632,6 +633,19 @@ _CORE_BAZEL_STAGED_OUTPUTS = [
         _STAGED_OUTPUT_CORE,
         "//:th_transformer_config",
         ("libth_transformer_config.so",),
+    ),
+]
+
+_CUDA_GRAPH_TEST_BAZEL_STAGED_OUTPUTS = [
+    (
+        _STAGED_OUTPUT_TEST,
+        "//rtp_llm/cpp/cuda_graph/tests:test_cuda_graph_runner",
+        (
+            (
+                "libtest_cuda_graph_runner.so",
+                "test/libtest_cuda_graph_runner.so",
+            ),
+        ),
     ),
 ]
 
@@ -714,6 +728,11 @@ def _selected_bazel_staged_outputs(build_config: str, bazel_args: list = None) -
     if bazel_args is None:
         bazel_args = parse_bazel_config(default_config=build_config)
     staged_outputs = list(_CORE_BAZEL_STAGED_OUTPUTS)
+    if "cuda12_9" in _bazel_config_names(bazel_args):
+        # Python-native CUDA Graph tests run in the H20 pytest session. Keep
+        # their pybind module below libs/test/ so remote-session archives it,
+        # while wheel package-data (libs/*.so) does not publish it.
+        staged_outputs.extend(_CUDA_GRAPH_TEST_BAZEL_STAGED_OUTPUTS)
     include_remote_kvcm = _include_remote_kvcm_runtime_outputs(bazel_args)
     if include_remote_kvcm:
         staged_outputs.extend(_REMOTE_KVCM_RUNTIME_BAZEL_STAGED_OUTPUTS)

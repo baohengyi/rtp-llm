@@ -111,6 +111,9 @@ rtp_llm = [
     "multimodal/test/**/*.png",
 ]
 
+[tool.setuptools.exclude-package-data]
+rtp_llm = ["libs/test/*"]
+
 # ============================================================
 # RTP-LLM 构建配置
 # ============================================================
@@ -218,11 +221,17 @@ testpaths = [
     "rtp_llm/models_py",
     "rtp_llm/cpp/models",
     "rtp_llm/cpp/model_rpc/test",
+    "rtp_llm/cpp/cuda_graph/tests",
     "rtp_llm/aios",
 ]
 
 # 测试文件、类和函数的匹配模式
-python_files = ["test_*.py", "*_test.py"]
+python_files = [
+    "test_*.py",
+    "*_test.py",
+    "cuda_graph_decode_padding.py",
+    "cuda_graph_prefill.py",
+]
 python_classes = ["Test*", "*Test"]
 python_functions = ["test_*"]
 
