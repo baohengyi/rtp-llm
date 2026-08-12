@@ -237,9 +237,12 @@ def _is_fmha_impl_disabled_legacy(impl_class: type, fmha_config: FMHAConfig) -> 
     impl_class_name = impl_class.__name__
     if "XQA" in impl_class_name:
         return not fmha_config.enable_xqa
-    elif impl_class_name == "TRTMHAImpl":
+    elif impl_class_name in {"TRTMHAImpl", "FlashInferTRTLLMFMHAv2PrefillImpl"}:
         return not fmha_config.enable_trt_fmha or not fmha_config.enable_open_source_fmha
-    elif impl_class_name == "TRTPagedMHAImpl":
+    elif impl_class_name in {
+        "TRTPagedMHAImpl",
+        "FlashInferTRTLLMFMHAv2PagedPrefillImpl",
+    }:
         return not fmha_config.enable_paged_trt_fmha or not fmha_config.enable_open_source_fmha
     elif "FlashInfer" in impl_class_name or "Flashinfer" in impl_class_name:
         return fmha_config.disable_flash_infer

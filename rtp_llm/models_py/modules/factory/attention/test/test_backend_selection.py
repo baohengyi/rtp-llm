@@ -17,6 +17,7 @@ import pytest
 
 import rtp_llm.models_py.modules.factory.attention.attn_factory as af
 from rtp_llm.models_py.modules.factory.attention.attn_factory import (
+    _is_fmha_impl_disabled_legacy,
     _select_attn_impls,
     get_mla_impl,
 )
@@ -32,6 +33,32 @@ def _cfg(attn_backend="auto", prefill_attn_backend="", decode_attn_backend="", d
         decode_attn_backend=decode_attn_backend,
         disable_attn_backends=disable_attn_backends,
     )
+
+
+@pytest.mark.parametrize(
+    "impl_name,disabled_flag",
+    [
+        ("FlashInferTRTLLMFMHAv2PrefillImpl", "enable_trt_fmha"),
+        ("FlashInferTRTLLMFMHAv2PagedPrefillImpl", "enable_paged_trt_fmha"),
+    ],
+)
+def test_trt_fmha_v2_honors_legacy_enable_flags(impl_name, disabled_flag):
+    impl = type(impl_name, (), {})
+    config = SimpleNamespace(
+        enable_fmha=True,
+        enable_xqa=True,
+        enable_trt_fmha=True,
+        enable_paged_trt_fmha=True,
+        enable_open_source_fmha=True,
+        disable_flash_infer=False,
+        use_triton_pa=False,
+        use_asm_pa=True,
+        use_aiter_pa=True,
+    )
+
+    assert not _is_fmha_impl_disabled_legacy(impl, config)
+    setattr(config, disabled_flag, False)
+    assert _is_fmha_impl_disabled_legacy(impl, config)
 
 
 class TestSelectAttnImpls:
