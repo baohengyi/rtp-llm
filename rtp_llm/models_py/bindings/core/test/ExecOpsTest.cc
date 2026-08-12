@@ -6,7 +6,10 @@
 #include "rtp_llm/cpp/utils/KVCacheUtils.h"
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <thread>
 #include <tuple>
 #include <unordered_map>
 
@@ -26,11 +29,13 @@ public:
         std::unordered_map<std::string, BlockRecord> blocks;
         std::vector<std::string>                     block_keys;
     };
-    std::vector<StoreRecord> records;
-    bool                     store_success = true;
-    CacheStoreErrorCode      store_error   = CacheStoreErrorCode::None;
-    bool                     load_success  = true;
-    CacheStoreErrorCode      load_error    = CacheStoreErrorCode::None;
+    std::vector<StoreRecord>         records;
+    bool                             store_success = true;
+    CacheStoreErrorCode              store_error   = CacheStoreErrorCode::None;
+    bool                             load_success  = true;
+    CacheStoreErrorCode              load_error    = CacheStoreErrorCode::None;
+    int                              store_callback_delay_ms = 0;
+    std::shared_ptr<std::atomic_bool> store_callback_finished = std::make_shared<std::atomic_bool>(false);
 
     void store(const std::shared_ptr<rtp_llm::RequestBlockBuffer>& buf,
                rtp_llm::CacheStoreStoreDoneCallback                cb) override {
@@ -42,7 +47,18 @@ public:
             record.block_keys.push_back(key);
         }
         records.push_back(std::move(record));
-        if (cb) {
+        if (cb && store_callback_delay_ms > 0) {
+            const auto delay_ms = store_callback_delay_ms;
+            const auto finished = store_callback_finished;
+            std::thread(
+                [cb = std::move(cb), delay_ms, success = store_success, error = store_error, finished]() mutable {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+                    finished->store(true, std::memory_order_release);
+                    cb(success, error);
+                })
+                .detach();
+        } else if (cb) {
+            store_callback_finished->store(true, std::memory_order_release);
             cb(store_success, store_error);
         }
     }
@@ -70,8 +86,11 @@ public:
     }
 
     std::shared_ptr<rtp_llm::StoreContext>
-    storeBuffers(const std::vector<std::shared_ptr<rtp_llm::RequestBlockBuffer>>&, int64_t) override {
-        return nullptr;
+    storeBuffers(const std::vector<std::shared_ptr<rtp_llm::RequestBlockBuffer>>& buffers,
+                 int64_t                                                          timeout_ms) override {
+        auto context = std::make_shared<rtp_llm::StoreContext>(shared_from_this());
+        context->store(buffers, timeout_ms);
+        return context;
     }
 
     std::shared_ptr<rtp_llm::RemoteStoreTask>
@@ -694,6 +713,19 @@ TEST_F(ExecOpsTest, testWriteCacheStoreTag_LinearGroup) {
     ASSERT_EQ(cache_store->records[0].block_keys.size(), 1u);
     EXPECT_EQ(cache_store->records[0].block_keys[0].rfind("kv_", 0), 0u)
         << "Hybrid cache-store must write opaque kv_ keys even when use_opaque_kv_cache_store=false";
+}
+
+TEST_F(ExecOpsTest, testWriteCacheStoreWaitsForPublishCallback) {
+    auto cache_store                     = std::make_shared<MockCacheStore>();
+    cache_store->store_callback_delay_ms = 100;
+    auto param                           = makeHybridInputs(/*layer_id=*/0);
+
+    rtp_llm::KvCacheInfo kv;
+    kv.layer_num       = 2;
+    kv.kv_cache_buffer = torch::zeros({192}, torch::kByte);
+
+    ASSERT_NO_THROW(rtp_llm::runtimeWriteCacheStore(param, kv, /*mla_kvcache=*/false, cache_store));
+    EXPECT_TRUE(cache_store->store_callback_finished->load(std::memory_order_acquire));
 }
 
 // Layer 1 maps to group 1 (FULL).

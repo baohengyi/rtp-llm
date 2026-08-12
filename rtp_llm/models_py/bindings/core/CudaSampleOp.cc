@@ -459,15 +459,7 @@ GreedyOutput sampleGreedy(const GreedyParams& params) {
         torch::Tensor probs_t         = params.logits;
         torch::Tensor selected_tokens = torch::argmax(probs_t, -1, /*keepdim=*/false);
         samples_t.copy_(selected_tokens, true);
-
-        if (params.cum_log_probs.has_value()) {
-            auto cum_log_probs_t = params.cum_log_probs.value();
-            // Avoid materializing the full [batch, vocab] log_probs tensor.
-            // log p(selected) = logit_selected - logsumexp(logits).
-            auto selected_logits   = probs_t.gather(-1, selected_tokens.unsqueeze(-1)).squeeze(-1);
-            auto selected_logprobs = selected_logits - torch::logsumexp(probs_t, -1);
-            cum_log_probs_t.add_(selected_logprobs.to(cum_log_probs_t.device()));
-        }
+        // Top-k filtering leaves a one-hot sampling distribution, so log p(selected) is zero.
 
         auto output_tokens = transposed_tokens.transpose(0, 1).contiguous();
         params.token_ids.copy_(output_tokens, true);
@@ -625,14 +617,7 @@ GreedyOutput sampleGreedy(const GreedyParams& params) {
         torch::Tensor probs_t         = params.logits;
         torch::Tensor selected_tokens = torch::argmax(probs_t, -1, /*keepdim=*/false);
         samples_t.copy_(selected_tokens);
-
-        if (params.cum_log_probs.has_value()) {
-            auto cum_log_probs_t = params.cum_log_probs.value();
-            // Avoid materializing the full [batch, vocab] log_probs tensor.
-            auto selected_logits   = probs_t.gather(-1, selected_tokens.unsqueeze(-1).to(torch::kLong)).squeeze(-1);
-            auto selected_logprobs = selected_logits - torch::logsumexp(probs_t, -1);
-            cum_log_probs_t.add_(selected_logprobs.to(cum_log_probs_t.device()));
-        }
+        // Top-k filtering leaves a one-hot sampling distribution, so log p(selected) is zero.
 
         auto output_tokens = transposed_tokens.transpose(0, 1).contiguous();
         params.token_ids.copy_(output_tokens);

@@ -123,3 +123,41 @@ TEST_F(RocmSampleOpTest, seededTopPSampling) {
 TEST_F(RocmSampleOpTest, seededTopKTopPSampling) {
     runSeededSamplingTest(/*top_k=*/{5, 4, 3, 2}, /*top_p=*/{0.9f, 0.8f, 0.95f, 0.7f});
 }
+
+TEST_F(RocmSampleOpTest, topK1KeepsCumLogProbsFromFilteredDistribution) {
+    constexpr int64_t batch_size = 2;
+    constexpr size_t  step       = 1;
+    auto logits =
+        torch::tensor({1.0f, 3.0f, 2.0f, 4.0f, 0.0f, -1.0f}, cpu_float_).reshape({batch_size, 3}).to(torch::kCUDA);
+    auto input_lengths    = torch::full({batch_size}, -1, cpu_int_).to(torch::kCUDA);
+    auto sequence_lengths = torch::full({batch_size}, static_cast<int>(step), cpu_int_).to(torch::kCUDA);
+    auto token_ids        = torch::zeros({batch_size, static_cast<int64_t>(step + 1)}, cpu_int_).to(torch::kCUDA);
+    auto top_k            = torch::ones({batch_size}, cpu_int_);
+    auto top_p            = torch::ones({batch_size}, cpu_float_);
+    auto temperature      = torch::ones({batch_size}, cpu_float_);
+    auto initial_cum      = torch::tensor({-1.0f, -2.0f}, cpu_float_);
+    auto cum_log_probs    = initial_cum.to(torch::kCUDA);
+    std::vector<at::Generator> generator(batch_size);
+
+    GreedyParams params({logits,
+                         input_lengths,
+                         sequence_lengths,
+                         token_ids,
+                         step,
+                         top_k,
+                         top_p,
+                         temperature,
+                         std::nullopt,
+                         std::nullopt,
+                         cum_log_probs,
+                         std::nullopt,
+                         false,
+                         std::nullopt,
+                         std::nullopt,
+                         std::nullopt,
+                         std::nullopt,
+                         generator});
+
+    execSampleGreedy(params);
+    ASSERT_TRUE(torch::equal(cum_log_probs.cpu(), initial_cum));
+}

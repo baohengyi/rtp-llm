@@ -534,6 +534,8 @@ TEST_F(CudaSamplerTest, testFlashinferKernelTopK1) {
     auto top_k_t      = pinnedIntTensor({1, 1, 1, 1});
     auto top_p_t      = pinnedFloatTensor({1.0, 1.0, 1.0, 1.0});
     auto temperture_t = pinnedFloatTensor({1.0, 10.0, 1.0, 10.0});
+    const std::vector<float> initial_cum_log_probs{-1.0f, -2.0f, -3.0f, -4.0f};
+    auto                     cum_log_probs_t = cudaTensor(initial_cum_log_probs, {(int64_t)batch_size});
 
     std::vector<at::Generator> generator;
     generator.resize(batch_size);
@@ -549,7 +551,7 @@ TEST_F(CudaSamplerTest, testFlashinferKernelTopK1) {
         temperture_t,
         nullopt,
         nullopt,
-        nullopt,
+        cum_log_probs_t,
         nullopt,
         false,
         nullopt,
@@ -565,6 +567,7 @@ TEST_F(CudaSamplerTest, testFlashinferKernelTopK1) {
     ASSERT_EQ(output_token_ids_host[11], 2);
     ASSERT_EQ(output_token_ids_host[17], 7);
     ASSERT_EQ(output_token_ids_host[23], 7);
+    ASSERT_EQ(toHostFloat(cum_log_probs_t), initial_cum_log_probs);
 }
 
 TEST_F(CudaSamplerTest, testFlashinferSeedOffsetSameAcrossBatchRows) {

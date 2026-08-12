@@ -4,10 +4,8 @@
 #include "rtp_llm/cpp/utils/Logger.h"
 #include "rtp_llm/cpp/cache/CacheGroupType.h"
 #include "rtp_llm/cpp/utils/KVCacheUtils.h"
-#include "rtp_llm/cpp/utils/ErrorCode.h"
 #include "rtp_llm/cpp/utils/DevicePin.h"
 #include "rtp_llm/cpp/utils/StackTrace.h"
-#include "rtp_llm/cpp/disaggregate/cache_store/ErrorCodeUtil.h"
 #include "autil/StackTracer.h"
 #include "autil/EnvUtil.h"
 #include <unistd.h>
@@ -397,25 +395,24 @@ void runtimeWriteCacheStore(const CacheStoreInputs&     cache_store_inputs,
             addBlock(pair.key_index, pair.offset_index);
         }
 
-        auto storeCallback = [layer_id = param.layer_id,
-                              model_id = param.model_id,
-                              tag      = param.tag,
-                              request_id,
-                              request_blocks](bool success, CacheStoreErrorCode ec) {
-            if (!success) {
+        if (request_blocks->getBlocksCount() > 0) {
+            // The async Python writer is not complete until the layer is visible to cache-store readers.
+            constexpr int64_t kStoreTimeoutMs = 5000;
+            auto              store_context   = cache_store->storeBuffers({request_blocks}, kStoreTimeoutMs);
+            if (store_context) {
+                store_context->waitDone();
+            }
+            if (!store_context || !store_context->success()) {
+                const auto error = store_context ? store_context->getErrorInfoString() : "null store context";
                 RTP_LLM_LOG_WARNING("PD_CACHE_KEY_WRITE_FAILED request_id=%ld model_id=%zu local_layer_id=%d tag=%s "
-                                    "error_code=%d error=%s buffer={%s}",
+                                    "error=%s buffer={%s}",
                                     static_cast<long>(request_id),
-                                    model_id,
-                                    layer_id,
-                                    tag.c_str(),
-                                    static_cast<int>(ec),
-                                    ErrorCodeToString(transCacheStoreErrorCode(ec)).c_str(),
+                                    param.model_id,
+                                    param.layer_id,
+                                    param.tag.c_str(),
+                                    error.c_str(),
                                     request_blocks->debugInfo().c_str());
             }
-        };
-        if (request_blocks->getBlocksCount() > 0) {
-            cache_store->store(request_blocks, storeCallback);
         } else {
             RTP_LLM_LOG_DEBUG("skip cache store because all selected blocks are null, request id [%ld], layer id [%d]",
                               request_id,
