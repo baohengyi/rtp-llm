@@ -20,28 +20,47 @@ def _find_method(class_node: ast.ClassDef, name: str) -> ast.FunctionDef:
     )
 
 
-def test_decode_fused_rope_call_matches_rtp_kernel_signature():
+def test_fused_rope_calls_support_old_arm_and_new_x86_rtp_kernel_signatures():
     tree = ast.parse((RTP_LLM_DIR / "ops/fused_rope_kvcache_op.py").read_text())
-    forward = _find_method(_find_class(tree, "FusedRopeKVCacheDecodeOp"), "forward")
+    source = ast.unparse(tree)
+    assert "'position_ids' in inspect.signature(prefill_fused_rope_kvcache).parameters" in source
+    assert "else 'cp_position_ids'" in source
+    assert "'cu_seqlens' in inspect.signature(decode_fused_rope_kvcache).parameters" in source
+
+    prefill_prepare = _find_method(
+        _find_class(tree, "FusedRopeKVCachePrefillOpBase"), "prepare"
+    )
+    prepare_source = ast.unparse(prefill_prepare)
+    assert "_PREFILL_POSITION_IDS_ARG == 'position_ids'" in prepare_source
+    assert "attn_inputs.context_parallel_info.prefill_shuffle_indices" in prepare_source
+
+    prefill_forward = _find_method(
+        _find_class(tree, "FusedRopeKVCachePrefillOpBase"), "_forward"
+    )
+    prefill_call = next(
+        node
+        for node in ast.walk(prefill_forward)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "prefill_fused_rope_kvcache"
+    )
+    assert any(keyword.arg is None for keyword in prefill_call.keywords)
+
+    decode_forward = _find_method(
+        _find_class(tree, "FusedRopeKVCacheDecodeOp"), "forward"
+    )
+    decode_source = ast.unparse(decode_forward)
+    assert "if _DECODE_HAS_CU_SEQLENS" in decode_source
+    assert "decode_args.extend([params.position_ids, params.sequence_lengths])" in decode_source
+    assert "decode_args.append(params.sequence_lengths)" in decode_source
     call = next(
         node
-        for node in ast.walk(forward)
+        for node in ast.walk(decode_forward)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "decode_fused_rope_kvcache"
     )
-
-    assert [ast.unparse(arg) for arg in call.args] == [
-        "qkv",
-        "params.position_ids",
-        "params.sequence_lengths",
-        "params.sequence_lengths.size(0)",
-        "self.attn_configs.head_num",
-        "self.attn_configs.kv_head_num",
-        "self.attn_configs.size_per_head",
-        "kv_cache.kv_cache_base",
-        "params.kv_cache_offset",
-    ]
+    assert [ast.unparse(arg) for arg in call.args] == ["*decode_args"]
     assert any(keyword.arg == "tokens_per_block" for keyword in call.keywords)
 
 

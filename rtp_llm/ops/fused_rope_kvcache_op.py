@@ -1,3 +1,4 @@
+import inspect
 from dataclasses import dataclass
 from typing import Optional
 
@@ -14,6 +15,16 @@ from libth_transformer_config import (
     AttentionConfigs,
     check_rope_cache,
     get_rope_cache_once,
+)
+
+
+_PREFILL_POSITION_IDS_ARG = (
+    "position_ids"
+    if "position_ids" in inspect.signature(prefill_fused_rope_kvcache).parameters
+    else "cp_position_ids"
+)
+_DECODE_HAS_CU_SEQLENS = (
+    "cu_seqlens" in inspect.signature(decode_fused_rope_kvcache).parameters
 )
 
 
@@ -51,7 +62,12 @@ class FusedRopeKVCachePrefillOpBase:
             kv_cache_offset = None
         kv_cache_offset_h = None # not used
 
-        position_ids = attn_inputs.combo_position_ids
+        # The older ARM rtp-kernel ABI only accepts CP shuffle indices here.
+        position_ids = (
+            attn_inputs.combo_position_ids
+            if _PREFILL_POSITION_IDS_ARG == "position_ids"
+            else None
+        )
         if attn_inputs.context_parallel_info is not None:
             position_ids = attn_inputs.context_parallel_info.prefill_shuffle_indices
 
@@ -112,7 +128,7 @@ class FusedRopeKVCachePrefillOpBase:
                 rope_cache.data if check_rope_cache(rope_config, rope_cache) else None
             ),
             padding_offset=params.padding_offset,
-            position_ids=params.position_ids,
+            **{_PREFILL_POSITION_IDS_ARG: params.position_ids},
             use_logn_attn=self.attn_configs.use_logn_attn,
             rope_style=rope_config.style,
             rope_dim=rope_config.dim,
@@ -204,16 +220,23 @@ class FusedRopeKVCacheDecodeOp:
         rope_cache = get_rope_cache_once(rope_config, self.attn_configs.max_seq_len)
         assert params.kv_cache_offset is not None
         assert params.sequence_lengths.is_pinned(), "sequence_lengths is not pinned memory"
+        decode_args = [qkv]
+        if _DECODE_HAS_CU_SEQLENS:
+            decode_args.extend([params.position_ids, params.sequence_lengths])
+        else:
+            decode_args.append(params.sequence_lengths)
+        decode_args.extend(
+            [
+                params.sequence_lengths.size(0),
+                self.attn_configs.head_num,
+                self.attn_configs.kv_head_num,
+                self.attn_configs.size_per_head,
+                kv_cache.kv_cache_base,
+                params.kv_cache_offset,
+            ]
+        )
         return decode_fused_rope_kvcache(
-            qkv,
-            params.position_ids,
-            params.sequence_lengths,
-            params.sequence_lengths.size(0),
-            self.attn_configs.head_num,
-            self.attn_configs.kv_head_num,
-            self.attn_configs.size_per_head,
-            kv_cache.kv_cache_base,
-            params.kv_cache_offset,
+            *decode_args,
             tokens_per_block=self.attn_configs.kernel_tokens_per_block,
             store_kv=False,
             kv_cache_scale=self._get_kv_scale(kv_cache),
