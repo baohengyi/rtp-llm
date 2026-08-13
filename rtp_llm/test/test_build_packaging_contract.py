@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import re
+import tempfile
 from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
@@ -125,6 +126,44 @@ class BuildPackagingContractTest(TestCase):
 
         with self.assertRaisesRegex(ValueError, "RTP_BAZEL_CACHE_SCOPE"):
             self._bazel_cmd_prefix(setup_module, scope="../../cpp-ut")
+
+    def test_build_cleanup_removes_only_stale_test_artifacts(self):
+        setup_module = _load_setup_module()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            project_root = tmp_path / "project"
+            output_root = tmp_path / "bazel_cuda12_9_cache"
+            testlogs = (
+                output_root
+                / "install-hash"
+                / "execroot"
+                / "rtp_llm"
+                / "bazel-out"
+                / "k8-opt"
+                / "testlogs"
+            )
+            testlogs.mkdir(parents=True)
+            (testlogs / "old-test.xml").write_text("old", encoding="utf-8")
+            keep = output_root / "install-hash" / "action-cache"
+            keep.parent.mkdir(parents=True, exist_ok=True)
+            keep.write_text("keep", encoding="utf-8")
+
+            project_root.mkdir()
+            (project_root / "bazel-testlogs").symlink_to(testlogs)
+            remote_logs = project_root / ".pytest_cache" / "remote_stream_logs"
+            remote_logs.mkdir(parents=True)
+            (remote_logs / "old.log").write_text("old", encoding="utf-8")
+
+            setup_module._clean_stale_test_artifacts(
+                project_root,
+                ["bazelisk", f"--output_user_root={output_root}"],
+            )
+
+            self.assertFalse(testlogs.exists())
+            self.assertFalse((project_root / "bazel-testlogs").exists())
+            self.assertFalse(remote_logs.exists())
+            self.assertEqual(keep.read_text(encoding="utf-8"), "keep")
 
     def test_cuda129_stages_cuda_graph_pytest_binding_outside_wheel_glob(self):
         setup_module = _load_setup_module()

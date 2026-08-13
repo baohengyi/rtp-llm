@@ -447,6 +447,39 @@ def _get_bazel_cmd_prefix(build_config: str) -> tuple:
     return cmd, build_args
 
 
+def _clean_stale_test_artifacts(project_root: Path, bazel_cmd: list) -> None:
+    """Remove reports that Aone could otherwise attribute to a later task.
+
+    CI workspaces and platform-scoped Bazel output roots are reused.  A freshly
+    extracted workspace may not have a ``bazel-testlogs`` symlink yet, while
+    the selected output root still contains JUnit XML from the previous run.
+    Cleaning only the symlink therefore leaves stale reports behind; the next
+    build recreates the link and the report uploader publishes old failures.
+    """
+    output_root_arg = next(
+        (arg for arg in bazel_cmd if arg.startswith("--output_user_root=")), None
+    )
+    if output_root_arg:
+        output_root = Path(output_root_arg.split("=", 1)[1]).resolve()
+        for testlogs_dir in output_root.glob(
+            "*/execroot/*/bazel-out/*/testlogs"
+        ):
+            resolved = testlogs_dir.resolve()
+            if resolved.is_relative_to(output_root) and resolved.is_dir():
+                print(f"Removing stale Bazel test reports: {resolved}")
+                shutil.rmtree(resolved)
+
+    for stale_path in (
+        project_root / "bazel-testlogs",
+        project_root / ".pytest_cache" / "remote_stream_logs",
+    ):
+        if stale_path.is_symlink() or stale_path.is_file():
+            stale_path.unlink()
+        elif stale_path.is_dir():
+            print(f"Removing stale pytest reports: {stale_path}")
+            shutil.rmtree(stale_path)
+
+
 def is_remote_enabled() -> bool:
     """Check if remote build/test is enabled via RTP_REMOTE env var."""
     return os.environ.get("RTP_REMOTE", "").lower() in ("1", "true", "yes")
@@ -861,6 +894,8 @@ def build_bazel_extensions(build_config: str) -> None:
     # This keeps accelerator builds from sharing cache state.
     # Note: --output_user_root must be before the 'build' command
     cmd, build_args = _get_bazel_cmd_prefix(build_config)
+    if os.environ.get("AONE_CI_SOURCE"):
+        _clean_stale_test_artifacts(project_root, cmd)
     build_args = _with_default_remote_download(build_args, "toplevel")
     staged_outputs = _selected_bazel_staged_outputs(build_config, build_args)
     targets = _bazel_targets_for_staged_outputs(staged_outputs)
