@@ -35,7 +35,8 @@ void embedding(at::Tensor&               output,
     };
 
     // Validate optional int tensors when they are actually provided.
-    auto validate_optional_int_tensor = [&](const std::optional<at::Tensor>& t, const char* name) {
+    auto validate_optional_int_tensor =
+        [&](const std::optional<at::Tensor>& t, const char* name, bool allow_token_multiple = false) {
         if (!t.has_value() || !t.value().defined() || t.value().numel() == 0) {
             return;
         }
@@ -44,9 +45,19 @@ void embedding(at::Tensor&               output,
         CHECK_EQ(tensor.device(), device);
         CHECK_EQ(tensor.dtype(), at::kInt);
         CHECK_DIM(1, tensor);
-        CHECK_EQ(tensor.size(0), tokens);
+        if (allow_token_multiple) {
+            TORCH_CHECK(tokens > 0 && tensor.size(0) % tokens == 0,
+                        name,
+                        " size must be a positive multiple of the token count for MRoPE; got ",
+                        tensor.size(0),
+                        " values for ",
+                        tokens,
+                        " tokens");
+        } else {
+            CHECK_EQ(tensor.size(0), tokens);
+        }
     };
-    validate_optional_int_tensor(position_ids, "position_ids");
+    validate_optional_int_tensor(position_ids, "position_ids", true);
     validate_optional_int_tensor(token_type_ids, "token_type_ids");
     validate_optional_int_tensor(text_tokens_mask, "text_tokens_mask");
 

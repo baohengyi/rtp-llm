@@ -64,6 +64,24 @@ class EmbedingTest(TestCase):
             ):
                 self._run_embeding_test(*params)
 
+    def test_mrope_position_ids(self):
+        num_tokens = 8
+        hidden_size = 16
+        vocab_size = 32
+        weight = torch.randn(vocab_size, hidden_size, dtype=torch.bfloat16)
+        input_ids = torch.randint(0, vocab_size, (num_tokens,), dtype=torch.int32)
+        position_ids = torch.arange(
+            num_tokens * 3, dtype=torch.int32, device=input_ids.device
+        )
+
+        model_config = ModelConfig()
+        parallelism_config = ParallelismConfig()
+        embedding = Embedding(model_config, parallelism_config, weight)
+
+        self.assertTrue(
+            torch.equal(embedding(input_ids, position_ids), EmbeddingTorch(weight)(input_ids))
+        )
+
 
 if __name__ == "__main__":
     main()
