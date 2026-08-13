@@ -325,6 +325,7 @@ class PyFlashinferPrefillAttnOp(object):
     def __init__(
         self,
         attn_configs: AttentionConfigs,
+        attn_inputs: Optional[PyAttentionInputs] = None,
         backend: str = "auto",
     ) -> None:
         self.g_workspace_buffer = get_py_flashinfer_workspace_buffer()
@@ -335,11 +336,26 @@ class PyFlashinferPrefillAttnOp(object):
         self.page_size = attn_configs.kernel_tokens_per_block
         # TODO: maybe use v_head_dim
         self.head_dim_vo = attn_configs.size_per_head
+        self.datatype = attn_configs.dtype
+        self.is_causal = attn_configs.is_causal
+        self.enable_cuda_graph = bool(
+            attn_inputs is not None and attn_inputs.is_cuda_graph
+        )
+        if self.enable_cuda_graph:
+            assert attn_inputs is not None
+            batch_size = attn_inputs.input_lengths.size(0)
+            qo_indptr = attn_inputs.cu_seqlens_device[: batch_size + 1].clone()
+            kv_indptr = qo_indptr.clone()
+        else:
+            qo_indptr = None
+            kv_indptr = None
         self.prefill_wrapper = BatchPrefillWithRaggedKVCacheWrapper(
             self.g_workspace_buffer,
+            use_cuda_graph=self.enable_cuda_graph,
+            qo_indptr_buf=qo_indptr,
+            kv_indptr_buf=kv_indptr,
             backend=backend,
         )
-        self.datatype = attn_configs.dtype
         self.fmha_params = rtp_llm_ops.FlashInferMlaAttnParams()
 
     def __del__(self):
@@ -349,7 +365,11 @@ class PyFlashinferPrefillAttnOp(object):
         """Set the params object to be used by this op."""
         self.fmha_params = params
 
-    def prepare(self, attn_inputs: PyAttentionInputs) -> ParamsBase:
+    def prepare(
+        self,
+        attn_inputs: PyAttentionInputs,
+        forbid_realloc: bool = False,
+    ) -> ParamsBase:
         """
         Prepare the prefill wrapper
 
@@ -359,12 +379,17 @@ class PyFlashinferPrefillAttnOp(object):
         batch_size = attn_inputs.input_lengths.size(0)
         cu_seqlens = attn_inputs.cu_seqlens_device[: batch_size + 1]
 
+        kv_block_id_host = attn_inputs.kv_cache_kernel_block_id
+        if kv_block_id_host is None:
+            kv_block_id_host = torch.empty(0, dtype=torch.int32)
+
         self.fmha_params.fill_params(
             attn_inputs.prefix_lengths,
             attn_inputs.sequence_lengths,
             attn_inputs.input_lengths,
-            attn_inputs.kv_cache_kernel_block_id,
+            kv_block_id_host,
             self.page_size,
+            forbid_realloc,
         )
 
         self.prefill_wrapper.plan(
@@ -374,7 +399,7 @@ class PyFlashinferPrefillAttnOp(object):
             self.local_kv_head_num,
             self.head_dim_qk,
             self.head_dim_vo,
-            causal=True,
+            causal=self.is_causal,
             q_data_type=get_scalar_type(attn_inputs.dtype),
         )
         return self.fmha_params
@@ -515,8 +540,9 @@ class PyFlashinferPrefillImplBase(FMHAImplBase):
                 # No RoPE, just split QKV
                 query, key, value = self._split_qkv(qkv)
 
-            # Write KV to cache
-            self.kv_cache_write_op.forward(key, value, kv_cache)
+            # Embedding models still need RoPE but do not own a KV cache.
+            if kv_cache is not None:
+                self.kv_cache_write_op.forward(key, value, kv_cache)
 
             # Pass query to FMHA (for paged) or reconstruct qkv (for ragged)
             qkv = self._prepare_fmha_input(query, key, value)
@@ -570,7 +596,9 @@ class PyFlashinferPagedPrefillImpl(PyFlashinferPrefillImplBase):
         3. MhaRotaryEmbeddingOp supports the inputs
         """
         return (
-            not is_sm_100()
+            attn_inputs.kv_cache_kernel_block_id is not None
+            and attn_inputs.kv_cache_kernel_block_id.numel() > 0
+            and not is_sm_100()
             and PyFlashinferPrefillPagedAttnOp.support(attn_inputs)
             and attn_configs.rope_config.style != RopeStyle.Mrope
         )
@@ -588,7 +616,7 @@ class PyFlashinferPrefillImpl(PyFlashinferPrefillImplBase):
         self, attn_configs: AttentionConfigs, attn_inputs: PyAttentionInputs
     ) -> Any:
         """Create ragged FMHA implementation."""
-        return PyFlashinferPrefillAttnOp(attn_configs)
+        return PyFlashinferPrefillAttnOp(attn_configs, attn_inputs)
 
     def _create_rope_impl(self, attn_configs: AttentionConfigs) -> Any:
         """Create RoPE implementation for ragged layout."""
@@ -621,6 +649,9 @@ class PyFlashinferPrefillImpl(PyFlashinferPrefillImplBase):
         )  # [total_tokens, (num_heads + 2*num_kv_heads) * head_dim]
 
         return qkv
+
+    def support_cuda_graph(self) -> bool:
+        return True
 
     @staticmethod
     def support(attn_configs: AttentionConfigs, attn_inputs: PyAttentionInputs) -> bool:

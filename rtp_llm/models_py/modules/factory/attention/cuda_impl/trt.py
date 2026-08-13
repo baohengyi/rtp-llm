@@ -127,8 +127,12 @@ class TRTLLMFMHAv2PagedPrefillOp:
         cls, attn_configs: AttentionConfigs, attn_inputs: PyAttentionInputs
     ) -> bool:
         page_size = attn_configs.kernel_tokens_per_block
-        return _supports_trtllm_fmha_v2(attn_configs) and (
-            page_size > 0 and page_size.bit_count() == 1
+        return (
+            attn_inputs.kv_cache_kernel_block_id is not None
+            and attn_inputs.kv_cache_kernel_block_id.numel() > 0
+            and _supports_trtllm_fmha_v2(attn_configs)
+            and page_size > 0
+            and page_size.bit_count() == 1
         )
 
     def prepare(self, attn_inputs: PyAttentionInputs) -> TRTLLMFMHAv2Params:
