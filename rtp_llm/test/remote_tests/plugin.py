@@ -96,6 +96,8 @@ def _heartbeat_plugin_shell() -> str:
             "cat > /tmp/rtp_remote_heartbeat_plugin.py << '_RTP_HEARTBEAT_PLUGIN_PY_'",
             "import os, time",
             "",
+            "_skipped = []",
+            "",
             "def _touch(label):",
             "    path = os.environ.get('RTP_REMOTE_HEARTBEAT_FILE')",
             "    if not path:",
@@ -114,9 +116,14 @@ def _heartbeat_plugin_shell() -> str:
             "",
             "def pytest_runtest_logreport(report):",
             "    _touch(f'test_report {report.nodeid} {report.when} {report.outcome}')",
+            "    if report.skipped:",
+            "        _skipped.append(report.nodeid)",
             "",
             "def pytest_sessionfinish(session, exitstatus):",
             "    _touch(f'sessionfinish {exitstatus}')",
+            "    if os.environ.get('RTP_REMOTE_FORBID_SKIPS') == '1' and _skipped:",
+            "        print('Selected CI case skipped: ' + ', '.join(sorted(set(_skipped))))",
+            "        session.exitstatus = 1",
             "_RTP_HEARTBEAT_PLUGIN_PY_",
             "",
         ]
@@ -592,6 +599,7 @@ class RemoteREAPIPlugin:
         # Test result cache
         self._test_cache_enabled = config.getoption("remote_test_cache")
         self._test_cache_ttl = config.getoption("--remote-test-cache-ttl")
+        self.no_cache = config.getoption("--remote-no-cache")
         self._test_cache = None  # lazy init after CAS client is ready
         self._cache_manifest = None
         self._cache_input_root = None
@@ -610,7 +618,6 @@ class RemoteREAPIPlugin:
             self.gpu_type_override = config.getoption("--remote-gpu-type")
             self.workers = config.getoption("--remote-workers")
             self.pytest_args = config.getoption("--remote-pytest-args")
-            self.no_cache = config.getoption("--remote-no-cache")
             self._result = None
             self._gpu_request: Optional[GPURequest] = None
 
@@ -711,7 +718,6 @@ class RemoteREAPIPlugin:
     def _build_command(self, item, runtime: RemoteRuntimeConfig) -> List[str]:
         from .remote_exec_rtp import _safe_rel_to_rootdir
 
-        test_id = item.name
         gpu_req = resolve_item_gpu_request(item)
         gpu_count = str(gpu_req.gpu_count)
         gpu_env_exports = (
@@ -722,6 +728,10 @@ class RemoteREAPIPlugin:
         # Use _safe_rel_to_rootdir so sibling internal_source suite files map
         # through the uploaded internal_source/ symlink on the worker.
         test_path = _safe_rel_to_rootdir(Path(str(item.fspath)).resolve(), self.rootdir)
+        _, separator, nodeid_suffix = item.nodeid.partition("::")
+        worker_nodeid = (
+            f"{test_path}::{nodeid_suffix}" if separator else test_path
+        )
         ignore_args = quote_args(runtime.ignore_args)
         # Forward markexpr so conftest.py doesn't deselect manual tests
         markexpr = getattr(self.config.option, "markexpr", "") or ""
@@ -735,10 +745,16 @@ class RemoteREAPIPlugin:
             outputs_prefix = make_mkdir_prefix()
             outputs_postscript = make_tar_postscript() + "; "
 
+        skip_guard = (
+            "export RTP_REMOTE_FORBID_SKIPS=1; "
+            if getattr(self.config, "_rtp_ci_forbid_skips", False)
+            else ""
+        )
         run_cmd = (
             f"{_heartbeat_plugin_shell()}"
             f"{outputs_prefix}"
             f"{gpu_env_exports}"
+            f"{skip_guard}"
             "echo \">>>RTP_REMOTE_HOST_IP $(hostname -I 2>/dev/null | awk '{print $1}')\"; "
             f"{_heartbeat_shell('per_test_pytest_start')}; "
             'echo ">>>PHASE:pytest_start $(date +%s)"; '
@@ -748,7 +764,7 @@ class RemoteREAPIPlugin:
             f"--timeout={self.timeout_policy.pytest_timeout_seconds} "
             f"--override-ini='addopts=' {ignore_args} "
             f"{mark_arg}"
-            f"-k {shlex.quote(test_id)} {shlex.quote(test_path)} 2>&1; ec=$?; "
+            f"{shlex.quote(worker_nodeid)} 2>&1; ec=$?; "
             "echo EXIT_CODE=$ec; "
             f"{_heartbeat_shell('per_test_pytest_end')}; "
             'echo ">>>PHASE:pytest_end $(date +%s)"; '
@@ -944,6 +960,7 @@ class RemoteREAPIPlugin:
                 + self.timeout_policy.session_budget_seconds,
                 min_retry_remaining_seconds=self.timeout_policy.min_retry_remaining_seconds,
                 output_files=output_files,
+                no_cache=self.no_cache,
                 on_stage=_on_stage,
                 stream_stdout_file=stdout_log,
                 stream_stderr_file=stderr_log,

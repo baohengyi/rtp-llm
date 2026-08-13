@@ -21,6 +21,18 @@ SMOKE_CASES = {
         "markers": ["smoke", "cuda", "H20"],
         "timeout": 600,
     },
+    "moe_pure_dp_fp8_dp2": {
+        "task_info": "data/model/qwen3_moe/q_r_30b_py_pure_dp_tp1_dp2.json",
+        "smoke_args": "--moe_strategy fp8_per_block_pure_dp "
+        "--quantization FP8_PER_BLOCK --warm_up 0 --act_type BF16 --tp_size 1 "
+        "--dp_size 2 --ep_size 2 --world_size 2 --use_deepep_moe 0 "
+        "--use_all_gather 1 --reserver_runtime_mem_mb 16005 "
+        "--seq_size_per_block 64 --concurrency_limit 64",
+        "gpu_type": "H20",
+        "platform": "cuda",
+        "markers": ["smoke", "cuda", "H20"],
+        "timeout": 600,
+    },
     "moe_w4a8_int4": {
         "task_info": "data/model/qwen3_moe/q_r_30b_py_w4a8_int4_ptpc.json",
         "smoke_args": "--quantization W4A8_INT4_PER_CHANNEL --warm_up 0 --act_type BF16 "

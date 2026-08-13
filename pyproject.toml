@@ -255,6 +255,7 @@ markers = [
     "H20: (deprecated) use gpu(type='H20')",
     "SM100: (deprecated) use gpu(type='SM100')",
     "SM100_ARM: (deprecated) use gpu(type='SM100_ARM')",
+    "RTX_5000_PRO: RTX 5000 Pro / SM120 smoke tests",
     "MI308X: (deprecated) use gpu(type='MI308X')",
     "MI308X_ROCM7: (deprecated) use gpu(type='MI308X_ROCM7')",
 
@@ -337,37 +338,65 @@ paths = ["rtp_llm/frontend/test", "rtp_llm/test/frontend_test"]
 markexpr = "not manual and not rocm and not cpu"
 
 # -------- OSS smoke profiles (drive suite files in rtp_llm/test/smoke/suites/) --------
-[tool.rtp_llm.pytest_ci.profiles.smoke_h20_oss]
-description = "OSS smoke H20 (smoke-h20-oss)"
+[tool.rtp_llm.pytest_ci.profiles.smoke_h20_light_oss]
+description = "OSS smoke H20 light gate"
 paths = ["rtp_llm/test/smoke/suites/"]
-markexpr = "manual and smoke and H20"
+markexpr = "manual and smoke and H20 and light"
+expected_count = 14
+forbid_skips = true
 
-[tool.rtp_llm.pytest_ci.profiles.smoke_sm8x_oss]
-description = "OSS smoke SM8x (smoke-sm8x-oss)"
+[tool.rtp_llm.pytest_ci.profiles.smoke_h20_full_oss]
+description = "OSS smoke H20 full gate (excludes light cases)"
 paths = ["rtp_llm/test/smoke/suites/"]
-# NOTE: rocm marker is `MI308X_ROCM7` (suffixed), not `MI308X` — pytest marker
-# matching is exact-token. Run 39158147 leaked all rocm cases into
-# smoke-light-sm8x and they crashed with `libcudart.so.12 cannot open` when
-# dispatched to MI308X workers carrying cuda12_9-built .so files.
-markexpr = "manual and smoke and not H20 and not MI308X_ROCM7 and not SM100 and not SM100_ARM"
+markexpr = "manual and smoke and H20 and not light"
+expected_count = 50
+forbid_skips = true
+
+[tool.rtp_llm.pytest_ci.profiles.smoke_sm8x_light_oss]
+description = "OSS smoke L20 light gate"
+paths = ["rtp_llm/test/smoke/suites/"]
+markexpr = "manual and smoke and L20 and light"
+expected_count = 9
+forbid_skips = true
+
+[tool.rtp_llm.pytest_ci.profiles.smoke_sm8x_full_oss]
+description = "OSS smoke L20 full gate (remote-cache suite)"
+paths = ["rtp_llm/test/smoke/suites/"]
+markexpr = "manual and smoke and L20 and remote_cache"
+expected_count = 9
+forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_sm100_oss]
 description = "OSS smoke SM100 ARM (smoke-sm100-oss)"
 paths = ["rtp_llm/test/smoke/suites/"]
 gpu_type = "SM100_ARM"
 markexpr = "manual and smoke and SM100_ARM and not eval"
+expected_count = 12
+forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_sm100_eval_oss]
 description = "OSS smoke SM100 ARM eval bench (smoke-sm100-eval-oss)"
 paths = ["rtp_llm/test/smoke/suites/"]
 gpu_type = "SM100_ARM"
 markexpr = "manual and smoke and SM100_ARM and eval"
+expected_count = 1
+forbid_skips = true
+
+[tool.rtp_llm.pytest_ci.profiles.smoke_sm120_oss]
+description = "OSS smoke RTX 5000 Pro / SM120"
+paths = ["rtp_llm/test/smoke/suites/"]
+gpu_type = "RTX_5000_PRO"
+markexpr = "manual and smoke and RTX_5000_PRO"
+expected_count = 6
+forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_rocm_oss]
 description = "OSS smoke ROCm (smoke-rocm-oss)"
 paths = ["rtp_llm/test/smoke/suites/"]
 # Must match smoke_defs_oss.py gpu markers (MI308X_ROCM7), not the hyphenated gpu_type string.
 markexpr = "manual and smoke and MI308X_ROCM7"
+expected_count = 21
+forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_remote_cache_oss]
 description = "OSS smoke remote cache (smoke-remote-cache-oss)"
@@ -379,16 +408,8 @@ markexpr = "manual and smoke and remote_cache"
 description = "Internal smoke H20 (smoke-h20-internal)"
 paths = ["../internal_source/rtp_llm/test/smoke/suites/"]
 markexpr = "manual and smoke and H20"
-
-[tool.rtp_llm.pytest_ci.profiles.smoke_sm8x_internal]
-description = "Internal smoke SM8x (smoke-sm8x-internal)"
-paths = ["../internal_source/rtp_llm/test/smoke/suites/"]
-markexpr = "manual and smoke and not H20 and not MI308X and not MI308X_ROCM7 and not SM100 and not SM100_ARM"
-
-[tool.rtp_llm.pytest_ci.profiles.smoke_ppu_internal]
-description = "Internal smoke PPU (smoke-ppu-internal)"
-paths = ["../internal_source/rtp_llm/test/smoke/suites/"]
-markexpr = "manual and smoke and PPU_ZW810E"
+expected_count = 1
+forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_amd_internal]
 description = "Internal smoke AMD MI308X (smoke-amd-internal)"
@@ -398,6 +419,8 @@ paths = ["../internal_source/rtp_llm/test/smoke/suites/"]
 # `gpu=MI308X-ROCM7` (hyphen) — see internal_source/.cicd_bazelrc:31. The two
 # forms must NOT be confused: underscore here for pytest, hyphen for gpu_type/REAPI.
 markexpr = "manual and smoke and MI308X_ROCM7"
+expected_count = 2
+forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.perf_sm9x]
 description = "Performance tests on H20 / SM9x (perf-test)"

@@ -110,7 +110,9 @@ SMOKE_CASES = {
 SUITE_NAME = "smoke_h20_eagle"
 
 _test_params = build_smoke_params(
-    pytest, {SUITE_NAME: SMOKE_CASES}, composite_suites={}
+    pytest,
+    {SUITE_NAME: SMOKE_CASES},
+    composite_suites={"maga_model_smoke_light": [SUITE_NAME]},
 )
 
 

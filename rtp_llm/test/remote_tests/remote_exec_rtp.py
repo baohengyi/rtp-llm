@@ -577,6 +577,7 @@ def _collect_smoke_files(rootdir: Path) -> List[str]:
         "rtp_llm/test/smoke/data/**/*.model",
         "rtp_llm/test/smoke/data/**/*.safetensors",
         "rtp_llm/test/smoke/data/**/*.jpg",
+        "rtp_llm/test/smoke/data/**/*.jpeg",
         "rtp_llm/test/smoke/data/**/*.mp4",
         "internal_source/rtp_llm/test/smoke/data/**/*.json",
         "internal_source/rtp_llm/test/smoke/data/**/*.pt",
@@ -584,6 +585,7 @@ def _collect_smoke_files(rootdir: Path) -> List[str]:
         "internal_source/rtp_llm/test/smoke/data/**/*.model",
         "internal_source/rtp_llm/test/smoke/data/**/*.safetensors",
         "internal_source/rtp_llm/test/smoke/data/**/*.jpg",
+        "internal_source/rtp_llm/test/smoke/data/**/*.jpeg",
         "internal_source/rtp_llm/test/smoke/data/**/*.mp4",
     ):
         files.extend(

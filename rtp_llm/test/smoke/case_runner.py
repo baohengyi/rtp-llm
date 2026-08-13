@@ -283,7 +283,7 @@ class CaseRunner(object):
 
     def _start_remote_kvcm_server(self) -> Optional[RemoteKVCMServer]:
         if "TEST_SRCDIR" in os.environ:
-            # bazel test path — main-internal still runs this branch.
+            # Legacy Bazel-test compatibility path; Smoke CI now uses pytest.
             # Runfiles tree has the http_archive contents under
             # external/remote_kv_cache_manager_server/.
             srcdir = os.environ["TEST_SRCDIR"]

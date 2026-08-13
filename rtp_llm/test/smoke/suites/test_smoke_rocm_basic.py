@@ -28,6 +28,16 @@ SMOKE_CASES = {
         "markers": ["smoke", "rocm", "MI308X_ROCM7"],
         "timeout": 600,
     },
+    "rocm_basic_beam_search_tp2": {
+        "task_info": "data/model/qwen25/bs_q_r_mi308x.json",
+        "smoke_args": "--tp_size 2 --warm_up 0 --seq_size_per_block 16 "
+        "--use_asm_pa 0 --use_aiter_pa 1 --disable_flash_infer 1 "
+        "--act_type BF16",
+        "gpu_type": "MI308X-ROCM7",
+        "platform": "rocm",
+        "markers": ["smoke", "rocm", "MI308X_ROCM7"],
+        "timeout": 600,
+    },
 }
 
 SUITE_NAME = "smoke_rocm_basic"

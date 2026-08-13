@@ -15,6 +15,7 @@ unless PYTEST_ARGS is already set in the environment.
 from __future__ import annotations
 
 import shlex
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -25,6 +26,11 @@ from rtp_llm.test.ci_profile_support import (
     load_pytest_ci_config,
     resolve_profile_paths,
 )
+
+
+_active_profile_name: str | None = None
+_forbid_skips = False
+_skipped_reports: list[str] = []
 
 
 def _get_profile(root: Path, name: str) -> Dict[str, Any]:
@@ -94,13 +100,27 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "in pyproject.toml"
         ),
     )
+    group.addoption(
+        "--rtp-ci-allow-subset",
+        action="store_true",
+        default=False,
+        help="Allow -k/path filtering to collect fewer tests than profile expected_count.",
+    )
 
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config: pytest.Config) -> None:
+    global _active_profile_name, _forbid_skips, _skipped_reports
+
     name = config.getoption("--rtp-ci-profile")
+    _active_profile_name = None
+    _forbid_skips = False
+    _skipped_reports = []
+    config._rtp_ci_forbid_skips = False  # type: ignore[attr-defined]
     if not name:
         return
+
+    _active_profile_name = name
 
     root = Path(config.rootpath)
     pytest_ci = _get_pytest_ci_section(root)
@@ -111,6 +131,15 @@ def pytest_configure(config: pytest.Config) -> None:
         _apply_default_cli(config, default_cli)
 
     prof = _get_profile(root, name)
+    expected_count = prof.get("expected_count")
+    if expected_count is not None:
+        if not isinstance(expected_count, int) or expected_count < 1:
+            raise pytest.UsageError(
+                f"--rtp-ci-profile: profile {name!r} expected_count must be a positive integer"
+            )
+        config._rtp_ci_expected_count = expected_count  # type: ignore[attr-defined]
+    _forbid_skips = bool(prof.get("forbid_skips", False))
+    config._rtp_ci_forbid_skips = _forbid_skips  # type: ignore[attr-defined]
     markexpr = prof["markexpr"]
     if not isinstance(markexpr, str) or not markexpr.strip():
         raise pytest.UsageError(
@@ -141,3 +170,37 @@ def pytest_configure(config: pytest.Config) -> None:
             )
         # Restrict collection roots (e.g. smoke file or frontend dirs only)
         config.args[:] = resolve_profile_paths(root, paths)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """Fail before execution when a full CI profile silently loses cases."""
+    expected = getattr(session.config, "_rtp_ci_expected_count", None)
+    if expected is None or session.config.getoption("--rtp-ci-allow-subset"):
+        return
+    actual = len(session.items)
+    if actual != expected:
+        raise pytest.UsageError(
+            f"CI profile {_active_profile_name!r} collected {actual} tests; "
+            f"expected {expected}. Update the manifest/profile together, or use "
+            "--rtp-ci-allow-subset for an intentional manual subset."
+        )
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    if _forbid_skips and report.skipped:
+        _skipped_reports.append(report.nodeid)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """A selected Smoke case must execute; a skip is not coverage."""
+    if not _forbid_skips or not _skipped_reports:
+        return
+    unique = sorted(set(_skipped_reports))
+    print(
+        f"CI profile {_active_profile_name!r} skipped {len(unique)} selected test(s):\n"
+        + "\n".join(f"  {nodeid}" for nodeid in unique),
+        file=sys.stderr,
+    )
+    session.exitstatus = pytest.ExitCode.TESTS_FAILED

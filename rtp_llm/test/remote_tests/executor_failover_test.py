@@ -163,6 +163,22 @@ def test_collect_remote_files_checks_smoke_lfs_pointers(tmp_path):
         raise AssertionError("expected collect_remote_files to reject LFS pointers")
 
 
+def test_collect_remote_files_includes_smoke_jpeg(tmp_path):
+    rootdir = tmp_path / "repo"
+    suite = rootdir / "rtp_llm" / "test" / "smoke" / "suites" / "test_smoke.py"
+    image = rootdir / "rtp_llm" / "test" / "smoke" / "data" / "model" / "1.jpeg"
+    suite.parent.mkdir(parents=True)
+    image.parent.mkdir(parents=True)
+    suite.write_text("def test_placeholder(): pass\n")
+    image.write_bytes(b"jpeg fixture")
+
+    files = remote_exec_rtp.collect_remote_files(
+        rootdir.resolve(), [_FakeCollectedItem(suite.resolve(), smoke=True)]
+    )
+
+    assert "rtp_llm/test/smoke/data/model/1.jpeg" in files
+
+
 def test_collect_remote_files_includes_perf_data(tmp_path):
     repo = tmp_path / "repo"
     rootdir = repo / "github-opensource"
@@ -280,7 +296,9 @@ def test_per_test_command_exports_marker_gpu_count(tmp_path):
     test_file.write_text("def test_case(): pass\n")
     plugin = object.__new__(remote_plugin.RemoteREAPIPlugin)
     plugin.rootdir = rootdir
-    plugin.config = SimpleNamespace(option=SimpleNamespace(markexpr=""))
+    plugin.config = SimpleNamespace(
+        option=SimpleNamespace(markexpr=""), _rtp_ci_forbid_skips=True
+    )
     plugin._collect_outputs = False
     plugin.timeout_policy = select_remote_timeout_policy(
         "smoke_h20_internal", per_test=True
@@ -300,6 +318,9 @@ def test_per_test_command_exports_marker_gpu_count(tmp_path):
     assert "export GPU_COUNT=1;" in shell
     assert "export WORLD_SIZE=1;" in shell
     assert "export GPU_COUNT_PER_WORKER=1;" in shell
+    assert "export RTP_REMOTE_FORBID_SKIPS=1;" in shell
+    assert "test_remote.py::test_case" in shell
+    assert "-k test_case" not in shell
     assert shell.index("export GPU_COUNT=1;") < shell.index(
         "python rtp_llm/test/utils/device_resource.py"
     )

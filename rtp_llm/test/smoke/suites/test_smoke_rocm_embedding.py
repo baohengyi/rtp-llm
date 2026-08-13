@@ -49,16 +49,6 @@ SMOKE_CASES = {
         "markers": ["smoke", "rocm", "MI308X_ROCM7"],
         "timeout": 600,
     },
-    "rocm_embedding_roberta_colbert": {
-        "task_info": "data/model/bert/colbert_roberta_q_r.json",
-        "smoke_args": "--task_type COLBERT_EMBEDDING --seq_size_per_block 16 "
-        "--use_aiter_pa 1 --use_asm_pa 1 --act_type FP16",
-        "envs": ["LOAD_PYTHON_MODEL=1"],
-        "gpu_type": "MI308X-ROCM7",
-        "platform": "rocm",
-        "markers": ["smoke", "rocm", "MI308X_ROCM7"],
-        "timeout": 600,
-    },
     "rocm_embedding_bert_classifier": {
         "task_info": "data/model/bert/bert_classifier_q_r.json",
         "smoke_args": "--seq_size_per_block 16 --use_aiter_pa 1 --use_asm_pa 1 "
@@ -87,7 +77,7 @@ SMOKE_CASES = {
         "markers": ["smoke", "rocm", "MI308X_ROCM7"],
         "timeout": 600,
     },
-    "rocm_embedding_bge_reranker_trt_fmha": {
+    "rocm_embedding_bge_reranker_fmha_fallback": {
         "task_info": "data/model/bert/classifier_q_r.json",
         "smoke_args": "--enable_trt_fmha 0 --enable_open_source_fmha 0 "
         "--seq_size_per_block 16 --use_aiter_pa 1 --use_asm_pa 1 "

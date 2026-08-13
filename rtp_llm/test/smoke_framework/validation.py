@@ -43,6 +43,7 @@ _KNOWN_MARKERS = {
     # Platform families
     "cuda",
     "rocm",
+    "ppu",
     # GPU SKU markers (drive REAPI platform.properties via pytest.mark.gpu(type=...))
     "H20",
     "H100",
