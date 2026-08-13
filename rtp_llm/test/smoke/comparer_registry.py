@@ -5,9 +5,8 @@ internal-only mainse comparer imports inside an OSS file. With a registry:
 
 - OSS modules register their endpoint/q_r-driven comparers at import time
   (see case_runner.py module-level register_* calls).
-- internal_source/rtp_llm/test/smoke/conftest.py registers mainse comparers — only
-  loaded when internal_source is on the path (e.g., monorepo runs of
-  test_smoke_internal.py).
+- Internal MainSE comparers are auto-registered when their overlay package is
+  available.
 - OSS-only checkouts that try to run a mainse case get a clear error
   ("comparer not registered: q_r mainse_module=True") instead of a
   ModuleNotFoundError on smoke.mainse.
@@ -15,6 +14,9 @@ internal-only mainse comparer imports inside an OSS file. With a registry:
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
+import sys
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
 Predicate = Callable[[Dict[str, Any], str], bool]
@@ -82,33 +84,73 @@ def _reset_for_tests() -> None:
     _FALLBACK = None
 
 
+def _is_mainse(q_r: Dict[str, Any]) -> bool:
+    return bool(q_r.get("mainse_module", False) or q_r.get("mainse", False))
+
+
+def _register_mainse_comparer_classes(
+    decode_arpc_cls: Type, embedding_arpc_cls: Type, mainse_cls: Type
+) -> None:
+    """Register MainSE modes from most specific to the generic HTTP mode."""
+    register_comparer(
+        lambda q_r, ep: _is_mainse(q_r) and q_r.get("use_decode_arpc", False),
+        decode_arpc_cls,
+    )
+    register_comparer(
+        lambda q_r, ep: _is_mainse(q_r) and q_r.get("use_emb_arpc", False),
+        embedding_arpc_cls,
+    )
+    register_comparer(lambda q_r, ep: _is_mainse(q_r), mainse_cls)
+
+
+def _install_legacy_smoke_import_aliases() -> None:
+    """Map internal comparers' legacy ``smoke.*`` imports to this package.
+
+    The internal MainSE modules predate the ``rtp_llm.test.smoke`` package
+    migration. Aliasing their two direct dependencies avoids loading duplicate
+    module objects with separate registry and data-root state.
+    """
+    smoke_package = importlib.import_module("rtp_llm.test.smoke")
+    sys.modules.setdefault("smoke", smoke_package)
+    for module_name in ("base_comparer", "common_def"):
+        canonical_name = f"rtp_llm.test.smoke.{module_name}"
+        module = importlib.import_module(canonical_name)
+        sys.modules.setdefault(f"smoke.{module_name}", module)
+
+
 def _try_register_mainse_comparers() -> None:
     """Auto-register internal mainse comparers when the internal package exists.
 
     Registered before any OSS fallback so mainse-flagged cases pick the
     internal comparer first.
     """
+    module_name = "rtp_llm.test.smoke.mainse.mainse_comparer"
     try:
-        from rtp_llm.test.smoke.mainse.mainse_decode_arpc_comparer import MainseDecodeArpcComparer
-        from rtp_llm.test.smoke.mainse.mainse_embedding_arpc_comparer import MainseEmbeddingArpcComparer
+        module_spec = importlib.util.find_spec(module_name)
+    except ModuleNotFoundError:
+        module_spec = None
+    if module_spec is None:
+        # OSS-only checkouts legitimately lack internal MainSE comparers.
+        return
 
-        # Narrow predicates by the per-mode sub-flag: the previous
-        # "mainse_module or mainse" predicate on the decode comparer matched every
-        # mainse case (first-match-wins), so embedding cases were misrouted to the
-        # decode comparer and MainseEmbeddingArpcComparer was never reached.
-        register_comparer(
-            lambda q_r, ep: q_r.get("mainse_module", False)
-            and q_r.get("use_decode_arpc", False),
-            MainseDecodeArpcComparer,
-        )
-        register_comparer(
-            lambda q_r, ep: q_r.get("mainse_module", False)
-            and q_r.get("use_emb_arpc", False),
-            MainseEmbeddingArpcComparer,
-        )
-    except (ImportError, ModuleNotFoundError):
-        # OSS-only checkouts legitimately lack internal mainse comparers.
-        pass
+    _install_legacy_smoke_import_aliases()
+
+    # Once the internal package is present, imports must fail loudly. Silently
+    # swallowing an ImportError here only defers it into a misleading
+    # "comparer not registered" error after the model server has started.
+    from rtp_llm.test.smoke.mainse.mainse_comparer import MainseComparer
+    from rtp_llm.test.smoke.mainse.mainse_decode_arpc_comparer import (
+        MainseDecodeArpcComparer,
+    )
+    from rtp_llm.test.smoke.mainse.mainse_embedding_arpc_comparer import (
+        MainseEmbeddingArpcComparer,
+    )
+
+    _register_mainse_comparer_classes(
+        MainseDecodeArpcComparer,
+        MainseEmbeddingArpcComparer,
+        MainseComparer,
+    )
 
 
 _try_register_mainse_comparers()
