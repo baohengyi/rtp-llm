@@ -31,8 +31,17 @@ def test_decode_fused_rope_call_matches_rtp_kernel_signature():
         and node.func.id == "decode_fused_rope_kvcache"
     )
 
-    assert len(call.args) == 8
-    assert ast.unparse(call.args[2]) == "params.sequence_lengths.size(0)"
+    assert [ast.unparse(arg) for arg in call.args] == [
+        "qkv",
+        "params.position_ids",
+        "params.sequence_lengths",
+        "params.sequence_lengths.size(0)",
+        "self.attn_configs.head_num",
+        "self.attn_configs.kv_head_num",
+        "self.attn_configs.size_per_head",
+        "kv_cache.kv_cache_base",
+        "params.kv_cache_offset",
+    ]
     assert any(keyword.arg == "tokens_per_block" for keyword in call.keywords)
 
 
