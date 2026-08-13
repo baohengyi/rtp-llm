@@ -30,6 +30,12 @@ from rtp_llm.ops.compute_ops import (
     rtp_llm_ops,
 )
 
+__all__ = [
+    "PyFlashinferPagedPrefillImpl",
+    "PyFlashinferPrefillImpl",
+    "PyFlashinferDecodeImpl",
+]
+
 # Constants
 DEFAULT_PY_FLASHINFER_WORKSPACE_SIZE_MB = 128
 

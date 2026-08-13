@@ -121,3 +121,19 @@ def test_missing_py_flashinfer_decode_does_not_break_attention_registration():
     assert "PyFlashinferDecodeImpl = None" in source
     assert "if PyFlashinferDecodeImpl is not None:" in source
     assert "DECODE_MHA_IMPS.append(PyFlashinferDecodeImpl)" in source
+
+
+def test_py_flashinfer_module_exports_all_registered_implementations():
+    tree = ast.parse((ATTENTION_DIR / "cuda_impl/py_flashinfer_mha.py").read_text())
+    export = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "__all__" for target in node.targets)
+    )
+
+    assert ast.literal_eval(export.value) == [
+        "PyFlashinferPagedPrefillImpl",
+        "PyFlashinferPrefillImpl",
+        "PyFlashinferDecodeImpl",
+    ]
