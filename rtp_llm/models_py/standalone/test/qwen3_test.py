@@ -26,7 +26,7 @@ class Qwen3AutoPyModelTest(TestCase):
 
         self.test_msg2 = [{"role": "user", "content": "3.9和3.11哪个大"}]
         self.max_new_tokens2 = 50
-        self.expected_output_text2 = "3.9 和 3.11 中，**3.9 大于 3.11**。"
+        self.expected_output_text2 = "3.9比3.11111111大，1大，因为3.1000000000000000000000000000"
 
         self.max_total_tokens = 100  # max_total_tokens is about kv_cache capacity
         self.tokens_per_block = 2

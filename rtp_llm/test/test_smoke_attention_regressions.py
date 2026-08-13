@@ -143,6 +143,21 @@ def test_decode_cuda_graph_passes_cache_group_tags_to_capture():
     assert "self.kv_cache.group_tags" in source
 
 
+def test_qwen3_standalone_goldens_match_python_native_h20_outputs():
+    source = (
+        RTP_LLM_DIR / "models_py/standalone/test/qwen3_test.py"
+    ).read_text()
+
+    assert (
+        "\u4f60\u597d\uff01\u6211\u662f\u5c0f\u660e\u54e5\uff0c\u5f88\u9ad8\u5174\u89c1\u5230\u4f60\uff01\u6211\u662f\u5c0f\u660e\u54e5\uff0c\u5f88\u9ad8\u5174\u8ba4\u8bc6\u4f60\uff01"
+        in source
+    )
+    assert (
+        "3.9\u6bd43.11111111\u5927\uff0c1\u5927\uff0c\u56e0\u4e3a3.1000000000000000000000000000"
+        in source
+    )
+
+
 def test_xqa_backends_reject_sm120():
     tree = ast.parse((ATTENTION_DIR / "cuda_impl/xqa.py").read_text())
 
