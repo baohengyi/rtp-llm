@@ -58,7 +58,8 @@ cuda12_9 = [
     "flashinfer-cubin @ https://rtp-opensource.oss-cn-hangzhou.aliyuncs.com/rtp_llm/cu129/flashinfer_260319/flashinfer_cubin-0.6.6-py3-none-any.whl",
     "flash_mla @ https://rtp-opensource.oss-cn-hangzhou.aliyuncs.com/rtp_llm/cu129/flash_mla-1.0.0%2Bca58fed-cp310-cp310-linux_x86_64.whl",
     "fast_hadamard_transform @ https://rtp-opensource.oss-cn-hangzhou.aliyuncs.com/rtp_llm/cu129/fast_hadamard_transform-1.0.4.post1-cp310-cp310-linux_x86_64.whl",
-    "rtp_kernel @ https://rtp-opensource.oss-cn-hangzhou.aliyuncs.com/rtp_llm/cu129/rtp_kernel-0.1.0%2B125c29e5.20260422154605-cp310-cp310-linux_x86_64.whl",
+    # This build includes sm_120a cubins for fused rope/KV-cache kernels.
+    "rtp_kernel @ https://rtp-opensource.oss-cn-hangzhou.aliyuncs.com/rtp_llm/cu129/rtp_kernel_260612/rtp_kernel-0.1.0%2B125c29e5-cp310-cp310-linux_x86_64.whl",
     "tensorrt==10.3.0",
     "tensorrt-cu12-bindings==10.3.0",
     "tensorrt_cu12_libs @ https://rtp-opensource.oss-cn-hangzhou.aliyuncs.com/rtp_llm/cu129/tensorrt_cu12_libs-10.3.0-py2.py3-none-manylinux_2_17_x86_64.whl",

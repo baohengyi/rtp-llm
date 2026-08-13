@@ -234,6 +234,25 @@ class BuildPackagingContractTest(TestCase):
             offenders, [], f"Public platform extras must use https:// wheel URLs:\n{offenders}"
         )
 
+    def test_cuda129_rtp_kernel_pin_contains_sm120_cubins(self):
+        """Keep the SM120-capable rtp-kernel build across packaging migrations."""
+        public_deps = _oss_optional_extras()["cuda12_9"]
+        public_pins = [req for req in public_deps if req.startswith("rtp_kernel @ ")]
+        self.assertEqual(len(public_pins), 1)
+        self.assertIn("/rtp_kernel_260612/", public_pins[0])
+
+        internal_overlay = PROJECT_ROOT / "internal_source" / "pyproject_internal.toml"
+        if internal_overlay.exists():
+            with open(internal_overlay, "rb") as f:
+                internal_extras = tomllib.load(f)["project"]["optional-dependencies"]
+            internal_pins = [
+                req
+                for req in internal_extras["cuda12_9"]
+                if req.startswith("rtp_kernel @ ")
+            ]
+            self.assertEqual(len(internal_pins), 1)
+            self.assertIn("/rtp_kernel_260612/", internal_pins[0])
+
     def test_pytest_testpaths_all_exist(self):
         """Every configured pytest testpath must exist.
 
