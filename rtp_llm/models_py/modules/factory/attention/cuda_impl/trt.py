@@ -423,3 +423,16 @@ class FlashInferTRTLLMFMHAv2PrefillImpl(FMHAImplBase):
             common.copy_kv_cache_offset(
                 self.rope_params.kv_cache_offset, new_kv_cache_offset
             )
+
+
+# Keep both naming generations importable while remote workers roll their source
+# caches. The short names are the public backend names used by newer branches.
+TRTPagedMHAImpl = FlashInferTRTLLMFMHAv2PagedPrefillImpl
+TRTMHAImpl = FlashInferTRTLLMFMHAv2PrefillImpl
+
+__all__ = [
+    "FlashInferTRTLLMFMHAv2PagedPrefillImpl",
+    "FlashInferTRTLLMFMHAv2PrefillImpl",
+    "TRTPagedMHAImpl",
+    "TRTMHAImpl",
+]

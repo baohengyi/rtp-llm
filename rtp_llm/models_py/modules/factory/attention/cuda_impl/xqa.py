@@ -110,7 +110,14 @@ class XQAImpl(FMHAImplBase):
         return self.fmha_impl.forward(fmha_input, kv_cache, self.fmha_params)
 
     def prepare_cuda_graph(self, attn_inputs: PyAttentionInputs):
-        common.update_trt_params(
+        update_params = getattr(
+            common,
+            "update_attention_params",
+            getattr(common, "update_trt_params", None),
+        )
+        if update_params is None:
+            raise AttributeError("attention parameter update helper is unavailable")
+        update_params(
             self.fmha_impl,
             self.rope_kvcache_impl,
             self.fmha_params,

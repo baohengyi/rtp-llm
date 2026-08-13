@@ -83,6 +83,16 @@ def test_ragged_prefill_uses_flashinfer_cuda_graph_buffers():
     assert support_cuda_graph.body[0].value.value is True
 
 
+def test_paged_cuda_graph_plan_matches_padded_query_buffer():
+    tree = ast.parse((ATTENTION_DIR / "cuda_impl/py_flashinfer_mha.py").read_text())
+    prepare_source = ast.unparse(
+        _find_method(_find_class(tree, "PyFlashinferPrefillPagedAttnOp"), "prepare")
+    )
+
+    assert "qo_indptr = self.qo_indptr" in prepare_source
+    assert "offsets + attn_inputs.input_lengths" not in prepare_source
+
+
 def test_native_prefill_keeps_rope_without_writing_dummy_cache():
     tree = ast.parse((ATTENTION_DIR / "cuda_impl/py_flashinfer_mha.py").read_text())
     base_impl = _find_class(tree, "PyFlashinferPrefillImplBase")
@@ -137,3 +147,23 @@ def test_py_flashinfer_module_exports_all_registered_implementations():
         "PyFlashinferPrefillImpl",
         "PyFlashinferDecodeImpl",
     ]
+
+
+def test_attention_compatibility_names_survive_remote_source_cache_rollout():
+    trt_tree = ast.parse((ATTENTION_DIR / "cuda_impl/trt.py").read_text())
+    assignments = {
+        target.id: ast.unparse(node.value)
+        for node in trt_tree.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    assert assignments["TRTPagedMHAImpl"] == "FlashInferTRTLLMFMHAv2PagedPrefillImpl"
+    assert assignments["TRTMHAImpl"] == "FlashInferTRTLLMFMHAv2PrefillImpl"
+
+    xqa_tree = ast.parse((ATTENTION_DIR / "cuda_impl/xqa.py").read_text())
+    prepare_source = ast.unparse(
+        _find_method(_find_class(xqa_tree, "XQAImpl"), "prepare_cuda_graph")
+    )
+    assert "update_attention_params" in prepare_source
+    assert "update_trt_params" in prepare_source
