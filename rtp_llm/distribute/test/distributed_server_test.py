@@ -224,6 +224,7 @@ class DistributedServerTest(unittest.TestCase):
     def test_get_master_use_distribute_config_file(self):
         py_env_configs: PyEnvConfigs = setup_args(args=[])
         setup_and_configure_server(py_env_configs)
+        py_env_configs.parallelism_config.local_world_size = 1
 
         ip, port = ds.get_master(
             py_env_configs.distribute_config,
@@ -248,6 +249,7 @@ class DistributedServerTest(unittest.TestCase):
     def test_get_master_use_gang_config_string(self):
         py_env_configs: PyEnvConfigs = setup_args(args=[])
         setup_and_configure_server(py_env_configs)
+        py_env_configs.parallelism_config.local_world_size = 1
         ip, port = ds.get_master(
             py_env_configs.distribute_config,
             py_env_configs.parallelism_config,
@@ -271,6 +273,7 @@ class DistributedServerTest(unittest.TestCase):
     def test_get_master_use_leader_address(self):
         py_env_configs: PyEnvConfigs = setup_args(args=[])
         setup_and_configure_server(py_env_configs)
+        py_env_configs.parallelism_config.local_world_size = 1
 
         ip, port = ds.get_master(
             py_env_configs.distribute_config,
@@ -295,6 +298,7 @@ class DistributedServerTest(unittest.TestCase):
     def test_get_master_use_c2_file(self):
         py_env_configs: PyEnvConfigs = setup_args(args=[])
         setup_and_configure_server(py_env_configs)
+        py_env_configs.parallelism_config.local_world_size = 1
         ip, port = ds.get_master(
             py_env_configs.distribute_config,
             py_env_configs.parallelism_config,
@@ -336,7 +340,7 @@ class DistributedServerTest(unittest.TestCase):
     def test_get_master_from_file(self):
         py_env_configs: PyEnvConfigs = setup_args(args=[])
         setup_and_configure_server(py_env_configs)
-        ip, port = ds.get_master_from_file()
+        ip, port = ds.get_master_from_file(py_env_configs.distribute_config)
         assert ip == "11.161.48.116"
         assert port == "10000"
 
@@ -351,7 +355,7 @@ class DistributedServerTest(unittest.TestCase):
     def test_get_master_from_c2(self):
         py_env_configs: PyEnvConfigs = setup_args(args=[])
         setup_and_configure_server(py_env_configs)
-        ip, port = ds.get_master_from_c2()
+        ip, port = ds.get_master_from_c2(py_env_configs.distribute_config)
         assert ip == "33.115.125.211"
         assert port == ""
 

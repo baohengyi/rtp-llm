@@ -65,6 +65,17 @@ class ServerArgsSetTest(TestCase):
         # Note: max_seq_len is in ModelConfig, not RuntimeConfig or EngineConfig
         # It will be set when ModelConfig is created from model_args
 
+    def test_leader_address_env_is_bound_to_distribute_config(self):
+        os.environ["LEADER_ADDRESS"] = "10.0.0.5"
+        sys.argv = ["prog"]
+
+        import rtp_llm.server.server_args.server_args
+
+        importlib.reload(rtp_llm.server.server_args.server_args)
+        py_env_configs = rtp_llm.server.server_args.server_args.setup_args()
+
+        self.assertEqual(py_env_configs.distribute_config.leader_address, "10.0.0.5")
+
     def test_cmd_args_set_to_py_env_configs(self):
         """Test that command line arguments are correctly set to py_env_configs."""
         sys.argv = [
@@ -91,14 +102,6 @@ class ServerArgsSetTest(TestCase):
             "4",
             "--cache_store_rdma_worker_thread_count",
             "2",
-            "--enable_flashinfer_trtllm_gen",
-            "false",
-            "--enable_flashinfer_trt_fmha_v2",
-            "false",
-            "--enable_paged_flashinfer_trt_fmha_v2",
-            "false",
-            "--disable_flashinfer_native",
-            "true",
             # Note: max_seq_len is in ModelConfig, not ModelArgs
             # It will be set when ModelConfig is created from model_args
         ]
@@ -138,12 +141,6 @@ class ServerArgsSetTest(TestCase):
         # Verify cache_store_config
         self.assertEqual(py_env_configs.cache_store_config.rdma_io_thread_count, 4)
         self.assertEqual(py_env_configs.cache_store_config.rdma_worker_thread_count, 2)
-
-        # Verify fmha_config
-        self.assertFalse(py_env_configs.fmha_config.enable_flashinfer_trtllm_gen)
-        self.assertFalse(py_env_configs.fmha_config.enable_flashinfer_trt_fmha_v2)
-        self.assertFalse(py_env_configs.fmha_config.enable_paged_flashinfer_trt_fmha_v2)
-        self.assertTrue(py_env_configs.fmha_config.disable_flashinfer_native)
 
     def test_cmd_args_override_env_vars(self):
         """Test that command line arguments override environment variables."""

@@ -464,12 +464,23 @@ def _collect_base_files(rootdir: Path) -> List[str]:
 def _collect_repo_runtime_files(
     rootdir: Path, *, include_libs: bool = True
 ) -> List[str]:
-    """Python sources, .so libs, tokenizer data, config JSON, and testdata."""
+    """Runtime sources, .so libs, tokenizer data, config JSON, and testdata."""
     files: List[str] = []
     for pattern in ("rtp_llm/**/*.py", "internal_source/rtp_llm/**/*.py"):
         for p in rootdir.glob(pattern):
             if p.is_file() and not any(d in p.parts for d in _EXCLUDE_DIRS):
                 files.append(str(p.relative_to(rootdir)))
+    # Some Python compatibility tests inspect type stubs and narrowly scoped
+    # C++ source contracts at runtime. Bazel supplied these as target data;
+    # native pytest sessions must upload them explicitly.
+    for pattern in (
+        "rtp_llm/**/*.pyi",
+        "internal_source/rtp_llm/**/*.pyi",
+        "rtp_llm/cpp/cuda_graph/cuda_graph_runner.cc",
+    ):
+        files.extend(
+            str(p.relative_to(rootdir)) for p in rootdir.glob(pattern) if p.is_file()
+        )
     if include_libs:
         for pattern in (
             "rtp_llm/libs/*.so",

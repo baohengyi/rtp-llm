@@ -766,6 +766,12 @@ def test_collect_session_files_packs_runtime_lib_archive(tmp_path):
     )
     solution_data.parent.mkdir(parents=True)
     solution_data.write_text("{}\n", encoding="utf-8")
+    stub = tmp_path / "rtp_llm/ops/librtp_compute_ops/__init__.pyi"
+    stub.parent.mkdir(parents=True)
+    stub.write_text("class CacheConfig: ...\n", encoding="utf-8")
+    cuda_graph_source = tmp_path / "rtp_llm/cpp/cuda_graph/cuda_graph_runner.cc"
+    cuda_graph_source.parent.mkdir(parents=True)
+    cuda_graph_source.write_text("// source contract\n", encoding="utf-8")
     for name in (
         "libth_transformer_config.so",
         "libth_transformer.so",
@@ -781,6 +787,8 @@ def test_collect_session_files_packs_runtime_lib_archive(tmp_path):
     archive_rel = ".pytest_cache/remote_inputs/rtp_llm_libs.tar"
     assert archive_rel in files
     assert "rtp_llm/sample.py" in files
+    assert "rtp_llm/ops/librtp_compute_ops/__init__.pyi" in files
+    assert "rtp_llm/cpp/cuda_graph/cuda_graph_runner.cc" in files
     assert (
         "rtp_llm/models_py/modules/factory/linear/impl/rocm/data/solutions.json"
         in files

@@ -352,6 +352,17 @@ def pytest_collection_modifyitems(config, items):
     - Deselect tests marked @pytest.mark.manual (require manual execution).
     - Add synthetic gpu_count_N markers before pytest applies -m selection.
     """
+    # These sources used one H20 and one SM12x Bazel target. Native pytest has
+    # no SM12x UT profile yet, but it must not route either source to SM8x.
+    legacy_h20_tests = {
+        "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_trtllm_fmha_v2_paged_prefill.py",
+        "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_trtllm_fmha_v2_prefill.py",
+    }
+    for item in items:
+        item_path = str(item.path).replace("\\", "/")
+        if any(item_path.endswith(path) for path in legacy_h20_tests):
+            item.add_marker(pytest.mark.gpu(type="H20"))
+
     marker_expr = getattr(config.option, "markexpr", "") or ""
     if "manual" not in marker_expr:
         manual_items = []

@@ -11,6 +11,7 @@ import importlib
 import json
 import os
 import unittest
+from pathlib import Path
 
 import rtp_llm.frontend.tokenizer_factory.tokenizers  # triggers compat shims
 
@@ -38,7 +39,9 @@ EXCLUDE_DIRS = {"__pycache__", "3rdparty"}
 
 
 def _find_workspace_root():
-    srcdir = os.environ["TEST_SRCDIR"]
+    srcdir = os.environ.get("TEST_SRCDIR")
+    if not srcdir:
+        return str(Path(__file__).resolve().parents[2])
     workspace = os.environ.get("TEST_WORKSPACE", "")
     return os.path.join(srcdir, workspace)
 

@@ -19,7 +19,7 @@ def _run_bootstrap_probe(code: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_bootstrap_error_is_suppressed_only_during_pytest_plugin_discovery():
+def test_bootstrap_is_deferred_during_pytest_plugin_discovery():
     code = textwrap.dedent(
         f"""
         import importlib.abc
@@ -27,7 +27,6 @@ def test_bootstrap_error_is_suppressed_only_during_pytest_plugin_discovery():
         import importlib.util
         import sys
         import types
-        import warnings
 
         init_path = {str(INIT_PATH)!r}
         pkg_dir = {str(PKG_DIR)!r}
@@ -49,6 +48,7 @@ def test_bootstrap_error_is_suppressed_only_during_pytest_plugin_discovery():
         sys.modules["rtp_llm.utils.triton_compile_patch"] = triton_compile_patch
         sys.modules["pytest"] = types.ModuleType("pytest")
         sys.modules.pop("triton", None)
+        triton_import_attempts = []
 
         class BoomLoader(importlib.abc.Loader):
             def create_module(self, spec):
@@ -60,17 +60,17 @@ def test_bootstrap_error_is_suppressed_only_during_pytest_plugin_discovery():
         class BoomFinder(importlib.abc.MetaPathFinder):
             def find_spec(self, fullname, path=None, target=None):
                 if fullname == "triton":
+                    triton_import_attempts.append(fullname)
                     return importlib.machinery.ModuleSpec(fullname, BoomLoader())
                 return None
 
         sys.meta_path.insert(0, BoomFinder())
 
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            spec.loader.exec_module(module)
+        spec.loader.exec_module(module)
 
-        assert module._bootstrap_error is not None
-        assert any("Skipping heavy rtp_llm bootstrap" in str(w.message) for w in caught)
+        assert module._bootstrap_error is None
+        assert triton_import_attempts == []
+        assert "triton" not in sys.modules
         """
     )
 
