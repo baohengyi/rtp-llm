@@ -111,3 +111,13 @@ def test_xqa_backends_reject_sm120():
         )
         assert "torch.cuda.get_device_capability()[0] == 12" in support_source
         assert "return False" in support_source
+
+
+def test_missing_py_flashinfer_decode_does_not_break_attention_registration():
+    tree = ast.parse((ATTENTION_DIR / "__init__.py").read_text())
+    source = ast.unparse(tree)
+
+    assert "except ImportError as e:" in source
+    assert "PyFlashinferDecodeImpl = None" in source
+    assert "if PyFlashinferDecodeImpl is not None:" in source
+    assert "DECODE_MHA_IMPS.append(PyFlashinferDecodeImpl)" in source

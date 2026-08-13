@@ -56,10 +56,16 @@ else:
             HeadWiseFP8PrefillImpl,
         )
         from rtp_llm.models_py.modules.factory.attention.cuda_impl.py_flashinfer_mha import (
-            PyFlashinferDecodeImpl,
             PyFlashinferPagedPrefillImpl,
             PyFlashinferPrefillImpl,
         )
+        try:
+            from rtp_llm.models_py.modules.factory.attention.cuda_impl.py_flashinfer_mha import (
+                PyFlashinferDecodeImpl,
+            )
+        except ImportError as e:
+            PyFlashinferDecodeImpl = None
+            logging.warning("Skip Python FlashInfer decode implementation: %s", e)
         from rtp_llm.models_py.modules.factory.attention.cuda_impl.trt import (
             FlashInferTRTLLMFMHAv2PagedPrefillImpl,
             FlashInferTRTLLMFMHAv2PrefillImpl,
@@ -95,7 +101,8 @@ else:
         _xqa_decode_impl = get_xqa_impl()
         if _xqa_decode_impl is not XQAImpl:
             DECODE_MHA_IMPS.append(_xqa_decode_impl)
-        DECODE_MHA_IMPS.append(PyFlashinferDecodeImpl)
+        if PyFlashinferDecodeImpl is not None:
+            DECODE_MHA_IMPS.append(PyFlashinferDecodeImpl)
 
         from rtp_llm.models_py.modules.factory.attention.cuda_mla_impl.flashinfer_mla_wrapper import (
             MlaFlashInferDecodeImpl,
