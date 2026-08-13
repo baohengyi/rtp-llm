@@ -1,3 +1,4 @@
+import ast
 import importlib.util
 import os
 import re
@@ -216,6 +217,24 @@ class BuildPackagingContractTest(TestCase):
                 ImportError, "libtest_cuda_graph_runner.so not found"
             ):
                 module.CudaGraphRunner()
+
+    def test_cuda_graph_unittest_fixtures_do_not_initialize_during_collection(self):
+        for filename, class_name in (
+            ("cuda_graph_decode_padding.py", "TestCudaGraphDecodePadding"),
+            ("cuda_graph_prefill.py", "TestCudaGraphPrefill"),
+        ):
+            path = PROJECT_ROOT / "rtp_llm/cpp/cuda_graph/tests" / filename
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=filename)
+            test_class = next(
+                node
+                for node in tree.body
+                if isinstance(node, ast.ClassDef) and node.name == class_name
+            )
+            methods = {
+                node.name for node in test_class.body if isinstance(node, ast.FunctionDef)
+            }
+            self.assertIn("setUp", methods)
+            self.assertNotIn("__init__", methods)
 
     def test_non_cuda129_builds_do_not_stage_cuda_graph_pytest_binding(self):
         setup_module = _load_setup_module()

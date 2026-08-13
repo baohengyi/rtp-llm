@@ -11,7 +11,7 @@ import pytest
 pytestmark = [pytest.mark.gpu(type="H20")]
 
 from rtp_llm.models_py.modules.factory.attention.cuda_impl.test.trt_tests.test_trt_base import (
-    TRTAttnTestBase,
+    TRTLLMFMHAv2TestBase as TRTAttnTestBase,
 )
 from rtp_llm.models_py.modules.factory.attention.cuda_impl.test.trt_tests.trt_test_utils import (
     print_attn_inputs_detail,

@@ -26,8 +26,8 @@ from rtp_llm.ops.compute_ops import PyAttentionInputs, PyModelInputs, get_typeme
 
 
 class TestCudaGraphDecodePadding(unittest.TestCase):
-    def __init__(self, methodName: str = "runTest") -> None:
-        super().__init__(methodName)
+    def setUp(self) -> None:
+        super().setUp()
         os.environ["RESERVER_RUNTIME_MEM_MB"] = "10240"
 
         # Test parameters (can be configured)
