@@ -79,6 +79,7 @@ class TestCudaGraphDecodePadding(unittest.TestCase):
             self.tokens_per_block,
             self.kernel_tokens_per_block,
             self.decode_capture_batch_sizes,
+            self.kv_cache.group_tags,
         )
         print(f"CUDA Graph initialized with batch sizes: 1 to {self.max_batch_size}")
 

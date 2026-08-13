@@ -85,10 +85,14 @@ def test_ragged_prefill_uses_flashinfer_cuda_graph_buffers():
 
 def test_paged_cuda_graph_plan_matches_padded_query_buffer():
     tree = ast.parse((ATTENTION_DIR / "cuda_impl/py_flashinfer_mha.py").read_text())
+    paged_op = _find_class(tree, "PyFlashinferPrefillPagedAttnOp")
+    init_source = ast.unparse(_find_method(paged_op, "__init__"))
     prepare_source = ast.unparse(
-        _find_method(_find_class(tree, "PyFlashinferPrefillPagedAttnOp"), "prepare")
+        _find_method(paged_op, "prepare")
     )
 
+    assert "self.is_causal = attn_configs.is_causal" in init_source
+    assert "causal=self.is_causal" in prepare_source
     assert "qo_indptr = self.qo_indptr" in prepare_source
     assert "offsets + attn_inputs.input_lengths" not in prepare_source
 
@@ -110,6 +114,14 @@ def test_embedding_cuda_graph_does_not_fabricate_kv_cache():
     assert "if (!kv_cache_group_tags_.empty())" in runner_source
     assert "kv_cache_kernel_block_id_device=torch::empty({0}" in compact_source
     assert "kv_cache_kernel_block_id=torch::empty({0}" in compact_source
+
+
+def test_decode_cuda_graph_passes_cache_group_tags_to_capture():
+    source = (
+        RTP_LLM_DIR / "cpp/cuda_graph/tests/cuda_graph_decode_padding.py"
+    ).read_text()
+
+    assert "self.kv_cache.group_tags" in source
 
 
 def test_xqa_backends_reject_sm120():
