@@ -501,6 +501,7 @@ def _collect_repo_runtime_files(
     for pattern in (
         "rtp_llm/**/testdata/**/*",
         "rtp_llm/**/test/testdata/**/*",
+        "rtp_llm/models_py/**/data/**/*",
     ):
         files.extend(
             str(p.relative_to(rootdir)) for p in rootdir.glob(pattern) if p.is_file()

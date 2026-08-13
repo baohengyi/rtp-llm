@@ -94,6 +94,7 @@ rtp_llm = [
     "config/*.json",
     "ops/**/*.pyi",
     "openai/renderers/qwen_agent/utils/*.tiktoken",
+    "models_py/**/data/*.json",
     "test/**/*.proto",
     "test/**/*.json",
     "test/**/*.jsonl",

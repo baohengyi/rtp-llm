@@ -760,6 +760,12 @@ def test_collect_session_files_packs_runtime_lib_archive(tmp_path):
     (tmp_path / "rtp_llm" / "libs").mkdir(parents=True)
     (tmp_path / "rtp_llm" / "__init__.py").write_text("", encoding="utf-8")
     (tmp_path / "rtp_llm" / "sample.py").write_text("x = 1\n", encoding="utf-8")
+    solution_data = (
+        tmp_path
+        / "rtp_llm/models_py/modules/factory/linear/impl/rocm/data/solutions.json"
+    )
+    solution_data.parent.mkdir(parents=True)
+    solution_data.write_text("{}\n", encoding="utf-8")
     for name in (
         "libth_transformer_config.so",
         "libth_transformer.so",
@@ -775,6 +781,10 @@ def test_collect_session_files_packs_runtime_lib_archive(tmp_path):
     archive_rel = ".pytest_cache/remote_inputs/rtp_llm_libs.tar"
     assert archive_rel in files
     assert "rtp_llm/sample.py" in files
+    assert (
+        "rtp_llm/models_py/modules/factory/linear/impl/rocm/data/solutions.json"
+        in files
+    )
     assert "rtp_llm/libs/libth_transformer_config.so" not in files
     with tarfile.open(tmp_path / archive_rel, "r") as tar:
         names = set(tar.getnames())

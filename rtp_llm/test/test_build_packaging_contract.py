@@ -200,6 +200,23 @@ class BuildPackagingContractTest(TestCase):
         ]
         self.assertIn("libs/test/*", excluded)
 
+    def test_cuda_graph_runner_defers_native_import_until_execution(self):
+        module_path = (
+            PROJECT_ROOT / "rtp_llm/cpp/cuda_graph/tests/cuda_graph_test_runner.py"
+        )
+        spec = importlib.util.spec_from_file_location(
+            "_rtp_cuda_graph_test_runner_contract", module_path
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+
+        with patch.dict("sys.modules", {"libtest_cuda_graph_runner": None}):
+            spec.loader.exec_module(module)
+            with self.assertRaisesRegex(
+                ImportError, "libtest_cuda_graph_runner.so not found"
+            ):
+                module.CudaGraphRunner()
+
     def test_non_cuda129_builds_do_not_stage_cuda_graph_pytest_binding(self):
         setup_module = _load_setup_module()
 
@@ -359,3 +376,4 @@ class BuildPackagingContractTest(TestCase):
         package_data = pyproject["tool"]["setuptools"]["package-data"]["rtp_llm"]
         self.assertIn("test/**/*.proto", package_data)
         self.assertIn("test/**/*.json", package_data)
+        self.assertIn("models_py/**/data/*.json", package_data)
