@@ -80,7 +80,7 @@
                         "index": 0,
                         "message": {
                             "role": "assistant",
-                            "content": "我理解您的需求，但目前我无法提供与新高考相关的具体规划和升学指导服务。如果您有其他问题或需要帮助，欢迎随时告诉我！",
+                            "content": "我理解您的需求，但目前我无法提供与新高考相关的内容，因为我的功能主要集中在数据分析和预测上。如果您有关于销量预测或库存管理的问题，我可以帮助您分析和预测。请告诉我您需要帮助的具体内容，我会尽力提供支持。",
                             "reasoning_content": null,
                             "function_call": null,
                             "tool_calls": null,
@@ -93,19 +93,19 @@
                 ],
                 "usage": {
                     "prompt_tokens": 497,
-                    "total_tokens": 531,
-                    "completion_tokens": 34,
+                    "total_tokens": 554,
+                    "completion_tokens": 57,
                     "completion_tokens_details": null,
                     "prompt_tokens_details": null
                 },
                 "debug_info": null,
                 "aux_info": {
                     "cost_time": 817.134,
-                    "iter_count": 34,
+                    "iter_count": 57,
                     "prefix_len": 0,
                     "input_len": 497,
-                    "output_len": 34,
-                    "step_output_len": 34,
+                    "output_len": 57,
+                    "step_output_len": 57,
                     "first_token_cost_time": 308.257,
                     "wait_time": 0.0,
                     "pd_sep": false,
@@ -208,7 +208,7 @@
                         "index": 0,
                         "delta": {
                             "role": "assistant",
-                            "content": "我理解您的需求，但目前我无法提供与新高考相关的具体规划和升学指导服务。如果您有其他问题或需要帮助，欢迎随时告诉我！",
+                            "content": "我理解您的需求，但目前我无法提供与新高考相关的内容，因为我的功能主要集中在数据分析和预测上。如果您有关于销量预测或库存管理的问题，我可以帮助您分析和预测。请告诉我您需要帮助的具体内容，我会尽力提供支持。",
                             "reasoning_content": null,
                             "function_call": null,
                             "tool_calls": null
@@ -219,8 +219,8 @@
                 ],
                 "usage": {
                     "prompt_tokens": 497,
-                    "total_tokens": 531,
-                    "completion_tokens": 34,
+                    "total_tokens": 554,
+                    "completion_tokens": 57,
                     "completion_tokens_details": null,
                     "prompt_tokens_details": null
                 },
