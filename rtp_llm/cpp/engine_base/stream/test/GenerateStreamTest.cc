@@ -42,15 +42,16 @@ public:
             generate_input, model_config_, runtime_config_, resource_context, nullptr);
     };
 
-    GenerateStreamPtr createComplexContextStream(std::vector<int> input_ids) {
+    GenerateStreamPtr createComplexContextStream(std::vector<int> input_ids, bool write_cache_sync = false) {
         autil::EnvGuard perf_scope("PERF_TEST", "1");
 
         auto cache_config  = init_config();
         auto cache_manager = std::make_shared<KVCacheManager>(cache_config);
         cache_manager->init();
         ResourceContext resource_context;
-        resource_context.cache_manager = cache_manager;
-        resource_context.reuse_cache   = true;
+        resource_context.cache_manager    = cache_manager;
+        resource_context.reuse_cache      = true;
+        resource_context.write_cache_sync = write_cache_sync;
 
         std::shared_ptr<GenerateInput>  generate_input(new GenerateInput());
         std::shared_ptr<GenerateConfig> generate_config(new GenerateConfig());
@@ -194,6 +195,27 @@ TEST_F(GenerateStreamTest, pendingCompletionIsConsumerVisibleBeforeSchedulerComm
     EXPECT_FALSE(stream->stream_cache_resource_->isResourceReleased());
 
     EXPECT_EQ(stream->moveToNext(), StreamState::FINISHED);
+    EXPECT_TRUE(stream->stream_cache_resource_->isResourceReleased());
+}
+
+TEST_F(GenerateStreamTest, synchronousCacheWriteWaitsForSchedulerCommit) {
+    auto builder = GenerateStreamBuilder();
+    auto stream =
+        std::dynamic_pointer_cast<NormalGenerateStream>(builder.createComplexContextStream({1, 2, 3}, true));
+    stream->setNeedReleaseResource(true);
+    stream->generate_status_->status.store(StreamState::RUNNING);
+    stream->reportEvent(StreamEvents::GenerateDone);
+
+    auto consumer = std::async(std::launch::async, [stream] { return stream->nextOutput(); });
+
+    EXPECT_EQ(consumer.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+    EXPECT_FALSE(stream->stream_cache_resource_->isResourceReleased());
+
+    EXPECT_EQ(stream->moveToNext(), StreamState::FINISHED);
+    waitForConsumer(consumer, stream);
+    auto finished_result = consumer.get();
+    ASSERT_FALSE(finished_result.ok());
+    EXPECT_EQ(finished_result.status().code(), ErrorCode::FINISHED);
     EXPECT_TRUE(stream->stream_cache_resource_->isResourceReleased());
 }
 

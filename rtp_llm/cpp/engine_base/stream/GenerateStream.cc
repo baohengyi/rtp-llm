@@ -593,9 +593,19 @@ ErrorInfo GenerateStream::statusInfoWithoutLock() const {
 }
 
 bool GenerateStream::consumerFinishedWithoutLock() const {
-    // Consumer completion includes pending GenerateDone, but lifecycle commit and
-    // resource release remain scheduler-owned through moveToNext().
-    return hasEventWithoutLock(StreamEvents::NeedRemoteGenerate) || generate_status_->checkFinished();
+    if (hasEventWithoutLock(StreamEvents::NeedRemoteGenerate)) {
+        return true;
+    }
+
+    // WRITE_CACHE_SYNC promises that a following request can observe this
+    // request's cache when the response completes. The scheduler commits
+    // FINISHED and releases the cache under mutex_ in moveToNext(), so waiting
+    // for the committed state closes the response-vs-release race. Other
+    // streams retain fast pending-GenerateDone visibility.
+    if (resourceContext().write_cache_sync) {
+        return getStatus() == StreamState::FINISHED;
+    }
+    return generate_status_->checkFinished();
 }
 
 bool GenerateStream::consumerReadyWithoutLock() const {
