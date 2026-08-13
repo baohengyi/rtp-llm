@@ -85,6 +85,10 @@ class XQAImpl(FMHAImplBase):
     def support(
         cls, attn_configs: AttentionConfigs, attn_inputs: PyAttentionInputs
     ) -> bool:
+        # The available XQA cubins do not contain an SM120 binding. Let the
+        # dispatcher fall through to the PyFlashinfer implementation instead.
+        if torch.cuda.get_device_capability()[0] == 12:
+            return False
         fmha_impl = XQAAttnOp(attn_configs)
         return fmha_impl.support(attn_inputs)
 
@@ -148,7 +152,9 @@ class XQADecodeImpl(FMHAImplBase):
     ) -> bool:
         if attn_inputs.is_prefill:
             return False
-        if torch.cuda.get_device_capability()[0] not in [9, 10, 12]:
+        if torch.cuda.get_device_capability()[0] == 12:
+            return False
+        if torch.cuda.get_device_capability()[0] not in [9, 10]:
             return False
         group_size = attn_configs.head_num // attn_configs.kv_head_num
         return (

@@ -100,3 +100,14 @@ def test_embedding_cuda_graph_does_not_fabricate_kv_cache():
     assert "if (!kv_cache_group_tags_.empty())" in runner_source
     assert "kv_cache_kernel_block_id_device=torch::empty({0}" in compact_source
     assert "kv_cache_kernel_block_id=torch::empty({0}" in compact_source
+
+
+def test_xqa_backends_reject_sm120():
+    tree = ast.parse((ATTENTION_DIR / "cuda_impl/xqa.py").read_text())
+
+    for class_name in ("XQAImpl", "XQADecodeImpl"):
+        support_source = ast.unparse(
+            _find_method(_find_class(tree, class_name), "support")
+        )
+        assert "torch.cuda.get_device_capability()[0] == 12" in support_source
+        assert "return False" in support_source
