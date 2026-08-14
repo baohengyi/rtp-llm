@@ -99,47 +99,24 @@ struct ConcurrencyConfig {
     std::string to_string() const;
 };
 
-enum class FMHAType {
-    FLASH_INFER,
-    NONE,
-    OPEN_SOURCE,
-    PAGED_OPEN_SOURCE,
-    PAGED_FLASHINFER_TRT_FMHA_V2,
-    FLASHINFER_TRT_FMHA_V2,
-    XQA,
-    AITER_PREFILL,
-    AITER_ASM_PREFILL,
-    AITER_PAGED_PREFILL,
-    AITER_DECODE,
-    AITER_ASM_DECODE,
-    AITER_TRITON_DECODE,
-    PY_FLASHINFER_PREFILL_PAGED,
-    PY_FLASHINFER_PREFILL_RAGGED,
-    PY_FLASHINFER_DECODE,
-    FLASHINFER_MLA_PREFILL,
-    FLASHINFER_MLA_DECODE,
-    SPARSE_FLASHMLA,
-    CP_FLASH_INFER,
-    CP_SPARSE_FLASHMLA,
-    HEADWISE,
-};
-
 struct FMHAConfig {
-    bool enable_fmha                         = true;
-    bool enable_flashinfer_trtllm_gen        = true;
-    bool enable_flashinfer_trt_fmha_v2       = true;
-    bool enable_paged_flashinfer_trt_fmha_v2 = true;
-    bool enable_open_source_fmha             = true;
-    bool enable_paged_open_source_fmha       = true;
-    bool disable_flashinfer_native           = false;
-    bool enable_xqa                          = true;
-    bool use_aiter_pa                        = true;
-    bool use_asm_pa                          = true;
-    // Default off: Triton PA on ROCm regressed vs ASM PA after the rocm_impl
-    // refactor; ASM/NonAsm now own the default decode path. Set to true to opt
-    // back into the Triton kernel.
-    bool        use_triton_pa  = false;
-    int64_t     absorb_opt_len = 1024;
+    // String-based attention backend selection (new API)
+    std::string attn_backend          = "auto";  // "auto", "none", or a specific backend NAME
+    std::string prefill_attn_backend  = "";      // override for prefill stage (empty = use attn_backend)
+    std::string decode_attn_backend   = "";      // override for decode stage (empty = use attn_backend)
+    std::string disable_attn_backends = "";      // comma-separated list of backend NAMEs to disable
+
+    // Legacy boolean flags (kept for backward compatibility, derived from above)
+    bool        enable_fmha             = true;
+    bool        enable_trt_fmha         = true;
+    bool        enable_paged_trt_fmha   = true;
+    bool        enable_open_source_fmha = true;
+    bool        disable_flash_infer     = false;
+    bool        enable_xqa              = true;
+    bool        use_aiter_pa            = true;
+    bool        use_asm_pa              = true;
+    bool        use_triton_pa           = false;
+    int64_t     absorb_opt_len          = 1024;
     std::string to_string() const;
 };
 

@@ -1450,6 +1450,8 @@ class AiterDecodeAttnOpTriton(AiterDecodeAttnOpBase):
 class AiterPrefillImplAsm(FMHAImplBase):
     """Aiter prefill attention implementation using ASM."""
 
+    NAME = "aiter_asm"
+
     def __init__(
         self,
         attn_configs: AttentionConfigs,
@@ -1509,6 +1511,8 @@ class AiterPrefillImplAsm(FMHAImplBase):
 
 class AiterPrefillImplNonAsm(FMHAImplBase):
     """Aiter prefill attention implementation using non-ASM."""
+
+    NAME = "aiter"
 
     def __init__(
         self,
@@ -1573,6 +1577,8 @@ class AiterPrefillImplPaged(FMHAImplBase):
     - seq_len <= 4: Triton PA (short query optimization)
     - Otherwise: CK batch-prefill (general paged prefill)
     """
+
+    NAME = "aiter_paged"
 
     def __init__(
         self,
@@ -1772,6 +1778,8 @@ class AiterDecodeImplBase(FMHAImplBase):
 
 
 class AiterDecodeImplAsm(AiterDecodeImplBase):
+    NAME = "aiter_asm"
+
     def __init__(
         self,
         attn_configs: AttentionConfigs,
@@ -1822,6 +1830,8 @@ class AiterDecodeImplAsm(AiterDecodeImplBase):
 
 
 class AiterDecodeImplNonAsm(AiterDecodeImplBase):
+    NAME = "aiter"
+
     def __init__(
         self,
         attn_configs: AttentionConfigs,
@@ -1871,6 +1881,7 @@ class AiterDecodeImplNonAsm(AiterDecodeImplBase):
 class AiterDecodeImplTriton(AiterDecodeImplBase):
     """Aiter decode attention implementation using Triton."""
 
+    NAME = "aiter_triton"
     accepts_fmha_config = True
 
     def __init__(

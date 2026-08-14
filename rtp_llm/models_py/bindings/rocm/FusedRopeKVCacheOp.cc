@@ -215,6 +215,12 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> FusedRopeKVCachePrefillO
     const int size_per_head     = attn_configs_.size_per_head;
     const int token_num         = qkv.size(0);
     const int batch_size        = params->cu_seqlens.size(0) - 1;
+
+    if (attn_configs_.rope_config.style == RopeStyle::Mrope) {
+        validateMropePositionIds(
+            params->position_ids, token_num, attn_configs_.rope_config.index_factor,
+            "FusedRopeKVCachePrefillOpBase::forward");
+    }
     const int seq_len =
         params->prefill_runtime_max_seq_len >= 0 ? params->prefill_runtime_max_seq_len : params->max_seq_len;
     const int max_prefix_length =
@@ -441,6 +447,13 @@ CKAttnPtr FusedRopeKVCacheDecodeOpBase::prepare(torch_ext::PyAttentionInputs att
             attn_params->position_ids.to(torch::kCUDA, /*non_blocking=*/false, /*copy=*/true).contiguous();
     }
 
+    if (attn_configs_.rope_config.style == RopeStyle::Mrope) {
+        validateMropePositionIds(attn_params->position_ids,
+                                 attn_inputs.sequence_lengths.size(0),
+                                 attn_configs_.rope_config.index_factor,
+                                 "FusedRopeKVCacheDecodeOpBase::prepare");
+    }
+
     if (attn_inputs.kv_cache_kernel_block_id_device.defined()
         && attn_inputs.kv_cache_kernel_block_id_device.numel() > 0) {
         attn_params->kv_cache_kernel_block_id_device = attn_inputs.kv_cache_kernel_block_id_device;
@@ -498,10 +511,18 @@ torch::Tensor FusedRopeKVCacheDecodeOpBase::forward(const torch::Tensor&        
     // Always use aiter_pa for ROCm
     hipStream_t stream_ = GET_CURRENT_STREAM();
 
+    if (attn_configs_.rope_config.style == RopeStyle::Mrope) {
+        validateMropePositionIds(
+            params->position_ids, token_num, attn_configs_.rope_config.index_factor,
+            "FusedRopeKVCacheDecodeOpBase::forward");
+    }
+
     int* position_ids_ptr = nullptr;
     if (params->position_ids.defined()) {
         position_ids_ptr = params->position_ids.data_ptr<int>();
-    } else {
+    } else if (attn_configs_.rope_config.style != RopeStyle::Mrope) {
+        // Non-Mrope decode may fall back to sequence_lengths; Mrope must provide combo_position_ids
+        // (validated above).
         position_ids_ptr = params->sequence_lengths.data_ptr<int>();
     }
 
