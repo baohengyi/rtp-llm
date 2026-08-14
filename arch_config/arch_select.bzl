@@ -1,37 +1,5 @@
-# to wrapper target relate with different system config
-load("@pip_cpu_torch//:requirements.bzl", requirement_cpu="requirement")
-load("@pip_arm_torch//:requirements.bzl", requirement_arm="requirement")
-load("@pip_gpu_cuda12_torch//:requirements.bzl", requirement_gpu_cuda12="requirement")
-load("@pip_gpu_cuda12_9_torch//:requirements.bzl", requirement_gpu_cuda12_9="requirement")
-load("@pip_gpu_cuda13_torch//:requirements.bzl", requirement_gpu_cuda13="requirement")
-load("@pip_gpu_rocm_torch//:requirements.bzl", requirement_gpu_rocm="requirement")
-load("@rtp_llm//bazel:defs.bzl", "copy_so")
-
-def copy_all_so():
-    copy_so("@rtp_llm//:th_transformer")
-    copy_so("@rtp_llm//:th_transformer_config")
-    copy_so("@rtp_llm//:th_grammar_tokenizer_info")
-    copy_so("@rtp_llm//:rtp_compute_ops")
-
-# flash_attn wheels are not published for CUDA 13; FlashInfer JIT provides the
-# kernels instead, so these requirements resolve to nothing on cuda13 configs.
-_CUDA13_DEFERRED = ["flash_attn", "flash-attn-3"]
-
-def requirement(names):
-    for name in names:
-        cuda13_x86_deps = [] if name in _CUDA13_DEFERRED else [requirement_gpu_cuda13(name)]
-        native.py_library(
-            name = name,
-            deps = select({
-                "@rtp_llm//:cuda_pre_12_9": [requirement_gpu_cuda12(name)],
-                "@rtp_llm//:using_cuda13_x86": cuda13_x86_deps,
-                "@rtp_llm//:using_cuda12_9_x86": [requirement_gpu_cuda12_9(name)],
-                "@rtp_llm//:using_rocm": [requirement_gpu_rocm(name)],
-                "@rtp_llm//:using_arm": [requirement_arm(name)],
-                "//conditions:default": [requirement_cpu(name)],
-            }),
-            visibility = ["//visibility:public"],
-        )
+# Wrapper targets for different system configs.
+# Python deps are managed by pip/pyproject.toml; Bazel only keeps C++ platform selections here.
 
 def cache_store_deps():
     native.alias(
@@ -77,7 +45,8 @@ def whl_deps():
         "@rtp_llm//:using_cuda12": ["torch==2.6.0+cu126"],
         "@rtp_llm//:using_rocm": [
             "pyrsmi==0.2.0",
-            "amdsmi@https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis%2FAMD%2Famd_smi%2Fali%2Famd_smi.tar",
+            # AMD SMI ships with the ROCm runtime. Do not restore the legacy
+            # amd_smi.tar direct reference: bare .tar URLs are not valid PEP 625 sdists.
             "aiter@https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/aiter/aiter-0.1.17.dev79%2Bg2570b35f9.d20260623-cp310-cp310-linux_x86_64.whl",
             "triton@https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/triton/triton-3.7.0%2Bamd.rocm7.2.0.gitd0d77a509-cp310-cp310-linux_x86_64.whl",
             "triton-kernels@https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/triton/triton_kernels-1.0.0%2Bamd.rocm7.2.0.gitd0d77a509-py3-none-any.whl",
@@ -92,42 +61,6 @@ def platform_deps():
         "@rtp_llm//:using_rocm": ["pyyaml==6.0.2","decord==0.6.0", "av==16.1.0"],
         "//conditions:default": ["decord==0.6.0", "av==16.1.0"],
     })
-
-def torch_deps():
-    deps = select({
-        "@rtp_llm//:using_rocm": [
-            "@torch_rocm//:torch_api",
-            "@torch_rocm//:torch",
-            "@torch_rocm//:torch_libs",
-        ],
-        "@rtp_llm//:using_arm": [
-            "@torch_2.3_py310_cpu_aarch64//:torch_api",
-            "@torch_2.3_py310_cpu_aarch64//:torch",
-            "@torch_2.3_py310_cpu_aarch64//:torch_libs",
-        ],
-        "@rtp_llm//:cuda_pre_12_9": [
-            "@torch_2.6_py310_cuda//:torch_api",
-            "@torch_2.6_py310_cuda//:torch",
-            "@torch_2.6_py310_cuda//:torch_libs",
-        ],
-        "@rtp_llm//:using_cuda13_x86": [
-            "@torch_2.11_py310_cuda//:torch_api",
-            "@torch_2.11_py310_cuda//:torch",
-            "@torch_2.11_py310_cuda//:torch_libs",
-        ],
-        "@rtp_llm//:using_cuda12_9_x86": [
-            "@torch_2.8_py310_cuda//:torch_api",
-            "@torch_2.8_py310_cuda//:torch",
-            "@torch_2.8_py310_cuda//:torch_libs",
-        ],
-        "//conditions:default": [
-            "@torch_2.1_py310_cpu//:torch_api",
-            "@torch_2.1_py310_cpu//:torch",
-            "@torch_2.1_py310_cpu//:torch_libs",
-        ]
-    })
-    return deps
-
 def flashinfer_deps():
     native.alias(
         name = "flashinfer",
@@ -135,18 +68,6 @@ def flashinfer_deps():
             "@rtp_llm//:using_cuda13_x86": "@flashinfer_cpp_cu13//:flashinfer",
             "//conditions:default": "@flashinfer_cpp//:flashinfer",
         })
-    )
-
-def flashmla_deps():
-    native.alias(
-        name = "flashmla",
-        actual = "@flashmla//:flashmla"
-    )
-
-def deep_ep_py_deps():
-    native.alias(
-        name = "deep_ep_py",
-        actual = "@rtp_llm//rtp_llm:empty_target",
     )
 
 def cuda_register():
@@ -157,17 +78,6 @@ def cuda_register():
         }),
         visibility = ["//visibility:public"],
     )
-
-def triton_deps(names):
-    return select({
-        "//conditions:default": [],
-    })
-
-def internal_deps():
-    return []
-
-def jit_deps():
-    return []
 
 def select_py_bindings():
     return select({
@@ -195,3 +105,45 @@ def no_block_copy_link_deps():
             "@rtp_llm//rtp_llm/models_py/bindings:no_block_copy_default",
         ],
     })
+
+def torch_deps():
+    """Torch cc deps; same as //bazel:defs.bzl."""
+    return [
+        "@torch//:torch_api",
+        "@torch//:torch",
+        "@torch//:torch_libs",
+    ]
+
+# ---------------------------------------------------------------------------
+# Compatibility shims for legacy BUILD files that still call requirement(),
+# internal_deps(), or triton_deps().  Python packages are now managed by
+# pip/pyproject.toml; these functions create empty placeholder targets so
+# Bazel package loading does not break while callers are migrated.
+# ---------------------------------------------------------------------------
+
+def requirement(packages):
+    """Create empty py_library aliases for each pip package name.
+
+    Callers reference them as ':<package>' in deps.  The actual packages are
+    installed via pip; these targets only exist to satisfy Bazel's loading
+    phase.
+    """
+    for pkg in packages:
+        safe_name = pkg.replace("-", "_").replace(".", "_")
+        native.py_library(
+            name = safe_name,
+            srcs = [],
+            visibility = ["//visibility:public"],
+        )
+
+def internal_deps():
+    """Return an empty dependency list (legacy compatibility)."""
+    return []
+
+def triton_deps(names = []):
+    """Return an empty dependency list (legacy compatibility)."""
+    return []
+
+def jit_deps():
+    """Return an empty dependency list; Python JIT packages come from pip."""
+    return []
