@@ -50,7 +50,9 @@ _PPU_RUNTIME_LIB_PATTERNS = (
     ("CUDA runtime", "libcudart.so*"),
     ("cuBLAS", "libcublas.so*"),
     ("cuBLAS Lt", "libcublasLt.so*"),
+    ("CUDA profiling runtime", "libcupti.so*"),
     ("PPU device runtime", "libhgml.so*"),
+    ("PPU kernel runtime", "libuki.so*"),
 )
 
 
@@ -547,12 +549,19 @@ def _ppu_runtime_search_dirs() -> List[Path]:
         candidates.extend(
             (
                 sdk_root / "CUDA_SDK" / "lib64",
+                sdk_root / "CUDA_SDK" / "extras" / "CUPTI" / "lib64",
+                sdk_root / "CUDA_SDK" / "targets" / "x86_64-linux" / "lib",
                 sdk_root / "lib",
                 sdk_root / "sailSHMEM" / "lib",
             )
         )
     candidates.extend(
-        (Path("/usr/local/cuda/lib64"), Path("/usr/local/nvidia/lib64"))
+        (
+            Path("/usr/local/cuda/lib64"),
+            Path("/usr/local/cuda/extras/CUPTI/lib64"),
+            Path("/usr/local/cuda/targets/x86_64-linux/lib"),
+            Path("/usr/local/nvidia/lib64"),
+        )
     )
     return list(dict.fromkeys(candidates))
 

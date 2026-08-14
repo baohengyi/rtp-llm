@@ -225,16 +225,22 @@ def test_collect_remote_files_stages_ppu_runtime_libs(tmp_path, monkeypatch):
     rootdir = tmp_path / "repo"
     suite = rootdir / "test_ppu.py"
     sdk_cuda = tmp_path / "ppu_sdk" / "CUDA_SDK" / "lib64"
+    sdk_cupti = tmp_path / "ppu_sdk" / "CUDA_SDK" / "extras" / "CUPTI" / "lib64"
     sdk_lib = tmp_path / "ppu_sdk" / "lib"
     sdk_cuda.mkdir(parents=True)
+    sdk_cupti.mkdir(parents=True)
     sdk_lib.mkdir(parents=True)
     suite.parent.mkdir(parents=True, exist_ok=True)
     suite.write_text("def test_placeholder(): pass\n")
     for name in ("libcudart.so.12", "libcublas.so.12", "libcublasLt.so.12"):
         (sdk_cuda / name).write_bytes(name.encode())
+    (sdk_cupti / "libcupti.so.12").write_bytes(b"cupti")
     (sdk_lib / "libhgml.so").write_bytes(b"hgml")
+    (sdk_lib / "libuki.so").write_bytes(b"uki")
     monkeypatch.setattr(
-        remote_exec_rtp, "_ppu_runtime_search_dirs", lambda: [sdk_cuda, sdk_lib]
+        remote_exec_rtp,
+        "_ppu_runtime_search_dirs",
+        lambda: [sdk_cuda, sdk_cupti, sdk_lib],
     )
 
     files = remote_exec_rtp.collect_remote_files(
@@ -246,11 +252,25 @@ def test_collect_remote_files_stages_ppu_runtime_libs(tmp_path, monkeypatch):
         f"{runtime_dir}/libcudart.so.12",
         f"{runtime_dir}/libcublas.so.12",
         f"{runtime_dir}/libcublasLt.so.12",
+        f"{runtime_dir}/libcupti.so.12",
         f"{runtime_dir}/libhgml.so",
+        f"{runtime_dir}/libuki.so",
     }
     assert expected.issubset(files)
     for rel in expected:
         assert (rootdir / rel).is_symlink()
+
+
+def test_ppu_runtime_search_dirs_include_sdk_and_system_cupti(monkeypatch):
+    monkeypatch.setenv("PPU_SDK", "/opt/ppu")
+    monkeypatch.delenv("PPU_HOME", raising=False)
+    monkeypatch.delenv("SDK_ROOT", raising=False)
+
+    search_dirs = remote_exec_rtp._ppu_runtime_search_dirs()
+
+    assert Path("/opt/ppu/CUDA_SDK/extras/CUPTI/lib64") in search_dirs
+    assert Path("/opt/ppu/CUDA_SDK/targets/x86_64-linux/lib") in search_dirs
+    assert Path("/usr/local/cuda/extras/CUPTI/lib64") in search_dirs
 
 
 def test_collect_remote_files_ppu_requires_controller_runtime_libs(
