@@ -756,6 +756,22 @@ def test_build_runtime_config_uses_gpu_type_remote_env(monkeypatch):
     assert "export RTP_BAZEL_CONFIG=--config=custom;" in runtime.remote_setup_prefix
 
 
+def test_build_runtime_config_enables_torch_rtld_global_for_ppu_only(monkeypatch):
+    monkeypatch.setattr(remote_exec_rtp, "_load_pyproject", lambda root: {})
+
+    ppu_runtime = remote_exec_rtp.build_runtime_config(
+        Path("."),
+        remote_exec_rtp.GPURequest(gpu_type="PPU-ZW810E", gpu_count=1),
+    )
+    cuda_runtime = remote_exec_rtp.build_runtime_config(
+        Path("."),
+        remote_exec_rtp.GPURequest(gpu_type="gpu_cuda12", gpu_count=1),
+    )
+
+    assert ppu_runtime.env_vars["TORCH_USE_RTLD_GLOBAL"] == "1"
+    assert "TORCH_USE_RTLD_GLOBAL" not in cuda_runtime.env_vars
+
+
 def test_collect_session_files_packs_runtime_lib_archive(tmp_path):
     (tmp_path / "rtp_llm" / "libs").mkdir(parents=True)
     (tmp_path / "rtp_llm" / "__init__.py").write_text("", encoding="utf-8")
