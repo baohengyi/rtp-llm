@@ -936,13 +936,6 @@ def build_runtime_config(
     reapi_gpu_type = _to_reapi_gpu_type(rootdir, gpu_request.gpu_type)
     if not reapi_gpu_type.startswith("MI308X"):
         env_vars["CUDA_HOME"] = "/usr/local/cuda"
-    if reapi_gpu_type.startswith("PPU-"):
-        # The PPU torch wheel links against the PPU SDK, but its bundled
-        # libtorch_global_deps can still enter PyTorch's PyPI-CUDA fallback and
-        # search site-packages for nvidia/cublas.  PPU workers provide those
-        # symbols through the SDK instead, so use PyTorch's supported direct
-        # torch._C loading path and avoid the irrelevant CUDA-wheel preload.
-        env_vars["TORCH_USE_RTLD_GLOBAL"] = "1"
     if input_root_hash:
         env_vars["RTP_CAS_INPUT_ROOT"] = input_root_hash[:12]
     setup_env = resolve_gpu_type_remote_env(rootdir, gpu_request.gpu_type)
