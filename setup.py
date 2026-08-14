@@ -795,6 +795,18 @@ def _with_default_remote_download(bazel_args: list, mode: str) -> list:
     return [*bazel_args, f"--remote_download_{mode}"]
 
 
+_REMOTE_TEST_TIMEOUT_SECONDS = 900
+
+
+def _with_default_remote_test_timeout(bazel_args: list) -> list:
+    """Allow remote GPU tests to wait for the per-worker GPU lock."""
+    if not is_remote_enabled() or any(
+        arg.startswith("--test_timeout") for arg in bazel_args
+    ):
+        return bazel_args
+    return [*bazel_args, f"--test_timeout={_REMOTE_TEST_TIMEOUT_SECONDS}"]
+
+
 # Canonical PATH used when invoking bazelisk. Bazel includes PATH in the
 # action environment hash by default, so a transient PATH (uv build venv,
 # user shell tweaks, /tmp/build-env-…) busts the REAPI cache. Pinning to
@@ -1663,14 +1675,19 @@ class BazelTest(Command):
                 ]
             )
 
-        # Add config args (same as build)
-        cmd.extend(build_args)
-
         # Add test-specific args from BAZEL_TEST_ARGS env var
         test_args = os.environ.get("BAZEL_TEST_ARGS", "")
+        extra_test_args = test_args.split() if test_args else []
         if test_args:
             print(f"Using BAZEL_TEST_ARGS: {test_args}")
-            cmd.extend(test_args.split())
+
+        bazel_args = [*build_args, *extra_test_args]
+        if not self.compile_only:
+            # Remote workers serialize tests through gpu_lock. Lock wait time is
+            # charged to Bazel's test timeout, so the 300s default is too short
+            # when a GPU pool is busy even for tests that execute in milliseconds.
+            bazel_args = _with_default_remote_test_timeout(bazel_args)
+        cmd.extend(bazel_args)
 
         project_root = get_project_root()
         mode = "compile-only" if self.compile_only else "test"

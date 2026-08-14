@@ -128,6 +128,36 @@ class BuildPackagingContractTest(TestCase):
         with self.assertRaisesRegex(ValueError, "RTP_BAZEL_CACHE_SCOPE"):
             self._bazel_cmd_prefix(setup_module, scope="../../cpp-ut")
 
+    def test_remote_bazel_tests_allow_for_gpu_lock_queueing(self):
+        setup_module = _load_setup_module()
+
+        with patch.object(setup_module, "is_remote_enabled", return_value=True):
+            args = setup_module._with_default_remote_test_timeout(
+                ["--config=cuda12_9"]
+            )
+
+        self.assertEqual(args, ["--config=cuda12_9", "--test_timeout=900"])
+
+    def test_explicit_remote_test_timeout_is_preserved(self):
+        setup_module = _load_setup_module()
+
+        with patch.object(setup_module, "is_remote_enabled", return_value=True):
+            args = setup_module._with_default_remote_test_timeout(
+                ["--config=cuda12_9", "--test_timeout=1200"]
+            )
+
+        self.assertEqual(args, ["--config=cuda12_9", "--test_timeout=1200"])
+
+    def test_local_bazel_tests_keep_native_timeout(self):
+        setup_module = _load_setup_module()
+
+        with patch.object(setup_module, "is_remote_enabled", return_value=False):
+            args = setup_module._with_default_remote_test_timeout(
+                ["--config=cuda12_9"]
+            )
+
+        self.assertEqual(args, ["--config=cuda12_9"])
+
     def test_build_cleanup_removes_only_stale_test_artifacts(self):
         setup_module = _load_setup_module()
 
