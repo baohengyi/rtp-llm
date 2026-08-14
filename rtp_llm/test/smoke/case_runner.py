@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 import concurrent.futures
+import glob
 import json
 import logging
 import os
+import subprocess
 import time
 import traceback
+from typing import TYPE_CHECKING
 
 try:
     import torch
@@ -11,6 +16,11 @@ try:
     _HAS_TORCH = True
 except ImportError:
     _HAS_TORCH = False
+
+if TYPE_CHECKING:
+    # Type-only import — kept out of runtime to keep `pytest --collect-only`
+    # working on CPU-only machines without the full rtp_llm .so chain loaded.
+    from rtp_llm.test.utils.maga_server_manager import MagaServerManager  # noqa: F401
 
 
 class _TensorEncoder(json.JSONEncoder):
@@ -23,12 +33,16 @@ class _TensorEncoder(json.JSONEncoder):
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
-from smoke.cache_status_comparer import CacheStatusComparer
-from smoke.classifier_comparer import ClassifierComparer
-from smoke.common_def import QueryStatus, SmokeException, Tracer
-from smoke.dash_grpc_comparer import DASH_ENDPOINT, DashGrpcComparer
-from smoke.embedding_comparer import EmbeddingComparer
-from smoke.gpu_diagnostics import (
+from rtp_llm.test.smoke.cache_status_comparer import CacheStatusComparer
+from rtp_llm.test.smoke.classifier_comparer import ClassifierComparer
+from rtp_llm.test.smoke.common_def import QueryStatus, SmokeException, Tracer
+from rtp_llm.test.smoke.comparer_registry import (
+    register_comparer,
+    resolve_comparer,
+    set_default_comparer,
+)
+from rtp_llm.test.smoke.embedding_comparer import EmbeddingComparer
+from rtp_llm.test.smoke.gpu_diagnostics import (
     ExceptionType,
     ProcessFailureType,
     classify_exception,
@@ -37,18 +51,61 @@ from smoke.gpu_diagnostics import (
     scan_process_log,
     snapshot_dmesg,
 )
-from smoke.normal_comparer import NormalComparer
-from smoke.openai_comparer import OpenaiComparer
-from smoke.remote_kvcm_server import RemoteKVCMServer
-from smoke.reranker_comparer import RerankerComparer
-from smoke.similarity_comparer import SimilarityComparer
-from smoke.task_info import TaskInfo, TaskStates
-from smoke.tau2_bench_comparer import Tau2BenchComparer
-from smoke.worker_status_comparer import WorkerStatusComparer
+from rtp_llm.test.smoke.dash_grpc_comparer import DASH_ENDPOINT, DashGrpcComparer
+from rtp_llm.test.smoke.normal_comparer import NormalComparer
+from rtp_llm.test.smoke.openai_comparer import OpenaiComparer
+from rtp_llm.test.smoke.remote_kvcm_server import RemoteKVCMServer
+from rtp_llm.test.smoke.reranker_comparer import RerankerComparer
+from rtp_llm.test.smoke.similarity_comparer import SimilarityComparer
+from rtp_llm.test.smoke.tau2_bench_comparer import Tau2BenchComparer
+from rtp_llm.test.smoke.task_info import TaskInfo, TaskStates
+from rtp_llm.test.smoke.worker_status_comparer import WorkerStatusComparer
 
-from rtp_llm.test.utils.coredump_util import summarize_and_cleanup_coredumps
-from rtp_llm.test.utils.maga_server_manager import MagaServerManager
-from rtp_llm.utils.util import str_to_bool
+# NOTE: rtp_llm.utils.util / rtp_llm.test.utils.maga_server_manager are imported
+# lazily where used (str_to_bool inlined below; MagaServerManager imported inside
+# start_server). This keeps `pytest --collect-only` from triggering the full
+# rtp_llm .so loading chain on CPU-only machines (e.g., scripts/verify_smoke_*).
+
+
+def _str_to_bool(s: str) -> bool:
+    """Inlined copy of rtp_llm.utils.util.str_to_bool — avoids rtp_llm import at module level.
+
+    Keep behavior identical to the upstream function so callers see no change.
+    """
+    if s.lower() in ("yes", "true", "1"):
+        return True
+    if s.lower() in ("no", "false", "0"):
+        return False
+    raise ValueError("Cannot covert {} to a bool".format(s))
+
+
+# Backward-compat: existing call sites reference `str_to_bool` (no underscore prefix).
+str_to_bool = _str_to_bool
+
+
+# OSS comparer registrations — internal mainse comparers are registered separately
+# in internal_source/rtp_llm/test/smoke/conftest.py so OSS-only checkouts work.
+# Order matters: most-specific predicates first.
+_EMBEDDING_ENDPOINTS = {
+    "/v1/embeddings",
+    "/v1/embeddings/dense",
+    "/v1/embeddings/sparse",
+    "/v1/embeddings/colbert",
+}
+register_comparer(lambda q_r, ep: q_r.get("tau2_bench", False), Tau2BenchComparer)
+register_comparer(lambda q_r, ep: ep == DASH_ENDPOINT, DashGrpcComparer)
+register_comparer(lambda q_r, ep: isinstance(q_r.get("query"), dict) and "messages" in q_r["query"], OpenaiComparer)
+register_comparer(lambda q_r, ep: ep in _EMBEDDING_ENDPOINTS, EmbeddingComparer)
+register_comparer(
+    lambda q_r, ep: ep.startswith("/rtp_llm/worker_status"), WorkerStatusComparer
+)
+register_comparer(
+    lambda q_r, ep: ep.startswith("/rtp_llm/cache_status"), CacheStatusComparer
+)
+register_comparer(lambda q_r, ep: ep == "/v1/embeddings/similarity", SimilarityComparer)
+register_comparer(lambda q_r, ep: ep == "/v1/classifier", ClassifierComparer)
+register_comparer(lambda q_r, ep: ep == "/v1/reranker", RerankerComparer)
+set_default_comparer(NormalComparer)
 
 
 def _iterate_modidfy_qr(origin: Dict[str, Any], new: Dict[str, Any]):
@@ -63,6 +120,68 @@ def _iterate_modidfy_qr(origin: Dict[str, Any], new: Dict[str, Any]):
             _iterate_modidfy_qr(origin[key], new[key])
         else:
             origin[key] = new[key]
+
+
+def _summarize_and_cleanup_coredumps(output_dir: str) -> None:
+    """Scan output_dir for core dump files, write a summary log, then delete them."""
+    if not output_dir or not os.path.isdir(output_dir):
+        return
+    core_files = glob.glob(os.path.join(output_dir, "core-*")) + glob.glob(
+        os.path.join(output_dir, "core.*")
+    )
+    if not core_files:
+        return
+
+    summary_path = os.path.join(output_dir, "coredump_summary.log")
+    total_size = 0
+    lines = [f"[COREDUMP_SUMMARY] Found {len(core_files)} core dump(s)\n"]
+    for path in sorted(core_files):
+        name = os.path.basename(path)
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = -1
+        total_size += max(size, 0)
+        size_mb = size / (1024 * 1024) if size >= 0 else -1
+
+        # Use `file` command to extract process name / signal info
+        file_info = ""
+        try:
+            result = subprocess.run(
+                ["file", path],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                file_info = result.stdout.strip()
+        except Exception:
+            file_info = "(file command failed)"
+
+        line = f"  {name}  size={size_mb:.1f}MB  info={file_info}"
+        lines.append(line)
+        logging.info(f"[COREDUMP_SUMMARY] {line}")
+
+    lines.append(
+        f"\n[COREDUMP_SUMMARY] Total core dump size: {total_size / (1024*1024):.1f}MB"
+    )
+    lines.append(
+        "[COREDUMP_SUMMARY] Core dump files deleted to reduce artifact size.\n"
+    )
+
+    try:
+        with open(summary_path, "w") as f:
+            f.write("\n".join(lines))
+        logging.info(f"[COREDUMP_SUMMARY] Summary written to {summary_path}")
+    except OSError as e:
+        logging.warning(f"[COREDUMP_SUMMARY] Failed to write summary: {e}")
+
+    for path in core_files:
+        try:
+            os.remove(path)
+            logging.info(f"[COREDUMP_SUMMARY] Deleted {os.path.basename(path)}")
+        except OSError as e:
+            logging.warning(f"[COREDUMP_SUMMARY] Failed to delete {path}: {e}")
 
 
 class CaseRunner(object):
@@ -136,6 +255,7 @@ class CaseRunner(object):
             env_dict["RECO_SERVER_ADDRESS"] = self.remote_kvcm_server.address()
         task_states = TaskStates()
         logging.info(f"smoke_args_str: {self.smoke_args_str}")
+        server_manager = None
         try:
             server_manager = self.start_server(
                 env_dict,
@@ -147,26 +267,43 @@ class CaseRunner(object):
                 task_states.ret = False
                 return task_states
             task_states = self.curl_server(server_manager)
-            if task_states.ret != True:
-                return task_states
-            assert server_manager is not None, "server manager should not be None"
-            server_manager.stop_server()
-            if enable_remote_cache and self.remote_kvcm_server is not None:
-                self.remote_kvcm_server.stop_server()
-                self.remote_kvcm_server.copy_logs()
             return task_states
         finally:
-            summarize_and_cleanup_coredumps(
+            if server_manager is not None:
+                try:
+                    server_manager.stop_server()
+                except Exception as e:
+                    logging.warning("server_manager.stop_server failed: %s", e)
+            if enable_remote_cache and self.remote_kvcm_server is not None:
+                try:
+                    self.remote_kvcm_server.stop_server()
+                    self.remote_kvcm_server.copy_logs()
+                except Exception as e:
+                    logging.warning("remote_kvcm_server cleanup failed: %s", e)
+            _summarize_and_cleanup_coredumps(
                 os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR", "")
             )
 
     def _start_remote_kvcm_server(self) -> Optional[RemoteKVCMServer]:
-        server_path = os.path.join(
-            os.environ["TEST_SRCDIR"],
-            os.environ["TEST_WORKSPACE"],
-            "external/remote_kv_cache_manager_server",
-        )
-        kvcm_src_logs_path = os.path.join(os.environ["TEST_SRCDIR"], "rtp_llm/logs")
+        if "TEST_SRCDIR" in os.environ:
+            # Legacy Bazel-test compatibility path; Smoke CI now uses pytest.
+            # Runfiles tree has the http_archive contents under
+            # external/remote_kv_cache_manager_server/.
+            srcdir = os.environ["TEST_SRCDIR"]
+            workspace = os.environ.get("TEST_WORKSPACE", "rtp_llm")
+            server_path = os.path.join(
+                srcdir, workspace, "external/remote_kv_cache_manager_server"
+            )
+            kvcm_src_logs_path = os.path.join(srcdir, "rtp_llm/logs")
+        else:
+            # pytest+REAPI path — setup.py stages `kv_cache_manager_bin` from
+            # a top-level Bazel output into rtp_llm/libs/kv_cache_manager_server/bin/.
+            # Resolve via package introspection so it works regardless of cwd.
+            import rtp_llm
+
+            libs_dir = os.path.join(os.path.dirname(rtp_llm.__file__), "libs")
+            server_path = os.path.join(libs_dir, "kv_cache_manager_server")
+            kvcm_src_logs_path = os.path.join(os.getcwd(), "rtp_llm/logs")
         bazel_outputs_dir = os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR", os.getcwd())
         kvcm_dst_logs_path = os.path.join(bazel_outputs_dir, "kvcm_logs")
         remote_kvcm_server = RemoteKVCMServer(
@@ -195,24 +332,20 @@ class CaseRunner(object):
                 else:
                     for result in results:
                         if str(result) != str(results[0]):
-                            task_states = result
+                            task_states.ret = False
+                            task_states.err_msg = (
+                                f"concurrency results differ: {result} vs {results[0]}"
+                            )
+                            break
+                    if task_states.ret:
+                        task_states = results[0]
         else:
             task_states = self._curl_server_impl(server_manager, self.task_info)
         return task_states
 
     @staticmethod
     def _resolve_endpoint(q_r: Dict[str, Any], task_endpoint: Optional[str]) -> str:
-        """Per-query endpoint resolution.
-
-        Queries that carry `prompt_batch` must hit `/batch_infer` so the engine
-        atomically enqueues the whole batch via BatchGenerateCall. Hitting the
-        default `/` endpoint splits them into independent FIFOScheduler streams,
-        which is non-deterministic for beam-search numerics.
-
-        `/batch_infer` is non-streaming only — `prompt_batch` queries with
-        `yield_generator: true` are rejected here so test data stays consistent
-        with what the endpoint can actually serve.
-        """
+        """Resolve per-query endpoint while preserving prompt_batch semantics."""
         explicit = q_r.get("endpoint")
         if explicit:
             return explicit
@@ -229,47 +362,7 @@ class CaseRunner(object):
 
     @staticmethod
     def _get_comparer_cls(q_r: Dict[str, Any], request_endpoint: str) -> Type:
-        if request_endpoint == DASH_ENDPOINT:
-            return DashGrpcComparer
-        if q_r.get("tau2_bench", False):
-            return Tau2BenchComparer
-        if "messages" in q_r["query"]:
-            return OpenaiComparer
-        elif request_endpoint in [
-            "/v1/embeddings",
-            "/v1/embeddings/dense",
-            "/v1/embeddings/sparse",
-            "/v1/embeddings/colbert",
-        ]:
-            return EmbeddingComparer
-        elif request_endpoint.startswith("/rtp_llm/worker_status"):
-            return WorkerStatusComparer
-        elif request_endpoint.startswith("/rtp_llm/cache_status"):
-            return CacheStatusComparer
-        elif request_endpoint == "/v1/embeddings/similarity":
-            return SimilarityComparer
-        elif request_endpoint == "/v1/classifier":
-            return ClassifierComparer
-        elif request_endpoint == "/v1/reranker":
-            return RerankerComparer
-        elif q_r.get("mainse_module", None) == True:
-            if q_r.get("use_decode_arpc", None) == True:
-                from smoke.mainse.mainse_decode_arpc_comparer import (
-                    MainseDecodeArpcComparer,
-                )
-
-                return MainseDecodeArpcComparer
-            elif q_r.get("use_emb_arpc", None) == True:
-                from smoke.mainse.mainse_embedding_arpc_comparer import (
-                    MainseEmbeddingArpcComparer,
-                )
-
-                return MainseEmbeddingArpcComparer
-            else:
-                from smoke.mainse.mainse_comparer import MainseComparer
-
-                return MainseComparer
-        return NormalComparer
+        return resolve_comparer(q_r, request_endpoint)
 
     def _run_stability_repeat(
         self,
@@ -410,7 +503,10 @@ class CaseRunner(object):
                 task_states.query_status.append((QueryStatus.OTHERS, str(e), tracer))
             if self.sleep_time_qr > 0:
                 time.sleep(self.sleep_time_qr)
-            if self.kill_remote and self.remote_kvcm_server is not None:
+            if (
+                self.kill_remote
+                and getattr(self, "remote_kvcm_server", None) is not None
+            ):
                 self.remote_kvcm_server.stop_server()
                 logging.info("manually stop remote_kvcm_server")
 
@@ -444,9 +540,19 @@ class CaseRunner(object):
                     _iterate_modidfy_qr(origin_qr["result"], now_result)
 
             out_dir = os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR", os.getcwd())
-            rewrite_path = os.path.join(
-                out_dir, "smoke_actual", os.path.basename(task_info.taskinfo_rel_path)
-            )
+            # Prefix with the pytest parametrize id so two cases sharing the same
+            # task_info JSON don't overwrite each other's actual-result snapshot.
+            # PYTEST_CURRENT_TEST format: "<nodeid> (call)" where nodeid ends in
+            # "[<param_id>]". Falls back to plain basename outside pytest.
+            current = os.environ.get("PYTEST_CURRENT_TEST", "")
+            case_name = ""
+            if "[" in current and "]" in current:
+                case_name = current[
+                    current.rindex("[") + 1 : current.index("]", current.rindex("["))
+                ]
+            base = os.path.basename(task_info.taskinfo_rel_path)
+            rewrite_name = f"{case_name}__{base}" if case_name else base
+            rewrite_path = os.path.join(out_dir, "smoke_actual", rewrite_name)
             os.makedirs(os.path.dirname(rewrite_path), exist_ok=True)
             with open(rewrite_path, "w") as f:
                 json.dump(
@@ -469,6 +575,9 @@ class CaseRunner(object):
         role_name: str = "main",
         smoke_args_str: Optional[str] = None,
     ) -> Optional[MagaServerManager]:
+        # Lazy import — see module docstring at the top.
+        from rtp_llm.test.utils.maga_server_manager import MagaServerManager
+
         # If smoke_args_str is not provided, try to get it from self.smoke_args dict based on role_name
         if smoke_args_str is None:
             if self.smoke_args and isinstance(self.smoke_args, dict):
@@ -509,7 +618,7 @@ class CaseRunner(object):
                 )
                 if (
                     exp_update_status != update_status
-                    and update_response != exp_update_response
+                    or update_response != exp_update_response
                 ):
                     task_states.ret = False
                     task_states.err_msg = f"failed to update lora, real response is {update_response}, exp response is {exp_update_response}"
@@ -533,7 +642,7 @@ class CaseRunner(object):
                 failure_context=f"server startup failed: {failure_desc}",
                 log_path=os.path.join(output_dir, "gpu_state_server_failed.log"),
                 server_pid=server_manager.server_pid,
-                server_proc_status=getattr(server_manager, "server_proc_status", None),
+                server_proc_status=server_manager.server_proc_status,
                 dmesg_baseline=getattr(self, "_dmesg_baseline", 0),
             )
             return None
@@ -599,7 +708,7 @@ class CaseRunner(object):
 
             # 收集结果
             results = {}
-            for future in concurrent.futures.as_completed(future_to_config):
+            for future in concurrent.futures.as_completed(future_to_config, timeout=3600):
                 config = future_to_config[future]
                 try:
                     server_manager, task_states = future.result()

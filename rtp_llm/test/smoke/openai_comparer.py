@@ -5,16 +5,16 @@ from typing import Any, Dict, List, Optional, Union
 
 import torch
 from pydantic import BaseModel
-from smoke.base_comparer import BaseComparer
-from smoke.common_def import REL_PATH, QueryStatus, SmokeException
-from smoke.grammar_constraint_validator import validate_constraint
-from smoke.utils import create_temporary_copy
 
 from rtp_llm.openai.api_datatype import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatCompletionStreamResponse,
 )
+from rtp_llm.test.smoke.base_comparer import BaseComparer
+from rtp_llm.test.smoke.common_def import REL_PATH, QueryStatus, SmokeException
+from rtp_llm.test.smoke.grammar_constraint_validator import validate_constraint
+from rtp_llm.test.smoke.utils import create_temporary_copy
 from rtp_llm.utils.base_model_datatypes import AuxInfo
 
 
@@ -33,7 +33,7 @@ class OpenaiComparer(BaseComparer):
             path = result_json["extra_outputs"].get("all_hidden_states", None)
             if path is not None and isinstance(path, str):
                 result_json["extra_outputs"]["all_hidden_states"] = (
-                    torch.load(os.path.join(REL_PATH, path)).numpy().tolist()
+                    torch.load(os.path.join(REL_PATH, path), weights_only=False).numpy().tolist()
                 )
         if self.is_stream:
             return ChatCompletionStreamResponse(**result_json)

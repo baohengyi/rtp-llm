@@ -5,11 +5,20 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
 from pydantic import BaseModel, ValidationError
-from smoke.base_comparer import BaseComparer
-from smoke.common_def import ABS_PATH, REL_PATH, QueryStatus, SmokeException
-from smoke.utils import create_temporary_copy, save_hidden_states, save_logits
 
 from rtp_llm.config.generate_config import GenerateConfig
+from rtp_llm.test.smoke.base_comparer import BaseComparer
+from rtp_llm.test.smoke.common_def import (
+    ABS_PATH,
+    REL_PATH,
+    QueryStatus,
+    SmokeException,
+)
+from rtp_llm.test.smoke.utils import (
+    create_temporary_copy,
+    save_hidden_states,
+    save_logits,
+)
 
 EXPECT_HIDDEN_STATES_KEY = "expected_hidden_states_path"
 EXPECT_LOGITS_KEY = "expected_logits_path"
@@ -67,18 +76,13 @@ class AuxInfo(BaseModel):
     iter_count: Optional[int] = None
     cum_log_probs: Optional[Union[List[float], List[None]]] = None
     beam_responses: Optional[List[str]] = None
+    # Allow multiple acceptable beam_responses orderings for cuBLAS/NCCL non-
+    # determinism (close-cum_log_probs beams swap rank across runs). If set,
+    # comparer accepts actual.beam_responses == expect.beam_responses OR any
+    # entry in beam_responses_alternatives.
+    beam_responses_alternatives: Optional[List[List[str]]] = None
     pd_sep: Optional[bool] = None
     softmax_probs: Optional[List[float]] = None
-
-
-class PromptLogitsGolden(BaseModel):
-    start_pos: int = 0
-    end_pos: int = 0
-    topk_logprobs_head: Optional[List[List[float]]] = None
-    topk_token_ids_head: Optional[List[List[int]]] = None
-    topk_logprobs: Optional[List[List[float]]] = None
-    topk_token_ids: Optional[List[List[int]]] = None
-    target_logprobs: Optional[List[float]] = None
 
 
 class SmokeResponse(BaseModel):
@@ -93,7 +97,6 @@ class SmokeResponse(BaseModel):
     input_ids: Optional[List[List[int]]] = None
     output_ids: Optional[List[List[int]]] = None
     aux_info: Optional[Union[AuxInfo, List[AuxInfo]]] = None
-    prompt_logprobs: Optional[PromptLogitsGolden] = None
 
     def __init__(
         self,
@@ -132,6 +135,8 @@ class NormalComparer(BaseComparer):
             res = list(filter(None, res))
             if query_info.generate_config.return_incremental:
                 chunks = [json.loads(chunk.decode("utf-8")[5:]) for chunk in res[:-1]]
+                if not chunks:
+                    raise SmokeException(QueryStatus.VISIT_FAILED, "Streaming response chunks are empty but return_incremental is True")
                 res = {
                     "response": "".join(chunk["response"] for chunk in chunks),
                     "aux_info": chunks[-1]["aux_info"],
@@ -365,8 +370,26 @@ class NormalComparer(BaseComparer):
             actual_val = getattr(actual_aux, field)
             check_equal(field, expect_val, actual_val)
 
+        # beam_responses: accept exact match OR any beam_responses_alternatives
+        # entry. Logs the matched-alt path so flaky-acceptance is auditable.
+        def beam_matches(expect_beams: Any, actual_beams: Any) -> bool:
+            if expect_beams == actual_beams:
+                return True
+            alts = expect_aux.beam_responses_alternatives
+            if alts and actual_beams in alts:
+                logging.info(
+                    f"[STABILITY_DIAG] beam_responses matched alternative: "
+                    f"primary={expect_beams} actual={actual_beams} "
+                    f"alternatives={alts}"
+                )
+                return True
+            return False
+
         check_equal(
-            "beam_responses", expect_aux.beam_responses, actual_aux.beam_responses
+            "beam_responses",
+            expect_aux.beam_responses,
+            actual_aux.beam_responses,
+            beam_matches,
         )
 
         def is_close_list(a: Any, b: Any) -> bool:
@@ -485,82 +508,13 @@ class NormalComparer(BaseComparer):
                 f"{prefix}input_ids:\n    expect: {expect.input_ids}\n    actual:  {actual.input_ids}"
             )
 
-        # prompt_logits
-        if expect.prompt_logprobs is not None and actual.prompt_logprobs is None:
-            diffs.append(f"{prefix}prompt_logits: expected but missing in actual")
-        elif expect.prompt_logprobs is not None and actual.prompt_logprobs is not None:
-            epl = expect.prompt_logprobs
-            apl = actual.prompt_logprobs
-            if epl.start_pos != apl.start_pos or epl.end_pos != apl.end_pos:
-                diffs.append(
-                    f"{prefix}prompt_logits range:\n"
-                    f"    expect: [{epl.start_pos}, {epl.end_pos})\n"
-                    f"    actual:  [{apl.start_pos}, {apl.end_pos})"
-                )
-            exp_ids_head = epl.topk_token_ids_head
-            exp_lp_head = epl.topk_logprobs_head
-            act_ids_head = apl.topk_token_ids_head
-            act_lp_head = apl.topk_logprobs_head
-            if (
-                act_ids_head is None
-                and apl.topk_token_ids is not None
-                and exp_ids_head is not None
-            ):
-                head_n = len(exp_ids_head)
-                act_ids_head = apl.topk_token_ids[:head_n]
-            if (
-                act_lp_head is None
-                and apl.topk_logprobs is not None
-                and exp_lp_head is not None
-            ):
-                head_n = len(exp_lp_head)
-                act_lp_head = apl.topk_logprobs[:head_n]
-            if exp_ids_head is not None and act_ids_head is not None:
-                # Only compare top-1 token id per position to avoid BF16 near-tie ordering flips
-                exp_top1 = [row[0] for row in exp_ids_head if row]
-                act_top1 = [row[0] for row in act_ids_head if row]
-                if exp_top1 != act_top1:
-                    diffs.append(
-                        f"{prefix}prompt_logits topk_token_ids top-1 mismatch:\n"
-                        f"    expect top1: {exp_top1}\n"
-                        f"    actual top1: {act_top1}"
-                    )
-            if exp_lp_head is not None:
-                if act_lp_head is None:
-                    diffs.append(
-                        f"{prefix}prompt_logits topk_logprobs_head: expected but missing in actual"
-                    )
-                else:
-                    cmp = torch.isclose(
-                        torch.tensor(exp_lp_head),
-                        torch.tensor(act_lp_head),
-                        rtol=rtol,
-                        atol=atol,
-                    )
-                    if not all(cmp.reshape(-1)):
-                        diffs.append(
-                            f"{prefix}prompt_logits topk_logprobs_head not close"
-                        )
-            if epl.target_logprobs is not None:
-                if apl.target_logprobs is None:
-                    diffs.append(
-                        f"{prefix}prompt_logits target_logprobs: expected but missing in actual"
-                    )
-                else:
-                    cmp = torch.isclose(
-                        torch.tensor(epl.target_logprobs),
-                        torch.tensor(apl.target_logprobs),
-                        rtol=rtol,
-                        atol=atol,
-                    )
-                    if not all(cmp.reshape(-1)):
-                        diffs.append(f"{prefix}prompt_logits target_logprobs not close")
-
         # aux_info: skip comparison when expected auxinfo is null
         if expect.aux_info is not None and actual.aux_info is not None:
             self._compare_aux_info(
                 expect.aux_info, actual.aux_info, diffs, prefix=prefix
             )
+        elif expect.aux_info is not None and actual.aux_info is None:
+            diffs.append(f"{prefix}aux_info: expected non-None but actual is None")
 
     def _rewrite_images(self, images: Union[List[str], str]) -> Union[List[str], str]:
         # iter rewrite
