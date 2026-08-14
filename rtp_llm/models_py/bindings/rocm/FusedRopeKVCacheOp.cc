@@ -217,9 +217,10 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> FusedRopeKVCachePrefillO
     const int batch_size        = params->cu_seqlens.size(0) - 1;
 
     if (attn_configs_.rope_config.style == RopeStyle::Mrope) {
-        validateMropePositionIds(
-            params->position_ids, token_num, attn_configs_.rope_config.index_factor,
-            "FusedRopeKVCachePrefillOpBase::forward");
+        validateMropePositionIds(attn_configs_.rope_config,
+                                 params->position_ids,
+                                 token_num,
+                                 "FusedRopeKVCachePrefillOpBase::forward");
     }
     const int seq_len =
         params->prefill_runtime_max_seq_len >= 0 ? params->prefill_runtime_max_seq_len : params->max_seq_len;
@@ -448,9 +449,9 @@ CKAttnPtr FusedRopeKVCacheDecodeOpBase::prepare(torch_ext::PyAttentionInputs att
     }
 
     if (attn_configs_.rope_config.style == RopeStyle::Mrope) {
-        validateMropePositionIds(attn_params->position_ids,
+        validateMropePositionIds(attn_configs_.rope_config,
+                                 attn_params->position_ids,
                                  attn_inputs.sequence_lengths.size(0),
-                                 attn_configs_.rope_config.index_factor,
                                  "FusedRopeKVCacheDecodeOpBase::prepare");
     }
 
@@ -510,12 +511,6 @@ torch::Tensor FusedRopeKVCacheDecodeOpBase::forward(const torch::Tensor&        
 
     // Always use aiter_pa for ROCm
     hipStream_t stream_ = GET_CURRENT_STREAM();
-
-    if (attn_configs_.rope_config.style == RopeStyle::Mrope) {
-        validateMropePositionIds(
-            params->position_ids, token_num, attn_configs_.rope_config.index_factor,
-            "FusedRopeKVCacheDecodeOpBase::forward");
-    }
 
     int* position_ids_ptr = nullptr;
     if (params->position_ids.defined()) {
