@@ -177,7 +177,6 @@ cc_library(
         "//rtp_llm/cpp/config:model_config",
         "//rtp_llm/models_py/bindings/cuda/kernels:user_buffers",
         "//rtp_llm/cpp/utils:profiling_scope",
-        "@local_config_cuda//cuda:cuda_headers",
     ] + select({
         "@//:using_cuda12_9": [
             "//rtp_llm/models_py/bindings/cuda/kernels:scaled_fp4_quant",
