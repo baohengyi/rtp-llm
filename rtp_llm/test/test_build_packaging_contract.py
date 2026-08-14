@@ -1,0 +1,428 @@
+import ast
+import importlib.util
+import os
+import re
+import tempfile
+from pathlib import Path
+from unittest import TestCase
+from unittest.mock import patch
+
+from setuptools import find_namespace_packages
+
+try:
+    import tomllib
+except ImportError:  # pragma: no cover - Python 3.10 fallback
+    import tomli as tomllib
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+# Hosts that serve internal-only / non-publicly-reproducible build artifacts. Direct wheel pins
+# from these must never reach a publicly published wheel's install metadata. Kept deliberately
+# narrow (see the review decision): the OSS `rtp-opensource.*` bucket and `download.pytorch.org`
+# are public and allowed.
+INTERNAL_ONLY_HOST_MARKERS = ("sinian-metrics-platform",)
+
+# Platform extras whose stack is merged into install_requires of a PUBLICLY published wheel.
+# `rocm` is intentionally excluded: its wheel is not published to public indexes, so its
+# internal `sinian-metrics-platform` pins never ship to external users. If ROCm wheels ever
+# become publicly published, add "rocm" here and relocate those pins to the internal overlay.
+PUBLIC_PLATFORM_EXTRAS = ("cuda12", "cuda12_arm", "cuda12_9")
+
+
+def _oss_optional_extras() -> dict:
+    """Load [project.optional-dependencies] from the OSS extras file that ships in this repo."""
+    extras_file = PROJECT_ROOT / "_build" / "oss_optional_extras.toml"
+    with open(extras_file, "rb") as f:
+        data = tomllib.load(f)
+    return data.get("project", {}).get("optional-dependencies", {})
+
+
+def _requirement_url(req: str) -> str:
+    """Return the direct-reference URL of a `name @ url` requirement, else ''."""
+    parts = req.split(" @ ", 1)
+    return parts[1].strip() if len(parts) == 2 else ""
+
+
+def _is_local_path_reference(url: str) -> bool:
+    """True if a direct reference points at a local path rather than a remote artifact."""
+    if not url:
+        return False
+    if url.startswith("file:"):
+        return True
+    # Absolute or relative filesystem paths (never valid for a published wheel).
+    return url.startswith(("/", "./", "../"))
+
+
+def _load_platform_module():
+    """Load _build/platform.py in isolation (stdlib-only, no side effects)."""
+    spec = importlib.util.spec_from_file_location(
+        "_rtp_build_platform_under_test", PROJECT_ROOT / "_build" / "platform.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_setup_module():
+    spec = importlib.util.spec_from_file_location(
+        "_rtp_llm_setup_under_test", PROJECT_ROOT / "setup.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    with patch.dict(os.environ, {"RTP_BAZEL_CONFIG": "--config=cuda12_9"}, clear=False):
+        spec.loader.exec_module(module)
+    return module
+
+
+class BuildPackagingContractTest(TestCase):
+    def _bazel_cmd_prefix(self, setup_module, scope=None):
+        env = {"XDG_CACHE_HOME": "/tmp/rtp-llm-test-cache"}
+        if scope is not None:
+            env["RTP_BAZEL_CACHE_SCOPE"] = scope
+        with (
+            patch.dict(os.environ, env, clear=False),
+            patch.object(
+                setup_module,
+                "parse_bazel_config",
+                return_value=["--config=cuda12_9"],
+            ),
+            patch.object(setup_module, "_get_remote_bazel_args", return_value=[]),
+            patch.object(setup_module, "_get_local_jobs_args", return_value=[]),
+        ):
+            if scope is None:
+                os.environ.pop("RTP_BAZEL_CACHE_SCOPE", None)
+            return setup_module._get_bazel_cmd_prefix("cuda12_9")
+
+    def test_bazel_cache_scope_defaults_to_platform_cache(self):
+        setup_module = _load_setup_module()
+
+        cmd, build_args = self._bazel_cmd_prefix(setup_module)
+
+        self.assertEqual(
+            cmd,
+            [
+                "bazelisk",
+                "--output_user_root=/tmp/rtp-llm-test-cache/bazel_cuda12_9_cache",
+            ],
+        )
+        self.assertEqual(build_args, ["--config=cuda12_9"])
+
+    def test_bazel_cache_scope_isolates_cpp_ut_cache(self):
+        setup_module = _load_setup_module()
+
+        cmd, build_args = self._bazel_cmd_prefix(setup_module, scope="cpp_ut")
+
+        self.assertEqual(
+            cmd,
+            [
+                "bazelisk",
+                "--output_user_root=/tmp/rtp-llm-test-cache/bazel_cuda12_9_cpp_ut_cache",
+            ],
+        )
+        self.assertEqual(build_args, ["--config=cuda12_9"])
+
+    def test_bazel_cache_scope_rejects_unsafe_path_content(self):
+        setup_module = _load_setup_module()
+
+        with self.assertRaisesRegex(ValueError, "RTP_BAZEL_CACHE_SCOPE"):
+            self._bazel_cmd_prefix(setup_module, scope="../../cpp-ut")
+
+    def test_remote_bazel_tests_allow_for_gpu_lock_queueing(self):
+        setup_module = _load_setup_module()
+
+        with patch.object(setup_module, "is_remote_enabled", return_value=True):
+            args = setup_module._with_default_remote_test_timeout(
+                ["--config=cuda12_9"]
+            )
+
+        self.assertEqual(args, ["--config=cuda12_9", "--test_timeout=900"])
+
+    def test_explicit_remote_test_timeout_is_preserved(self):
+        setup_module = _load_setup_module()
+
+        with patch.object(setup_module, "is_remote_enabled", return_value=True):
+            args = setup_module._with_default_remote_test_timeout(
+                ["--config=cuda12_9", "--test_timeout=1200"]
+            )
+
+        self.assertEqual(args, ["--config=cuda12_9", "--test_timeout=1200"])
+
+    def test_local_bazel_tests_keep_native_timeout(self):
+        setup_module = _load_setup_module()
+
+        with patch.object(setup_module, "is_remote_enabled", return_value=False):
+            args = setup_module._with_default_remote_test_timeout(
+                ["--config=cuda12_9"]
+            )
+
+        self.assertEqual(args, ["--config=cuda12_9"])
+
+    def test_build_cleanup_removes_only_stale_test_artifacts(self):
+        setup_module = _load_setup_module()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            project_root = tmp_path / "project"
+            output_root = tmp_path / "bazel_cuda12_9_cache"
+            testlogs = (
+                output_root
+                / "install-hash"
+                / "execroot"
+                / "rtp_llm"
+                / "bazel-out"
+                / "k8-opt"
+                / "testlogs"
+            )
+            testlogs.mkdir(parents=True)
+            (testlogs / "old-test.xml").write_text("old", encoding="utf-8")
+            keep = output_root / "install-hash" / "action-cache"
+            keep.parent.mkdir(parents=True, exist_ok=True)
+            keep.write_text("keep", encoding="utf-8")
+
+            project_root.mkdir()
+            (project_root / "bazel-testlogs").symlink_to(testlogs)
+            remote_logs = project_root / ".pytest_cache" / "remote_stream_logs"
+            remote_logs.mkdir(parents=True)
+            (remote_logs / "old.log").write_text("old", encoding="utf-8")
+
+            setup_module._clean_stale_test_artifacts(
+                project_root,
+                ["bazelisk", f"--output_user_root={output_root}"],
+            )
+
+            self.assertFalse(testlogs.exists())
+            self.assertFalse((project_root / "bazel-testlogs").exists())
+            self.assertFalse(remote_logs.exists())
+            self.assertEqual(keep.read_text(encoding="utf-8"), "keep")
+
+    def test_cuda129_stages_cuda_graph_pytest_binding_outside_wheel_glob(self):
+        setup_module = _load_setup_module()
+
+        staged = setup_module._selected_bazel_staged_outputs(
+            "cuda12_9", ["--config=cuda12_9"]
+        )
+        runner = [
+            entry
+            for entry in staged
+            if entry[1] == "//rtp_llm/cpp/cuda_graph/tests:test_cuda_graph_runner"
+        ]
+
+        self.assertEqual(
+            runner,
+            [
+                (
+                    "test",
+                    "//rtp_llm/cpp/cuda_graph/tests:test_cuda_graph_runner",
+                    (
+                        (
+                            "libtest_cuda_graph_runner.so",
+                            "test/libtest_cuda_graph_runner.so",
+                        ),
+                    ),
+                )
+            ],
+        )
+
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+        excluded = pyproject["tool"]["setuptools"]["exclude-package-data"][
+            "rtp_llm"
+        ]
+        self.assertIn("libs/test/*", excluded)
+
+    def test_cuda_graph_runner_defers_native_import_until_execution(self):
+        module_path = (
+            PROJECT_ROOT / "rtp_llm/cpp/cuda_graph/tests/cuda_graph_test_runner.py"
+        )
+        spec = importlib.util.spec_from_file_location(
+            "_rtp_cuda_graph_test_runner_contract", module_path
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+
+        with patch.dict("sys.modules", {"libtest_cuda_graph_runner": None}):
+            spec.loader.exec_module(module)
+            with self.assertRaisesRegex(
+                ImportError, "libtest_cuda_graph_runner.so not found"
+            ):
+                module.CudaGraphRunner()
+
+    def test_cuda_graph_unittest_fixtures_do_not_initialize_during_collection(self):
+        for filename, class_name in (
+            ("cuda_graph_decode_padding.py", "TestCudaGraphDecodePadding"),
+            ("cuda_graph_prefill.py", "TestCudaGraphPrefill"),
+        ):
+            path = PROJECT_ROOT / "rtp_llm/cpp/cuda_graph/tests" / filename
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=filename)
+            test_class = next(
+                node
+                for node in tree.body
+                if isinstance(node, ast.ClassDef) and node.name == class_name
+            )
+            methods = {
+                node.name for node in test_class.body if isinstance(node, ast.FunctionDef)
+            }
+            self.assertIn("setUp", methods)
+            self.assertNotIn("__init__", methods)
+
+    def test_non_cuda129_builds_do_not_stage_cuda_graph_pytest_binding(self):
+        setup_module = _load_setup_module()
+
+        staged = setup_module._selected_bazel_staged_outputs(
+            "rocm", ["--config=rocm"]
+        )
+
+        self.assertNotIn(
+            "//rtp_llm/cpp/cuda_graph/tests:test_cuda_graph_runner",
+            [entry[1] for entry in staged],
+        )
+
+    def test_dynamic_version_uses_release_version(self):
+        setup_module = _load_setup_module()
+        release_text = (PROJECT_ROOT / "rtp_llm" / "release_version.py").read_text(
+            encoding="utf-8"
+        )
+        match = re.search(
+            r'^RELEASE_VERSION\s*=\s*["\']([^"\']+)["\']', release_text, re.M
+        )
+        assert match is not None
+        expected = match.group(1)
+
+        self.assertEqual(setup_module.get_release_version(), expected)
+        self.assertEqual(setup_module.get_version_with_platform(), f"{expected}+cu129")
+
+    def test_public_platform_extras_have_no_internal_only_wheel_pins(self):
+        """Publicly published wheels must not carry internal-only wheel sources in their metadata.
+
+        setup.get_all_dependencies() merges the auto-detected platform's extras into
+        install_requires, so any internal-only direct wheel pin in a public platform stack would
+        leak the internal source into the published wheel's install metadata. Assert none of the
+        public platform extras reference an internal-only host.
+        """
+        extras = _oss_optional_extras()
+        offenders = []
+        for extra in PUBLIC_PLATFORM_EXTRAS:
+            for req in extras.get(extra, []):
+                url = _requirement_url(req)
+                if any(marker in url for marker in INTERNAL_ONLY_HOST_MARKERS):
+                    offenders.append(f"{extra}: {req}")
+        self.assertEqual(
+            offenders,
+            [],
+            "Public platform extras must not pin internal-only wheels; move these to the "
+            f"internal overlay (internal_source/pyproject_internal.toml):\n{offenders}",
+        )
+
+    def test_public_platform_extras_have_no_local_path_dependencies(self):
+        """Public platform extras must not reference local filesystem paths (non-reproducible)."""
+        extras = _oss_optional_extras()
+        offenders = []
+        for extra in PUBLIC_PLATFORM_EXTRAS:
+            for req in extras.get(extra, []):
+                if _is_local_path_reference(_requirement_url(req)):
+                    offenders.append(f"{extra}: {req}")
+        self.assertEqual(
+            offenders, [], f"Public platform extras must not use local paths:\n{offenders}"
+        )
+
+    def test_public_platform_extras_use_https_for_direct_wheels(self):
+        """Direct wheel pins in public platform extras must be fetched over HTTPS, not plaintext."""
+        extras = _oss_optional_extras()
+        offenders = []
+        for extra in PUBLIC_PLATFORM_EXTRAS:
+            for req in extras.get(extra, []):
+                url = _requirement_url(req)
+                if url.startswith("http://"):
+                    offenders.append(f"{extra}: {req}")
+        self.assertEqual(
+            offenders, [], f"Public platform extras must use https:// wheel URLs:\n{offenders}"
+        )
+
+    def test_cuda129_rtp_kernel_pin_contains_sm120_cubins(self):
+        """Keep the SM120-capable rtp-kernel build across packaging migrations."""
+        public_deps = _oss_optional_extras()["cuda12_9"]
+        public_pins = [req for req in public_deps if req.startswith("rtp_kernel @ ")]
+        self.assertEqual(len(public_pins), 1)
+        self.assertIn("/rtp_kernel_260612/", public_pins[0])
+
+        internal_overlay = PROJECT_ROOT / "internal_source" / "pyproject_internal.toml"
+        if internal_overlay.exists():
+            with open(internal_overlay, "rb") as f:
+                internal_extras = tomllib.load(f)["project"]["optional-dependencies"]
+            internal_pins = [
+                req
+                for req in internal_extras["cuda12_9"]
+                if req.startswith("rtp_kernel @ ")
+            ]
+            self.assertEqual(len(internal_pins), 1)
+            self.assertIn("/rtp_kernel_260612/", internal_pins[0])
+
+    def test_pytest_testpaths_all_exist(self):
+        """Every configured pytest testpath must exist.
+
+        A stale/typo'd testpath (e.g. rtp_llm/models/multimodal/test vs the real
+        rtp_llm/multimodal/test) is silently dropped by pytest, so those tests never run in CI.
+        Assert each path resolves so such drift fails loudly at contract-test time instead.
+        """
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        testpaths = pyproject["tool"]["pytest"]["ini_options"]["testpaths"]
+        missing = [p for p in testpaths if not (PROJECT_ROOT / p).exists()]
+        self.assertEqual(
+            missing, [], f"pyproject testpaths point at non-existent directories: {missing}"
+        )
+
+    def test_rocm_wheel_version_matches_dependency_abi(self):
+        """The rocm wheel version suffix must track the ROCm ABI the rocm extras are built for.
+
+        get_version_with_platform() stamps every OSS ROCm wheel with this suffix, so a stale value
+        (e.g. rocm62 while the deps/toolchain moved to ROCm 7.2) makes cache/publish/rollback pick
+        the wrong binary stack. Derive the ABI from the suffix and assert the rocm extras' wheels
+        actually reference it — and that no wheel references a different ROCm ABI.
+        """
+        platform_module = _load_platform_module()
+        suffix = platform_module.PLATFORM_CONFIG_VERSIONS.get("rocm", "")
+        m = re.fullmatch(r"rocm(\d)(\d+)", suffix)
+        self.assertIsNotNone(m, f"unexpected rocm version suffix {suffix!r}")
+        expected_abi = f"{m.group(1)}.{m.group(2)}"  # rocm72 -> "7.2"
+
+        rocm_reqs = _oss_optional_extras().get("rocm", [])
+        rocm_abis = set(re.findall(r"rocm(\d+\.\d+)", " ".join(rocm_reqs)))
+        self.assertIn(
+            expected_abi,
+            rocm_abis,
+            f"rocm suffix {suffix!r} (ABI {expected_abi}) not found in rocm extras "
+            f"wheel URLs (found ABIs: {sorted(rocm_abis)})",
+        )
+        stale = rocm_abis - {expected_abi}
+        self.assertEqual(
+            stale, set(), f"rocm extras reference ROCm ABIs {sorted(stale)} != suffix {expected_abi}"
+        )
+
+    def test_pytest_entry_points_are_packaged_with_tests(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        packages = set(
+            find_namespace_packages(
+                where=str(PROJECT_ROOT), include=["rtp_llm", "rtp_llm.*"]
+            )
+        )
+
+        self.assertIn("rtp_llm.test.remote_tests", packages)
+        self.assertIn("rtp_llm.test.smoke_framework", packages)
+        find_cfg = pyproject["tool"]["setuptools"]["packages"]["find"]
+        self.assertNotIn("exclude", find_cfg)
+
+        entry_points = pyproject["project"]["entry-points"]["pytest11"]
+        for target in entry_points.values():
+            module_name = target.split(":", 1)[0]
+            module_path = PROJECT_ROOT / (module_name.replace(".", "/") + ".py")
+            self.assertTrue(module_path.exists(), module_name)
+
+        package_data = pyproject["tool"]["setuptools"]["package-data"]["rtp_llm"]
+        self.assertIn("test/**/*.proto", package_data)
+        self.assertIn("test/**/*.json", package_data)
+        self.assertIn("models_py/**/data/*.json", package_data)

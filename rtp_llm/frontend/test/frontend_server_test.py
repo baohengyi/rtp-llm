@@ -3,6 +3,10 @@ import json
 from typing import Any
 from unittest import TestCase, main
 
+import pytest
+
+pytestmark = [pytest.mark.gpu(type="A10")]
+
 from pydantic import BaseModel
 
 from rtp_llm.config.py_config_modules import PyEnvConfigs
@@ -111,4 +115,5 @@ class FrontendServerTest(TestCase):
         self.assertTrue(self.frontend_server._frontend_worker.close_called)
 
 
-main()
+if __name__ == "__main__":
+    main()

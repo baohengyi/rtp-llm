@@ -1,5 +1,5 @@
 load("//:def.bzl", "cc_test_wrapper", "copts")
-load("//bazel:arch_select.bzl", "torch_deps")
+load("@rtp_llm//bazel:defs.bzl", "torch_deps")
 
 cc_test = cc_test_wrapper
 
@@ -69,7 +69,7 @@ cc_test(
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
-    env = {},
+    env = {"GPU_COUNT": "0"},
 )
 
 cc_test(
@@ -81,7 +81,7 @@ cc_test(
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ] + torch_deps(),
-    env = {},
+    env = {"GPU_COUNT": "0"},
 )
 
 cc_test(
@@ -94,7 +94,7 @@ cc_test(
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ] + torch_deps(),
-    env = {},
+    env = {"GPU_COUNT": "0"},
 )
 
 cc_test(
@@ -109,7 +109,7 @@ cc_test(
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
-    env = {},
+    env = {"GPU_COUNT": "0"},
 )
 
 cc_test(
@@ -124,7 +124,7 @@ cc_test(
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
-    env = {},
+    env = {"GPU_COUNT": "0"},
 )
 
 cc_library(
@@ -168,7 +168,7 @@ cc_test(
     copts = test_copts,
     deps = block_cache_test_deps,
     env = {},
-    exec_properties = {'gpu':'H20'},
+    exec_properties = {'gpu':'A10'},
 )
 
 cc_test(
@@ -194,7 +194,7 @@ cc_test(
         ":block_pool_test_helper",
     ],
     env = {},
-    exec_properties = {'gpu':'H20'},
+    exec_properties = {'gpu':'A10'},
 )
 
 cc_test(
@@ -206,7 +206,7 @@ cc_test(
     copts = test_copts,
     deps = test_deps,
     env = {},
-    exec_properties = {'gpu':'H20'},
+    exec_properties = {'gpu':'A10'},
 )
 
 cc_test(
@@ -220,7 +220,7 @@ cc_test(
         ":block_pool_test_helper",
     ],
     env = {},
-    exec_properties = {'gpu':'H20'},
+    exec_properties = {'gpu':'A10'},
 )
 
 cc_test(
@@ -234,7 +234,7 @@ cc_test(
         ":block_pool_test_helper",
     ],
     env = {},
-    exec_properties = {'gpu':'H20'},
+    exec_properties = {'gpu':'A10'},
 )
 
 cc_test(
@@ -251,7 +251,7 @@ cc_test(
         "//rtp_llm/cpp/cache/connector/memory:memory_connector",
     ],
     env = {},
-    exec_properties = {'gpu':'H20'},
+    exec_properties = {'gpu':'A10'},
 )
 
 cc_test(
@@ -281,7 +281,7 @@ cc_test(
         ":block_pool_test_helper",
     ],
     env = {},
-    exec_properties = {'gpu':'H20'},
+    exec_properties = {'gpu':'A10'},
 )
 
 cc_test(
@@ -295,7 +295,7 @@ cc_test(
         ":block_pool_test_helper",
     ],
     env = {},
-    exec_properties = {'gpu':'H20'},
+    exec_properties = {'gpu':'A10'},
 )
 
 cc_test(
@@ -365,5 +365,5 @@ cc_test(
     copts = test_copts,
     deps = test_deps,
     env = {},
-    exec_properties = {'gpu':'H20'},
+    exec_properties = {'gpu':'A10'},
 )

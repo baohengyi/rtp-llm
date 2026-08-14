@@ -29,6 +29,7 @@ cc_test(
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ] + torch_deps(),
+    env = {"GPU_COUNT": "0"},
 )
 
 cc_test(

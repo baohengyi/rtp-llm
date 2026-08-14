@@ -1,6 +1,17 @@
 import logging
+import os
 import unittest
 from typing import List
+
+import pytest
+
+os.environ.setdefault("NOT_USE_DEFAULT_STREAM", "1")
+os.environ.setdefault("TEST_USING_DEVICE", "CUDA")
+os.environ.setdefault("HACK_LAYER_NUM", "1")
+os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "1")
+os.environ.setdefault("ENABLE_CUDA_GRAPH_DEBUG_MODE", "1")
+
+pytestmark = [pytest.mark.H20, pytest.mark.gpu(type="H20", count=1)]
 
 import torch
 
