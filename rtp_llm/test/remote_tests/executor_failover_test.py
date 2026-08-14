@@ -221,6 +221,66 @@ def test_collect_remote_files_includes_perf_data(tmp_path):
     assert "internal_source/rtp_llm/test/perf_test/baselines/qwen_perf.json" in files
 
 
+def test_collect_remote_files_stages_ppu_runtime_libs(tmp_path, monkeypatch):
+    rootdir = tmp_path / "repo"
+    suite = rootdir / "test_ppu.py"
+    sdk_cuda = tmp_path / "ppu_sdk" / "CUDA_SDK" / "lib64"
+    sdk_lib = tmp_path / "ppu_sdk" / "lib"
+    sdk_cuda.mkdir(parents=True)
+    sdk_lib.mkdir(parents=True)
+    suite.parent.mkdir(parents=True, exist_ok=True)
+    suite.write_text("def test_placeholder(): pass\n")
+    for name in ("libcudart.so.12", "libcublas.so.12", "libcublasLt.so.12"):
+        (sdk_cuda / name).write_bytes(name.encode())
+    (sdk_lib / "libhgml.so").write_bytes(b"hgml")
+    monkeypatch.setattr(
+        remote_exec_rtp, "_ppu_runtime_search_dirs", lambda: [sdk_cuda, sdk_lib]
+    )
+
+    files = remote_exec_rtp.collect_remote_files(
+        rootdir.resolve(), [_FakeRemoteItem(suite.resolve(), gpu_type="PPU-ZW810E")]
+    )
+
+    runtime_dir = ".pytest_cache/remote_inputs/ppu_runtime"
+    expected = {
+        f"{runtime_dir}/libcudart.so.12",
+        f"{runtime_dir}/libcublas.so.12",
+        f"{runtime_dir}/libcublasLt.so.12",
+        f"{runtime_dir}/libhgml.so",
+    }
+    assert expected.issubset(files)
+    for rel in expected:
+        assert (rootdir / rel).is_symlink()
+
+
+def test_collect_remote_files_ppu_requires_controller_runtime_libs(
+    tmp_path, monkeypatch
+):
+    suite = tmp_path / "test_ppu.py"
+    suite.write_text("def test_placeholder(): pass\n")
+    monkeypatch.setattr(remote_exec_rtp, "_ppu_runtime_search_dirs", lambda: [])
+
+    with pytest.raises(RuntimeError, match="CUDA runtime.*PPU device runtime"):
+        remote_exec_rtp.collect_remote_files(
+            tmp_path.resolve(),
+            [_FakeRemoteItem(suite.resolve(), gpu_type="PPU-ZW810E")],
+        )
+
+
+def test_collect_remote_files_non_ppu_does_not_require_ppu_runtime_libs(
+    tmp_path, monkeypatch
+):
+    suite = tmp_path / "test_cuda.py"
+    suite.write_text("def test_placeholder(): pass\n")
+    monkeypatch.setattr(remote_exec_rtp, "_ppu_runtime_search_dirs", lambda: [])
+
+    files = remote_exec_rtp.collect_remote_files(
+        tmp_path.resolve(), [_FakeRemoteItem(suite.resolve(), gpu_type="H20")]
+    )
+
+    assert str(suite.relative_to(tmp_path)) in files
+
+
 class _FakeProfileConfig:
     def __init__(self, *, remote_session: bool):
         self.rootpath = Path(".")

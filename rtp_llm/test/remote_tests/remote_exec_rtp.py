@@ -40,10 +40,17 @@ _EXCLUDE_DIRS = frozenset(
 )
 _REMOTE_INPUT_DIR = Path(".pytest_cache") / "remote_inputs"
 _RUNTIME_LIBS_ARCHIVE = _REMOTE_INPUT_DIR / "rtp_llm_libs.tar"
+_PPU_RUNTIME_DIR = _REMOTE_INPUT_DIR / "ppu_runtime"
 _CORE_RUNTIME_LIBS = (
     "libth_transformer_config.so",
     "libth_transformer.so",
     "librtp_compute_ops.so",
+)
+_PPU_RUNTIME_LIB_PATTERNS = (
+    ("CUDA runtime", "libcudart.so*"),
+    ("cuBLAS", "libcublas.so*"),
+    ("cuBLAS Lt", "libcublasLt.so*"),
+    ("PPU device runtime", "libhgml.so*"),
 )
 
 
@@ -341,7 +348,8 @@ def build_remote_setup_command(rootdir: Path, *, setup_env: Optional[dict] = Non
         # + /opt/rocm + /opt/amdgpu paths for symmetry with .bazelrc; ld
         # silently skips non-existent dirs so safe on other workers.
         "export LD_LIBRARY_PATH="
-        '"$PWD/rtp_llm/libs:/opt/conda310/lib:/opt/rh/gcc-toolset-12/root/usr/lib64:'
+        '"$PWD/.pytest_cache/remote_inputs/ppu_runtime:$PWD/rtp_llm/libs:'
+        "/opt/conda310/lib:/opt/rh/gcc-toolset-12/root/usr/lib64:"
         "/opt/rocm/lib:/opt/amdgpu/lib64:"
         '/usr/local/nvidia/lib64:/usr/lib64:/usr/local/cuda/lib64"; '
         # Diagnostic — appears in remote_stdout.log so we can verify the
@@ -527,6 +535,89 @@ def _runtime_lib_files(rootdir: Path) -> List[Path]:
     return sorted(p for p in libs_dir.rglob("*") if p.is_file())
 
 
+def _ppu_runtime_search_dirs() -> List[Path]:
+    sdk_roots: List[Path] = []
+    for env_name in ("PPU_SDK", "PPU_HOME", "SDK_ROOT"):
+        if value := os.environ.get(env_name):
+            sdk_roots.append(Path(value))
+    sdk_roots.append(Path("/usr/local/PPU_SDK"))
+
+    candidates: List[Path] = []
+    for sdk_root in sdk_roots:
+        candidates.extend(
+            (
+                sdk_root / "CUDA_SDK" / "lib64",
+                sdk_root / "lib",
+                sdk_root / "sailSHMEM" / "lib",
+            )
+        )
+    candidates.extend(
+        (Path("/usr/local/cuda/lib64"), Path("/usr/local/nvidia/lib64"))
+    )
+    return list(dict.fromkeys(candidates))
+
+
+def _prepare_ppu_runtime_libs(rootdir: Path, items: List[Any]) -> List[str]:
+    """Expose controller-side PPU runtimes as explicit REAPI inputs.
+
+    Bazel tests obtain these libraries through target data/runfiles. Native
+    pytest dispatch only uploads repository files, while PPU workers are not
+    guaranteed to contain the SDK. Stage symlinks in the ignored pytest cache;
+    the Merkle builder follows them and materializes regular files remotely.
+    """
+    if not any(
+        resolve_item_gpu_request(item).gpu_type.upper().startswith("PPU")
+        for item in items
+    ):
+        return []
+
+    search_dirs = _ppu_runtime_search_dirs()
+    selected: List[Path] = []
+    missing: List[str] = []
+    for label, pattern in _PPU_RUNTIME_LIB_PATTERNS:
+        matches: List[Path] = []
+        for directory in search_dirs:
+            if directory.is_dir():
+                matches = sorted(
+                    path
+                    for path in directory.glob(pattern)
+                    if path.is_file() or path.is_symlink()
+                )
+            if matches:
+                break
+        if matches:
+            selected.extend(matches)
+        else:
+            missing.append(f"{label} ({pattern})")
+
+    if missing:
+        searched = ", ".join(str(path) for path in search_dirs)
+        raise RuntimeError(
+            "PPU remote tests require controller runtime libraries missing from "
+            f"the REAPI workers: {', '.join(missing)}. Searched: {searched}"
+        )
+
+    stage_dir = rootdir / _PPU_RUNTIME_DIR
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    staged: List[str] = []
+    for source in selected:
+        destination = stage_dir / source.name
+        resolved_source = source.resolve()
+        if destination.is_symlink() or destination.exists():
+            if destination.is_symlink() and destination.resolve() == resolved_source:
+                staged.append(str(destination.relative_to(rootdir)))
+                continue
+            destination.unlink()
+        destination.symlink_to(resolved_source)
+        staged.append(str(destination.relative_to(rootdir)))
+
+    log.info(
+        "PPU remote tests: staged %d runtime library names from controller SDK",
+        len(staged),
+    )
+    return staged
+
+
 def _prepare_runtime_libs_archive(rootdir: Path) -> str:
     """Pack runtime libs for remote-session runs.
 
@@ -669,6 +760,7 @@ def collect_remote_files(rootdir: Path, items: List[Any]) -> List[str]:
             files.append(rel)
 
     files.extend(_collect_repo_runtime_files(rootdir))
+    files.extend(_prepare_ppu_runtime_libs(rootdir, items))
 
     has_smoke = any(item.get_closest_marker("smoke") is not None for item in items)
     if has_smoke:
