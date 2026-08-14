@@ -20,6 +20,9 @@ cc_library(
         "//rtp_llm/cpp/utils:stack_trace",
         "//rtp_llm/cpp/config:config_modules",
         "//rtp_llm/cpp/config:static_config",
+        "@local_config_cuda//cuda:cublas",
+        "@local_config_cuda//cuda:cublas_headers",
+        "@local_config_cuda//cuda:cuda_driver",
         "@local_config_cuda//cuda:nvml",
     ],
     copts = copts(),
@@ -153,6 +156,7 @@ cc_library(
         "//rtp_llm/cpp/config:model_config",
         "//rtp_llm/models_py/bindings/cuda/kernels:user_buffers",
         "//rtp_llm/cpp/utils:profiling_scope",
+        "@local_config_cuda//cuda:cuda_headers",
     ] + select({
         "@//:using_cuda12_9": [
             "//rtp_llm/models_py/bindings/cuda/kernels:scaled_fp4_quant",
