@@ -1,8 +1,9 @@
 """Attention factory module - handles different attention implementations."""
 
+import logging
+
 from rtp_llm.device.device_type import DeviceType, get_device_type
 
-# Import the factory after lists are defined to avoid circular imports
 from rtp_llm.models_py.modules.factory.attention.attn_factory import AttnImplFactory
 from rtp_llm.models_py.modules.factory.attention.fmha_impl_base import (
     FMHAImplBase,
@@ -15,9 +16,6 @@ __all__ = [
     "AttnImplFactory",
 ]
 
-# ============================================================================
-# Device-specific Attention implementation registration
-# ============================================================================
 from rtp_llm.models_py.modules.factory.attention import attn_factory
 from rtp_llm.models_py.modules.factory.attention.attn_factory import (
     DECODE_MHA_IMPS,
@@ -29,7 +27,6 @@ from rtp_llm.models_py.modules.factory.platform_ext_loader import load_platform_
 
 device_type = get_device_type()
 if device_type == DeviceType.ROCm:
-    # Import to register ROCm FMHA implementations
     from rtp_llm.models_py.modules.factory.attention.rocm_impl.aiter import (
         AiterDecodeImplAsm,
         AiterDecodeImplNonAsm,
@@ -41,111 +38,103 @@ if device_type == DeviceType.ROCm:
     )
 
     attn_factory.VALIDATE_FMHA_CONFIG = validate_v_layout
+    PREFILL_MHA_IMPS.extend(
+        [AiterPrefillImplPaged, AiterPrefillImplAsm, AiterPrefillImplNonAsm]
+    )
+    DECODE_MHA_IMPS.extend(
+        [AiterDecodeImplTriton, AiterDecodeImplAsm, AiterDecodeImplNonAsm]
+    )
+elif device_type == DeviceType.Cuda:
+    # These modules import CUDA-only packages at module scope. Keeping every
+    # import inside this branch makes non-CUDA test collection import-safe.
+    from rtp_llm.models_py.modules.factory.attention.cuda_headwise_impl.headwise import (
+        HeadWisePrefillImpl,
+    )
+    from rtp_llm.models_py.modules.factory.attention.cuda_headwise_impl.headwise_fp8 import (
+        HeadWiseFP8PrefillImpl,
+    )
+    from rtp_llm.models_py.modules.factory.attention.cuda_impl.py_flashinfer_mha import (
+        PyFlashinferHybridPrefillImpl,
+        PyFlashinferPagedPrefillImpl,
+        PyFlashinferPrefillImpl,
+    )
 
-    PREFILL_MHA_IMPS.append(AiterPrefillImplPaged)
-    PREFILL_MHA_IMPS.append(AiterPrefillImplAsm)
-    PREFILL_MHA_IMPS.append(AiterPrefillImplNonAsm)
-    DECODE_MHA_IMPS.append(AiterDecodeImplTriton)
-    DECODE_MHA_IMPS.append(AiterDecodeImplAsm)
-    DECODE_MHA_IMPS.append(AiterDecodeImplNonAsm)
-else:
-    # currently append early means impl has higher priority
-    if device_type == DeviceType.Cuda:
-        from rtp_llm.models_py.modules.factory.attention.cuda_headwise_impl.headwise import (
-            HeadWisePrefillImpl,
-        )
-        from rtp_llm.models_py.modules.factory.attention.cuda_headwise_impl.headwise_fp8 import (
-            HeadWiseFP8PrefillImpl,
-        )
+    try:
         from rtp_llm.models_py.modules.factory.attention.cuda_impl.py_flashinfer_mha import (
-            PyFlashinferPagedPrefillImpl,
-            PyFlashinferPrefillImpl,
+            PyFlashinferDecodeImpl,
         )
-        try:
-            from rtp_llm.models_py.modules.factory.attention.cuda_impl.py_flashinfer_mha import (
-                PyFlashinferDecodeImpl,
-            )
-        except ImportError as e:
-            PyFlashinferDecodeImpl = None
-            logging.warning("Skip Python FlashInfer decode implementation: %s", e)
-        from rtp_llm.models_py.modules.factory.attention.cuda_impl.trt import (
-            FlashInferTRTLLMFMHAv2PagedPrefillImpl,
-            FlashInferTRTLLMFMHAv2PrefillImpl,
-        )
-        from rtp_llm.models_py.modules.factory.attention.cuda_impl.trtllm_gen import (
-            FlashInferTRTLLMDecodeImpl,
-            FlashInferTRTLLMPrefillImpl,
+    except ImportError as e:
+        PyFlashinferDecodeImpl = None
+        logging.warning("Skip Python FlashInfer decode implementation: %s", e)
+
+    from rtp_llm.models_py.modules.factory.attention.cuda_impl.trt import (
+        FlashInferTRTLLMFMHAv2PagedPrefillImpl,
+        FlashInferTRTLLMFMHAv2PrefillImpl,
+    )
+    from rtp_llm.models_py.modules.factory.attention.cuda_impl.trtllm_gen import (
+        FlashInferTRTLLMDecodeImpl,
+        FlashInferTRTLLMPrefillImpl,
+        FlashInferTRTLLMSpecDecodeImpl,
+    )
+    from rtp_llm.models_py.modules.factory.attention.cuda_impl.xqa import (
+        XQAImpl,
+        get_xqa_impl,
+    )
+
+    PREFILL_MHA_IMPS.extend(
+        [
+            HeadWiseFP8PrefillImpl,
+            HeadWisePrefillImpl,
             FlashInferTRTLLMSpecDecodeImpl,
-        )
-        from rtp_llm.models_py.modules.factory.attention.cuda_impl.xqa import (
-            XQAImpl,
-            get_xqa_impl,
-        )
+            FlashInferTRTLLMPrefillImpl,
+            FlashInferTRTLLMFMHAv2PrefillImpl,
+            PyFlashinferPrefillImpl,
+            PyFlashinferHybridPrefillImpl,
+            PyFlashinferPagedPrefillImpl,
+            FlashInferTRTLLMFMHAv2PagedPrefillImpl,
+        ]
+    )
+    DECODE_MHA_IMPS.append(FlashInferTRTLLMDecodeImpl)
+    # Preserve the established accumulation path before trying FlashInfer's
+    # XQA fallback; the two implementations can differ by less than one ULP.
+    DECODE_MHA_IMPS.append(XQAImpl)
+    _xqa_decode_impl = get_xqa_impl()
+    if _xqa_decode_impl is not XQAImpl:
+        DECODE_MHA_IMPS.append(_xqa_decode_impl)
+    if PyFlashinferDecodeImpl is not None:
+        DECODE_MHA_IMPS.append(PyFlashinferDecodeImpl)
 
-        PREFILL_MHA_IMPS.extend(
-            [
-                HeadWiseFP8PrefillImpl,
-                HeadWisePrefillImpl,
-                FlashInferTRTLLMSpecDecodeImpl,
-                FlashInferTRTLLMPrefillImpl,
-                FlashInferTRTLLMFMHAv2PrefillImpl,
-                PyFlashinferPrefillImpl,
-                PyFlashinferPagedPrefillImpl,
-                FlashInferTRTLLMFMHAv2PagedPrefillImpl,
-            ]
-        )
-        DECODE_MHA_IMPS.extend([FlashInferTRTLLMDecodeImpl])
-        # XQAImpl (TRT GMMA) before XQADecodeImpl (FlashInfer HMMA): different
-        # accumulation paths produce <1 ULP divergence that flips tokens in long
-        # generations.  Existing golden data was generated with XQAImpl, so keep
-        # it higher-priority to avoid unnecessary golden refreshes.
-        DECODE_MHA_IMPS.append(XQAImpl)
-        _xqa_decode_impl = get_xqa_impl()
-        if _xqa_decode_impl is not XQAImpl:
-            DECODE_MHA_IMPS.append(_xqa_decode_impl)
-        if PyFlashinferDecodeImpl is not None:
-            DECODE_MHA_IMPS.append(PyFlashinferDecodeImpl)
+    from rtp_llm.models_py.modules.factory.attention.cuda_mla_impl.flashinfer_mla_wrapper import (
+        MlaFlashInferDecodeImpl,
+        MlaFlashInferPrefillImpl,
+    )
 
-        from rtp_llm.models_py.modules.factory.attention.cuda_mla_impl.flashinfer_mla_wrapper import (
-            MlaFlashInferDecodeImpl,
-            MlaFlashInferPrefillImpl,
-        )
+    DECODE_MLA_IMPS.append(MlaFlashInferDecodeImpl)
+    PREFILL_MLA_IMPS.append(MlaFlashInferPrefillImpl)
 
-        DECODE_MLA_IMPS.append(MlaFlashInferDecodeImpl)
-        PREFILL_MLA_IMPS.append(MlaFlashInferPrefillImpl)
+    try:
+        import torch
 
-        # SparseMlaImpl requires CUDA >= 12.9 for flash_mla support
-        try:
-            import torch
+        if torch.version.cuda:
+            major, minor = map(int, torch.version.cuda.split(".")[:2])
+            if (major, minor) >= (12, 9):
+                from rtp_llm.models_py.modules.factory.attention.cuda_mla_impl.flashmla_sparse_cp_impl import (
+                    SparseMlaCpImpl,
+                )
+                from rtp_llm.models_py.modules.factory.attention.cuda_mla_impl.flashmla_sparse_impl import (
+                    SparseMlaImpl,
+                )
 
-            if torch.version.cuda:
-                major, minor = map(int, torch.version.cuda.split(".")[:2])
-                if (major, minor) >= (12, 9):
-                    from rtp_llm.models_py.modules.factory.attention.cuda_mla_impl.flashmla_sparse_cp_impl import (
-                        SparseMlaCpImpl,
-                    )
-                    from rtp_llm.models_py.modules.factory.attention.cuda_mla_impl.flashmla_sparse_impl import (
-                        SparseMlaImpl,
-                    )
+                DECODE_MLA_IMPS.append(SparseMlaImpl)
+                PREFILL_MLA_IMPS.extend([SparseMlaImpl, SparseMlaCpImpl])
+    except (ImportError, AttributeError, ValueError):
+        pass
 
-                    DECODE_MLA_IMPS.append(SparseMlaImpl)
-                    PREFILL_MLA_IMPS.append(SparseMlaImpl)
-                    PREFILL_MLA_IMPS.append(SparseMlaCpImpl)
-        except (ImportError, AttributeError, ValueError):
-            pass  # Skip SparseMlaImpl if CUDA < 12.9 or flash_mla not available
+    from rtp_llm.models_py.modules.factory.attention.cuda_cp_impl.prefill_cp_flashinfer import (
+        CPFlashInferImpl,
+    )
 
-        # py_flashinfer_mha and prefill_cp_flashinfer hard-import flashinfer
-        # at module top-level; keep them inside the CUDA branch so CPU, Yitian,
-        # and ArmCpu collection stays import-safe.
-        # NOTE: PyFlashinfer{Prefill,Paged,Decode}Impl are already registered
-        # in the extend([...]) above (lines 75-87); this block only adds
-        # CPFlashInferImpl. The earlier duplicate appends caused
-        # PyFlashinfer* impls to be tried twice in the dispatcher.
-        from rtp_llm.models_py.modules.factory.attention.cuda_cp_impl.prefill_cp_flashinfer import (
-            CPFlashInferImpl,
-        )
-
-        PREFILL_MHA_IMPS.append(CPFlashInferImpl)
+    PREFILL_MHA_IMPS.append(CPFlashInferImpl)
 
 extension = load_platform_extension()
 if extension and hasattr(extension, "register_attention"):
@@ -159,14 +148,7 @@ if extension and hasattr(extension, "register_attention"):
 
 
 def _validate_impl_names() -> None:
-    """Assert every registered impl has a non-empty NAME.
-
-    Without NAME, attn_factory.get_fmha_impl explicit dispatch
-    (--attn_backend=<name>) silently fails to find the impl and raises a
-    generic "can not find mha type" error. This check moves that failure to
-    import time so misregistration is caught in CI / dev-loop, not when a
-    user types the flag.
-    """
+    """Assert every registered implementation has a public backend name."""
     for registry_name, registry in (
         ("PREFILL_MHA_IMPS", PREFILL_MHA_IMPS),
         ("DECODE_MHA_IMPS", DECODE_MHA_IMPS),
@@ -174,11 +156,10 @@ def _validate_impl_names() -> None:
         ("DECODE_MLA_IMPS", DECODE_MLA_IMPS),
     ):
         for cls in registry:
-            name = getattr(cls, "NAME", "")
-            if not name:
+            if not getattr(cls, "NAME", ""):
                 raise RuntimeError(
                     f"Impl class {cls.__module__}.{cls.__name__} registered "
-                    f"in {registry_name} has empty NAME — set a backend NAME "
+                    f"in {registry_name} has empty NAME - set a backend NAME "
                     f"matching the help text in fmha_group_args.py, or remove "
                     f"the class from the registry."
                 )

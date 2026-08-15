@@ -260,6 +260,11 @@ def _is_fmha_impl_disabled_legacy(impl_class: type, fmha_config: FMHAConfig) -> 
         "FlashInferTRTLLMFMHAv2PagedPrefillImpl",
     }:
         return not fmha_config.enable_paged_trt_fmha or not fmha_config.enable_open_source_fmha
+    elif impl_class_name == "PyFlashinferHybridPrefillImpl":
+        return (
+            fmha_config.disable_flashinfer_hybrid_prefill
+            or fmha_config.disable_flash_infer
+        )
     elif "FlashInfer" in impl_class_name or "Flashinfer" in impl_class_name:
         return fmha_config.disable_flash_infer
     elif "AiterDecodeImplAsm" in impl_class_name:

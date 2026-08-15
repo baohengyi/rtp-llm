@@ -388,6 +388,7 @@ PYBIND11_MODULE(libth_transformer_config, m) {
         .def_readwrite("enable_paged_trt_fmha", &FMHAConfig::enable_paged_trt_fmha)
         .def_readwrite("enable_open_source_fmha", &FMHAConfig::enable_open_source_fmha)
         .def_readwrite("disable_flash_infer", &FMHAConfig::disable_flash_infer)
+        .def_readwrite("disable_flashinfer_hybrid_prefill", &FMHAConfig::disable_flashinfer_hybrid_prefill)
         .def_readwrite("enable_xqa", &FMHAConfig::enable_xqa)
         .def_readwrite("use_aiter_pa", &FMHAConfig::use_aiter_pa)
         .def_readwrite("use_asm_pa", &FMHAConfig::use_asm_pa)
@@ -409,7 +410,8 @@ PYBIND11_MODULE(libth_transformer_config, m) {
                                       self.use_aiter_pa,
                                       self.use_asm_pa,
                                       self.use_triton_pa,
-                                      self.absorb_opt_len);
+                                      self.absorb_opt_len,
+                                      self.disable_flashinfer_hybrid_prefill);
             },
             [](py::tuple t) {
                 // This pickle is only used for SAME-VERSION IPC: configs are passed to
@@ -418,8 +420,8 @@ PYBIND11_MODULE(libth_transformer_config, m) {
                 // wire format (cross-node/service comms use gRPC + protobuf), so a strict
                 // field-count check is correct and cross-version rolling-upgrade
                 // compatibility is intentionally not provided.
-                if (t.size() != 14)
-                    throw std::runtime_error("Invalid FMHAConfig state: expected 14 fields, got "
+                if (t.size() != 15)
+                    throw std::runtime_error("Invalid FMHAConfig state: expected 15 fields, got "
                                              + std::to_string(t.size()));
                 FMHAConfig c;
                 try {
@@ -437,6 +439,7 @@ PYBIND11_MODULE(libth_transformer_config, m) {
                     c.use_asm_pa              = t[11].cast<bool>();
                     c.use_triton_pa           = t[12].cast<bool>();
                     c.absorb_opt_len          = t[13].cast<int64_t>();
+                    c.disable_flashinfer_hybrid_prefill = t[14].cast<bool>();
                 } catch (const std::exception& e) {
                     throw std::runtime_error(std::string("FMHAConfig unpickle error: ") + e.what());
                 }

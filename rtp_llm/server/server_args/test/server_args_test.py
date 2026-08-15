@@ -38,6 +38,7 @@ class ServerArgsSetTest(TestCase):
         os.environ["DASH_SC_GRPC_PRE_STOP_DRAIN_SECONDS"] = "9"
         os.environ["LOADER_RECYCLE_HANDLES"] = "false"
         os.environ["MOE_PURE_TP_PRESHARD"] = "true"
+        os.environ["DISABLE_FLASHINFER_HYBRID_PREFILL"] = "1"
 
         sys.argv = ["prog"]
 
@@ -88,6 +89,8 @@ class ServerArgsSetTest(TestCase):
         # Note: max_seq_len is in ModelConfig, not RuntimeConfig or EngineConfig
         # It will be set when ModelConfig is created from model_args
 
+        self.assertTrue(py_env_configs.fmha_config.disable_flashinfer_hybrid_prefill)
+
     def test_leader_address_env_is_bound_to_distribute_config(self):
         os.environ["LEADER_ADDRESS"] = "10.0.0.5"
         sys.argv = ["prog"]
@@ -129,6 +132,8 @@ class ServerArgsSetTest(TestCase):
             "4",
             "--cache_store_rdma_worker_thread_count",
             "2",
+            "--disable_flashinfer_hybrid_prefill",
+            "true",
             # Note: max_seq_len is in ModelConfig, not ModelArgs
             # It will be set when ModelConfig is created from model_args
         ]
@@ -181,6 +186,8 @@ class ServerArgsSetTest(TestCase):
         self.assertEqual(py_env_configs.cache_store_config.rdma_io_thread_count, 4)
         self.assertEqual(py_env_configs.cache_store_config.rdma_worker_thread_count, 2)
 
+        self.assertTrue(py_env_configs.fmha_config.disable_flashinfer_hybrid_prefill)
+
     def test_cmd_args_override_env_vars(self):
         """Test that command line arguments override environment variables."""
         # Set environment variables
@@ -189,6 +196,7 @@ class ServerArgsSetTest(TestCase):
         os.environ["ACT_TYPE"] = "BF16"
         os.environ["TP_SIZE"] = "4"
         os.environ["CONCURRENCY_LIMIT"] = "32"
+        os.environ["DISABLE_FLASHINFER_HYBRID_PREFILL"] = "1"
 
         # Set command line arguments (should override env vars)
         sys.argv = [
@@ -203,6 +211,8 @@ class ServerArgsSetTest(TestCase):
             "8",
             "--concurrency_limit",
             "64",
+            "--disable_flashinfer_hybrid_prefill",
+            "false",
         ]
 
         # Import and setup args
@@ -220,6 +230,9 @@ class ServerArgsSetTest(TestCase):
         self.assertEqual(py_env_configs.parallelism_config.tp_size, 8)  # Overridden
         self.assertEqual(
             py_env_configs.concurrency_config.concurrency_limit, 64
+        )  # Overridden
+        self.assertFalse(
+            py_env_configs.fmha_config.disable_flashinfer_hybrid_prefill
         )  # Overridden
 
     def test_mixed_env_and_cmd_args(self):
@@ -264,6 +277,9 @@ class ServerArgsSetTest(TestCase):
             py_env_configs.runtime_config.fifo_scheduler_config.max_context_batch_size,
             32,
         )
+
+        # Not set via env or cmd args: verify the default value
+        self.assertTrue(py_env_configs.fmha_config.disable_flashinfer_hybrid_prefill)
 
     def test_batch_decode_scheduler_config(self):
         """Test that batch_decode_scheduler_config is correctly set."""
