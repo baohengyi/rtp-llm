@@ -122,7 +122,7 @@ def test_native_prefill_keeps_rope_without_writing_dummy_cache():
     forward_source = ast.unparse(_find_method(base_impl, "forward"))
 
     assert "if self.need_rope_kv_cache" in forward_source
-    assert "if kv_cache is not None" in forward_source
+    assert "if self.need_rope_kv_cache and kv_cache is not None" in forward_source
     assert "self.kv_cache_write_op.forward(key, value, kv_cache)" in forward_source
 
 
@@ -190,6 +190,7 @@ def test_py_flashinfer_module_exports_all_registered_implementations():
 
     assert ast.literal_eval(export.value) == [
         "PyFlashinferPagedPrefillImpl",
+        "PyFlashinferHybridPrefillImpl",
         "PyFlashinferPrefillImpl",
         "PyFlashinferDecodeImpl",
     ]
@@ -212,4 +213,5 @@ def test_attention_compatibility_names_survive_remote_source_cache_rollout():
         _find_method(_find_class(xqa_tree, "XQAImpl"), "prepare_cuda_graph")
     )
     assert "update_attention_params" in prepare_source
-    assert "update_trt_params" in prepare_source
+    assert "getattr(self.fmha_impl, 'update', None)" in prepare_source
+    assert "update_kv_cache_offset" in prepare_source

@@ -134,7 +134,15 @@ class ExceptionType(IntEnum):
 
 
 class FtRuntimeException(Exception):
-    def __init__(self, exception_type: ExceptionType, message: str):
+    def __init__(
+        self,
+        exception_type: ExceptionType,
+        message: str,
+        rtp_error_code: int | None = None,
+    ):
         self.exception_type = exception_type
+        self.rtp_error_code = int(
+            exception_type if rtp_error_code is None else rtp_error_code
+        )
         self.message = message
         super().__init__(self.message)
