@@ -1135,6 +1135,17 @@ def stage_bazel_outputs(
     print(f"  Copied {copied_count} staged Bazel output(s)")
 
 
+def _pybind_stubgen_preload(module: str) -> str:
+    """Return the production load path required before introspecting a module."""
+    if module == "libth_transformer":
+        # The engine module must load after librtp_compute_ops. Loading it first
+        # corrupts process teardown on PPU builds (see rtp_llm/ops/__init__.py).
+        return "rtp_llm.ops.ensure_engine_ops_loaded(); "
+    if module == "librtp_compute_ops":
+        return "rtp_llm.ops.ensure_compute_ops_loaded(); "
+    return ""
+
+
 def generate_pyi_stubs(project_root: Path) -> None:
     """Generate .pyi type stubs from compiled pybind11 .so modules.
 
@@ -1184,12 +1195,14 @@ def generate_pyi_stubs(project_root: Path) -> None:
 
     print("\nGenerating .pyi stubs via pybind11_stubgen:")
     for module in modules:
+        preload = _pybind_stubgen_preload(module)
         try:
             result = subprocess.run(
                 [
                     sys.executable,
                     "-c",
                     "import rtp_llm.ops, runpy, sys; "
+                    f"{preload}"
                     f"sys.argv = ['pybind11_stubgen', {module!r}, '-o', {str(ops_dir)!r}]; "
                     "runpy.run_module('pybind11_stubgen', run_name='__main__')",
                 ],

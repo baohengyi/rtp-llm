@@ -76,6 +76,22 @@ def _load_setup_module():
 
 
 class BuildPackagingContractTest(TestCase):
+    def test_stubgen_preloads_native_modules_in_runtime_order(self):
+        setup_module = _load_setup_module()
+
+        self.assertEqual(
+            setup_module._pybind_stubgen_preload("libth_transformer"),
+            "rtp_llm.ops.ensure_engine_ops_loaded(); ",
+        )
+        self.assertEqual(
+            setup_module._pybind_stubgen_preload("librtp_compute_ops"),
+            "rtp_llm.ops.ensure_compute_ops_loaded(); ",
+        )
+        self.assertEqual(
+            setup_module._pybind_stubgen_preload("libth_transformer_config"),
+            "",
+        )
+
     def _bazel_cmd_prefix(self, setup_module, scope=None):
         env = {"XDG_CACHE_HOME": "/tmp/rtp-llm-test-cache"}
         if scope is not None:
