@@ -481,17 +481,19 @@ def _get_visible_devices_env(device_name: str) -> str:
     return "CUDA_VISIBLE_DEVICES"
 
 
-def _get_required_gpu_count() -> int:
+def _get_required_gpu_count(device_available: bool = True) -> int:
     gpu_count_env = os.environ.get("GPU_COUNT", os.environ.get("WORLD_SIZE"))
-    return int(gpu_count_env) if gpu_count_env is not None else 1
+    if gpu_count_env is not None:
+        return int(gpu_count_env)
+    return 1 if device_available else 0
 
 
 if __name__ == "__main__":
     device_info = get_device_info()
-    # `--run_under=gpu_lock` historically means "serialize one GPU by default".
-    # Keep that invariant for GPU tests. CPU-only wrappers that intentionally do
-    # not need isolation must opt out explicitly with GPU_COUNT=0.
-    require_count = _get_required_gpu_count()
+    # `--run_under=gpu_lock` wraps the entire Bazel C++ suite, including tests
+    # dispatched to CPU workers. Lock one GPU by default when a device exists;
+    # a caller that explicitly requests GPUs still fails on a CPU-only worker.
+    require_count = _get_required_gpu_count(device_available=device_info is not None)
 
     if not device_info:
         if require_count > 0:

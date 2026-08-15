@@ -100,6 +100,18 @@ class BuildPackagingContractTest(TestCase):
                 check=True,
             )
 
+    def test_core_build_stages_grammar_tokenizer_binding(self):
+        setup_module = _load_setup_module()
+
+        self.assertIn(
+            (
+                "core",
+                "//:th_grammar_tokenizer_info",
+                ("libth_grammar_tokenizer_info.so",),
+            ),
+            setup_module._CORE_BAZEL_STAGED_OUTPUTS,
+        )
+
     def test_stubgen_preloads_native_modules_in_runtime_order(self):
         setup_module = _load_setup_module()
 
@@ -270,6 +282,58 @@ class BuildPackagingContractTest(TestCase):
             "rtp_llm"
         ]
         self.assertIn("libs/test/*", excluded)
+
+    def test_cuda129_stages_pywrapped_model_pytest_binding(self):
+        setup_module = _load_setup_module()
+
+        staged = setup_module._selected_bazel_staged_outputs(
+            "cuda12_9", ["--config=cuda12_9"]
+        )
+        self.assertIn(
+            (
+                "test",
+                "//rtp_llm/cpp/models/test:th_pywrapped_model_cache_store_integration_test",
+                (
+                    (
+                        "libth_pywrapped_model_cache_store_integration_test.so",
+                        "test/libth_pywrapped_model_cache_store_integration_test.so",
+                    ),
+                ),
+            ),
+            staged,
+        )
+
+    def test_pywrapped_model_integration_test_is_h20_pytest_only(self):
+        build_file = PROJECT_ROOT / "rtp_llm/cpp/models/test/BUILD"
+        build_text = build_file.read_text(encoding="utf-8")
+        target_block = re.search(
+            r'py_test\(\s*name = "pywrapped_model_cache_store_integration_test",'
+            r'.*?\n\)',
+            build_text,
+            re.S,
+        )
+        self.assertIsNotNone(target_block)
+        self.assertIn('tags = ["manual"]', target_block.group(0))
+
+        test_file = (
+            PROJECT_ROOT
+            / "rtp_llm/cpp/models/test/pywrapped_model_cache_store_integration_test.py"
+        )
+        tree = ast.parse(test_file.read_text(encoding="utf-8"))
+        test_class = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef)
+            and node.name == "PyWrappedModelCacheStoreIntegrationTest"
+        )
+        decorators = {ast.unparse(node) for node in test_class.decorator_list}
+        self.assertIn("pytest.mark.H20", decorators)
+        self.assertTrue(
+            any(
+                isinstance(node, ast.FunctionDef) and node.name == "setUpClass"
+                for node in test_class.body
+            )
+        )
 
     def test_cuda_graph_runner_defers_native_import_until_execution(self):
         module_path = (

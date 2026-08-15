@@ -82,6 +82,7 @@ py_test(
     srcs = ["pywrapped_model_cache_store_integration_test.py"],
     data = [":th_pywrapped_model_cache_store_integration_test"],
     deps = ["//rtp_llm:torch"],
+    tags = ["manual"],
     env = {
         "TEST_USING_DEVICE": "CUDA",
     },

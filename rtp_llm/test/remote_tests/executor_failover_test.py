@@ -854,6 +854,7 @@ def test_collect_session_files_packs_runtime_lib_archive(tmp_path):
     cuda_graph_source.write_text("// source contract\n", encoding="utf-8")
     for name in (
         "libth_transformer_config.so",
+        "libth_grammar_tokenizer_info.so",
         "libth_transformer.so",
         "librtp_compute_ops.so",
         "libdependency.so.1",
@@ -877,6 +878,7 @@ def test_collect_session_files_packs_runtime_lib_archive(tmp_path):
     with tarfile.open(tmp_path / archive_rel, "r") as tar:
         names = set(tar.getnames())
     assert "rtp_llm/libs/libth_transformer_config.so" in names
+    assert "rtp_llm/libs/libth_grammar_tokenizer_info.so" in names
     assert "rtp_llm/libs/libdependency.so.1" in names
 
 

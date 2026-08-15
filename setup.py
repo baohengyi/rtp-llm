@@ -689,9 +689,14 @@ _CORE_BAZEL_STAGED_OUTPUTS = [
         "//:th_transformer_config",
         ("libth_transformer_config.so",),
     ),
+    (
+        _STAGED_OUTPUT_CORE,
+        "//:th_grammar_tokenizer_info",
+        ("libth_grammar_tokenizer_info.so",),
+    ),
 ]
 
-_CUDA_GRAPH_TEST_BAZEL_STAGED_OUTPUTS = [
+_CUDA129_TEST_BAZEL_STAGED_OUTPUTS = [
     (
         _STAGED_OUTPUT_TEST,
         "//rtp_llm/cpp/cuda_graph/tests:test_cuda_graph_runner",
@@ -699,6 +704,16 @@ _CUDA_GRAPH_TEST_BAZEL_STAGED_OUTPUTS = [
             (
                 "libtest_cuda_graph_runner.so",
                 "test/libtest_cuda_graph_runner.so",
+            ),
+        ),
+    ),
+    (
+        _STAGED_OUTPUT_TEST,
+        "//rtp_llm/cpp/models/test:th_pywrapped_model_cache_store_integration_test",
+        (
+            (
+                "libth_pywrapped_model_cache_store_integration_test.so",
+                "test/libth_pywrapped_model_cache_store_integration_test.so",
             ),
         ),
     ),
@@ -784,10 +799,10 @@ def _selected_bazel_staged_outputs(build_config: str, bazel_args: list = None) -
         bazel_args = parse_bazel_config(default_config=build_config)
     staged_outputs = list(_CORE_BAZEL_STAGED_OUTPUTS)
     if "cuda12_9" in _bazel_config_names(bazel_args):
-        # Python-native CUDA Graph tests run in the H20 pytest session. Keep
-        # their pybind module below libs/test/ so remote-session archives it,
-        # while wheel package-data (libs/*.so) does not publish it.
-        staged_outputs.extend(_CUDA_GRAPH_TEST_BAZEL_STAGED_OUTPUTS)
+        # Python-native CUDA tests run in the H20 pytest session. Keep their
+        # bindings below libs/test/ so remote-session archives them, while
+        # wheel package-data (libs/*.so) does not publish test-only modules.
+        staged_outputs.extend(_CUDA129_TEST_BAZEL_STAGED_OUTPUTS)
     include_remote_kvcm = _include_remote_kvcm_runtime_outputs(bazel_args)
     if include_remote_kvcm:
         staged_outputs.extend(_REMOTE_KVCM_RUNTIME_BAZEL_STAGED_OUTPUTS)

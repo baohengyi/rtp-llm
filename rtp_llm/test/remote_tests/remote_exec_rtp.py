@@ -43,6 +43,7 @@ _RUNTIME_LIBS_ARCHIVE = _REMOTE_INPUT_DIR / "rtp_llm_libs.tar"
 _PPU_RUNTIME_DIR = _REMOTE_INPUT_DIR / "ppu_runtime"
 _CORE_RUNTIME_LIBS = (
     "libth_transformer_config.so",
+    "libth_grammar_tokenizer_info.so",
     "libth_transformer.so",
     "librtp_compute_ops.so",
 )

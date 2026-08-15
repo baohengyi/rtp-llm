@@ -24,6 +24,18 @@ class DeviceResourceMainContractTest(TestCase):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(device_resource._get_required_gpu_count(), 1)
 
+    def test_default_uses_cpu_when_no_device_is_available(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                device_resource._get_required_gpu_count(device_available=False), 0
+            )
+
+    def test_explicit_gpu_request_is_preserved_without_a_device(self):
+        with patch.dict(os.environ, {"GPU_COUNT": "1"}, clear=True):
+            self.assertEqual(
+                device_resource._get_required_gpu_count(device_available=False), 1
+            )
+
     def test_gpu_count_zero_is_explicit_no_lock_opt_out(self):
         with patch.dict(os.environ, {"GPU_COUNT": "0"}, clear=True):
             self.assertEqual(device_resource._get_required_gpu_count(), 0)

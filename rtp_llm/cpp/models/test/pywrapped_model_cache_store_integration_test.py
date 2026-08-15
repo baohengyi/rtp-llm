@@ -1,12 +1,34 @@
-import unittest
+from __future__ import annotations
 
+import sys
+import unittest
+from pathlib import Path
+
+import pytest
 import torch
 
-from rtp_llm.cpp.models.test.libth_pywrapped_model_cache_store_integration_test import (
-    PyModelInputs,
-    PyModelOutputs,
-    run_scenario,
-)
+
+_TEST_LIB_DIR = Path(__file__).resolve().parents[3] / "libs" / "test"
+PyModelInputs = None
+PyModelOutputs = None
+run_scenario = None
+
+
+def _load_native_test_binding() -> None:
+    global PyModelInputs, PyModelOutputs, run_scenario
+    if run_scenario is not None:
+        return
+    if str(_TEST_LIB_DIR) not in sys.path:
+        sys.path.insert(0, str(_TEST_LIB_DIR))
+    from libth_pywrapped_model_cache_store_integration_test import (
+        PyModelInputs as _PyModelInputs,
+        PyModelOutputs as _PyModelOutputs,
+        run_scenario as _run_scenario,
+    )
+
+    PyModelInputs = _PyModelInputs
+    PyModelOutputs = _PyModelOutputs
+    run_scenario = _run_scenario
 
 
 class CacheStoreForwardModel:
@@ -86,7 +108,12 @@ def _record_for_request(result: dict, request_id: int) -> dict:
     return matches[0]
 
 
+@pytest.mark.H20
 class PyWrappedModelCacheStoreIntegrationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        _load_native_test_binding()
+
     def test_multi_tag_uses_each_tag_local_physical_block_table(self) -> None:
         model = CacheStoreForwardModel()
         result = run_scenario(model, "multi_tag")
