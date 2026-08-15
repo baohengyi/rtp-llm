@@ -76,10 +76,19 @@ REMOTE_TESTS_PROTO_OUTPUTS = [
     f"{_REMOTE_TESTS_PROTO_DIR}/remote_execution_pb2_grpc.py",
 ]
 
+_DASH_SC_PROTO_DIR = "rtp_llm/dash_sc/proto"
+DASH_SC_PROTO_OUTPUTS = [
+    f"{_DASH_SC_PROTO_DIR}/model_config_pb2.py",
+    f"{_DASH_SC_PROTO_DIR}/model_config_pb2_grpc.py",
+    f"{_DASH_SC_PROTO_DIR}/predict_v2_pb2.py",
+    f"{_DASH_SC_PROTO_DIR}/predict_v2_pb2_grpc.py",
+    f"{_DASH_SC_PROTO_DIR}/__init__.py",
+]
+
 PROTO_OUTPUTS = [
     "rtp_llm/cpp/model_rpc/proto/model_rpc_service_pb2.py",
     "rtp_llm/cpp/model_rpc/proto/model_rpc_service_pb2_grpc.py",
-] + REMOTE_TESTS_PROTO_OUTPUTS
+] + REMOTE_TESTS_PROTO_OUTPUTS + DASH_SC_PROTO_OUTPUTS
 
 PROTO_SOURCES = [
     "rtp_llm/cpp/model_rpc/proto/model_rpc_service.proto",
@@ -293,10 +302,21 @@ def patch_remote_tests_grpc_stubs(project_root: Path) -> None:
             print(f"  Patched {name} for grpcio 1.62 compatibility")
 
 
+def _generate_dash_sc_proto_files(project_root: Path) -> None:
+    dash_sc_proto_dir = project_root / _DASH_SC_PROTO_DIR
+    dash_sc_generator = dash_sc_proto_dir / "create_grpc_proto.py"
+    print(f"  Compiling DashSC protos with {dash_sc_generator}")
+    subprocess.run(
+        [sys.executable, str(dash_sc_generator), str(dash_sc_proto_dir)],
+        check=True,
+    )
+
+
 def generate_proto_files(project_root: Path = None) -> None:
     """Generate Python files from .proto definitions.
 
-    Compiles PROTO_SOURCES (model_rpc + remote_tests REAPI). Must run before
+    Compiles PROTO_SOURCES (model_rpc + remote_tests REAPI), then invokes the
+    DashSC generator that fixes its package-relative imports. Must run before
     wheel build or when *_pb2.py are missing (including RTP_SKIP_BAZEL_BUILD).
     """
     try:
@@ -335,6 +355,8 @@ def generate_proto_files(project_root: Path = None) -> None:
             raise RuntimeError(
                 f"Failed to compile {proto_file}, exit code: {code}, args={args}"
             )
+
+    _generate_dash_sc_proto_files(project_root)
 
     patch_remote_tests_grpc_stubs(project_root)
     print("Proto file generation complete.")

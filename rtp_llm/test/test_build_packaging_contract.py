@@ -76,6 +76,30 @@ def _load_setup_module():
 
 
 class BuildPackagingContractTest(TestCase):
+    def test_dash_sc_protos_are_part_of_python_build_outputs(self):
+        setup_module = _load_setup_module()
+
+        expected = {
+            "rtp_llm/dash_sc/proto/model_config_pb2.py",
+            "rtp_llm/dash_sc/proto/model_config_pb2_grpc.py",
+            "rtp_llm/dash_sc/proto/predict_v2_pb2.py",
+            "rtp_llm/dash_sc/proto/predict_v2_pb2_grpc.py",
+            "rtp_llm/dash_sc/proto/__init__.py",
+        }
+        self.assertEqual(set(setup_module.DASH_SC_PROTO_OUTPUTS), expected)
+        self.assertTrue(expected.issubset(set(setup_module.PROTO_OUTPUTS)))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            proto_dir = project_root / "rtp_llm/dash_sc/proto"
+            generator = proto_dir / "create_grpc_proto.py"
+            with patch.object(setup_module.subprocess, "run") as run:
+                setup_module._generate_dash_sc_proto_files(project_root)
+            run.assert_called_once_with(
+                [setup_module.sys.executable, str(generator), str(proto_dir)],
+                check=True,
+            )
+
     def test_stubgen_preloads_native_modules_in_runtime_order(self):
         setup_module = _load_setup_module()
 
