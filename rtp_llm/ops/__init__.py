@@ -183,7 +183,6 @@ try:
         FfnDisAggregateConfig,
         FIFOSchedulerConfig,
         FMHAConfig,
-        FMHAType,
         GrammarConfig,
         HWKernelConfig,
         KVCacheConfig,

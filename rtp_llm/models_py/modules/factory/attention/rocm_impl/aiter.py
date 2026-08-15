@@ -14,7 +14,6 @@ from rtp_llm.models_py.modules.factory.attention.rocm_impl._attn_utils import (
 from rtp_llm.ops import (
     AttentionConfigs,
     FMHAConfig,
-    FMHAType,
     KvCacheDataType,
     ParallelismConfig,
     RopeStyle,
