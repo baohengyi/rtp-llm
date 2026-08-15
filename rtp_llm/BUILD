@@ -66,6 +66,12 @@ py_library(
 )
 
 py_library(
+    name = "ops",
+    srcs = [],
+    deps = [],
+)
+
+py_library(
     name = "testlib",
     srcs = [],
     deps = [],
