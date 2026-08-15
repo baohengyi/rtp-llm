@@ -335,6 +335,35 @@ class BuildPackagingContractTest(TestCase):
             )
         )
 
+    def test_config_pickle_test_is_h20_pytest_only(self):
+        build_file = PROJECT_ROOT / "rtp_llm/cpp/pybind/BUILD"
+        build_text = build_file.read_text(encoding="utf-8")
+        target_block = re.search(
+            r'py_test\(\s*name = "config_pickle_test",.*?\n\)',
+            build_text,
+            re.S,
+        )
+        self.assertIsNotNone(target_block)
+        self.assertIn('tags = ["manual"]', target_block.group(0))
+
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+        self.assertIn(
+            "rtp_llm/cpp/pybind",
+            pyproject["tool"]["pytest"]["ini_options"]["testpaths"],
+        )
+
+        test_file = PROJECT_ROOT / "rtp_llm/cpp/pybind/config_pickle_test.py"
+        tree = ast.parse(test_file.read_text(encoding="utf-8"))
+        test_class = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef)
+            and node.name == "GrammarConfigPickleTest"
+        )
+        decorators = {ast.unparse(node) for node in test_class.decorator_list}
+        self.assertIn("pytest.mark.H20", decorators)
+
     def test_cuda_graph_runner_defers_native_import_until_execution(self):
         module_path = (
             PROJECT_ROOT / "rtp_llm/cpp/cuda_graph/tests/cuda_graph_test_runner.py"

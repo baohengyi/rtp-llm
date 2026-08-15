@@ -221,6 +221,7 @@ testpaths = [
     "rtp_llm/multimodal/test",
     "rtp_llm/models_py",
     "rtp_llm/cpp/models",
+    "rtp_llm/cpp/pybind",
     "rtp_llm/cpp/model_rpc/test",
     "rtp_llm/cpp/cuda_graph/tests",
     "rtp_llm/aios",

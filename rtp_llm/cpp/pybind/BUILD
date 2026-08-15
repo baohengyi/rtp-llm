@@ -16,6 +16,7 @@ py_test(
         "//:th_transformer_config",
     ],
     deps = ["//rtp_llm:ops"],
+    tags = ["manual"],
 )
 
 cc_library(

@@ -1,6 +1,8 @@
 import pickle
 import unittest
 
+import pytest
+
 from rtp_llm.ops import GrammarConfig
 
 
@@ -26,6 +28,7 @@ class _PreviousSixTupleGrammarConfig:
         return _new_grammar_config, (), previous_state
 
 
+@pytest.mark.H20
 class GrammarConfigPickleTest(unittest.TestCase):
     def test_current_format_round_trip(self):
         config = GrammarConfig()

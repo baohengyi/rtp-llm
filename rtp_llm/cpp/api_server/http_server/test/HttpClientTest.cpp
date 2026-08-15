@@ -1,3 +1,7 @@
+#include <chrono>
+#include <future>
+#include <utility>
+
 #include "gtest/gtest.h"
 
 #include "autil/NetUtil.h"
@@ -98,18 +102,23 @@ TEST_F(HttpClientTest, testRequestInvalidAddress) {
     auto http_client_ = std::make_shared<SimpleHttpClient>();
     ASSERT_TRUE(http_client_ != nullptr);
 
-    std::mutex mutex;
-    mutex.lock();
-    HttpCallBack http_call_back = [&mutex](bool ok, const std::string& response_body) {
-        ASSERT_FALSE(ok);
-        ASSERT_TRUE(response_body == "");
-        mutex.unlock();
+    auto callback_result = std::make_shared<std::promise<std::pair<bool, std::string>>>();
+    auto result_future   = callback_result->get_future();
+    HttpCallBack http_call_back = [callback_result](bool ok, const std::string& response_body) {
+        callback_result->set_value({ok, response_body});
     };
 
     std::string address = "tcp:0.0.0.0:" + std::to_string(autil::NetUtil::randomPort());  // invalid address
-    ASSERT_TRUE(http_client_->get(address, "/worker_status", "", std::move(http_call_back)));
-    mutex.lock();
-    mutex.unlock();
+    bool request_started = http_client_->get(address, "/worker_status", "", std::move(http_call_back));
+
+    // Depending on connection timing, an invalid address can be rejected before
+    // enqueueing or reported through the asynchronous callback.
+    if (request_started) {
+        ASSERT_EQ(result_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+        const auto [ok, response_body] = result_future.get();
+        ASSERT_FALSE(ok);
+        ASSERT_TRUE(response_body.empty());
+    }
 }
 
 TEST_F(HttpClientTest, testRequestInvalidRoute) {
