@@ -66,7 +66,55 @@ py_library(
 )
 
 py_library(
+    name = "grpcio-tools",
+    srcs = [],
+    deps = [],
+)
+
+py_library(
+    name = "setuptools",
+    srcs = [],
+    deps = [],
+)
+
+py_library(
+    name = "torch",
+    srcs = [],
+    deps = [],
+)
+
+py_library(
+    name = "config",
+    srcs = [],
+    deps = [],
+)
+
+py_library(
+    name = "models",
+    srcs = [],
+    deps = [],
+)
+
+py_library(
+    name = "openai_api",
+    srcs = [],
+    deps = [],
+)
+
+py_library(
     name = "ops",
+    srcs = [],
+    deps = [],
+)
+
+py_library(
+    name = "rtp_llm_lib",
+    srcs = [],
+    deps = [],
+)
+
+py_library(
+    name = "structure",
     srcs = [],
     deps = [],
 )
@@ -76,6 +124,12 @@ py_library(
     srcs = [],
     deps = [],
     data = [],
+)
+
+py_library(
+    name = "utils",
+    srcs = [],
+    deps = [],
 )
 
 py_library(
