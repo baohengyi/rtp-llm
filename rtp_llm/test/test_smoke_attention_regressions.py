@@ -226,6 +226,16 @@ def test_qwen3_standalone_goldens_match_python_native_h20_outputs():
     assert "3.9\u6bd43.11111111\u5927" in source
 
 
+def test_qwen_loader_detects_qwen3_vl_text_tower_prefix():
+    tree = ast.parse((RTP_LLM_DIR / "models/qwen_v2.py").read_text())
+    process_meta = _find_method(_find_class(tree, "QWenV2Weight"), "_process_meta")
+    source = ast.unparse(process_meta)
+
+    assert "self._contains(weight_keys, 'model.language_model.')" in source
+    assert "self.prefix = 'model.language_model.'" in source
+    assert "self.model_prefix = ''" in source
+
+
 def test_xqa_backends_reject_sm120():
     tree = ast.parse((ATTENTION_DIR / "cuda_impl/xqa.py").read_text())
 

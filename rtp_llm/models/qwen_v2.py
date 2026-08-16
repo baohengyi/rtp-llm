@@ -55,7 +55,10 @@ class QWenV2Weight(ModelDeployWeightInfo):
 
     def _process_meta(self, meta_dicts: Any, weight_keys: List[str]):
         # compat for qwen_v2_video
-        if self._contains(weight_keys, "language_model."):
+        if self._contains(weight_keys, "model.language_model."):
+            self.prefix = "model.language_model."
+            self.model_prefix = ""
+        elif self._contains(weight_keys, "language_model."):
             self.prefix = "language_model."
         if self.prefix + "transformer.layers.0.attention.dense.weight" in meta_dicts[0]:
             self.weight_style = WeightStyle.TRT_ENGINE
