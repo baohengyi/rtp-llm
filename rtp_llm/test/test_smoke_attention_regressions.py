@@ -167,6 +167,19 @@ def test_qwen35_sm100_cuda_graph_cases_use_scratch_loader():
         assert "envs" not in cases[name]
 
 
+def test_sm100_head_dim_256_cuda_graph_skips_trtllm_gen_decode():
+    tree = ast.parse(
+        (ATTENTION_DIR / "cuda_impl/trtllm_gen.py").read_text()
+    )
+    support_source = ast.unparse(
+        _find_method(_find_class(tree, "FlashInferTRTLLMDecodeOp"), "support")
+    )
+
+    assert "not attention_inputs.is_prefill" in support_source
+    assert "attention_inputs.is_cuda_graph" in support_source
+    assert "self.head_dim == 256" in support_source
+
+
 def test_qwen3_standalone_goldens_match_python_native_h20_outputs():
     source = (
         RTP_LLM_DIR / "models_py/standalone/test/qwen3_test.py"
