@@ -20,6 +20,9 @@ def _load_native_test_binding() -> None:
         return
     if str(_TEST_LIB_DIR) not in sys.path:
         sys.path.insert(0, str(_TEST_LIB_DIR))
+    from rtp_llm.ops import ensure_compute_ops_loaded
+
+    ensure_compute_ops_loaded()
     from libth_pywrapped_model_cache_store_integration_test import (
         PyModelInputs as _PyModelInputs,
         PyModelOutputs as _PyModelOutputs,

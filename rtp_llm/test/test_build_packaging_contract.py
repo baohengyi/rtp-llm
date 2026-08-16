@@ -337,6 +337,19 @@ class BuildPackagingContractTest(TestCase):
             )
         )
 
+        test_text = test_file.read_text(encoding="utf-8")
+        self.assertIn("ensure_compute_ops_loaded()", test_text)
+
+        binding_file = (
+            PROJECT_ROOT
+            / "rtp_llm/cpp/models/test/PyWrappedModelCacheStoreIntegrationTest.cc"
+        )
+        binding_text = binding_file.read_text(encoding="utf-8")
+        self.assertIn('py::module_::import("librtp_compute_ops")', binding_text)
+        self.assertIn('m.attr("PyModelInputs")', binding_text)
+        self.assertIn('m.attr("PyModelOutputs")', binding_text)
+        self.assertNotIn("registerPyOpDefs(m)", binding_text)
+
     def test_config_pickle_test_is_h20_pytest_only(self):
         build_file = PROJECT_ROOT / "rtp_llm/cpp/pybind/BUILD"
         if not build_file.exists():
