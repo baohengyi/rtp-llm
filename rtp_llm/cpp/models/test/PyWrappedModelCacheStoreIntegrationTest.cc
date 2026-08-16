@@ -546,9 +546,7 @@ py::dict runPyWrappedModelCacheStoreScenario(py::object py_model, const std::str
 }  // namespace rtp_llm::test
 
 PYBIND11_MODULE(libth_pywrapped_model_cache_store_integration_test, m) {
-    auto compute_ops = py::module_::import("librtp_compute_ops");
-    m.attr("PyModelInputs") = compute_ops.attr("PyModelInputs");
-    m.attr("PyModelOutputs") = compute_ops.attr("PyModelOutputs");
+    torch_ext::registerPyOpDefs(m);
     m.def("run_scenario",
           &rtp_llm::test::runPyWrappedModelCacheStoreScenario,
           py::arg("py_model"),

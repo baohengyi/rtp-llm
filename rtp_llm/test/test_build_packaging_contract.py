@@ -330,43 +330,22 @@ class BuildPackagingContractTest(TestCase):
         )
         decorators = {ast.unparse(node) for node in test_class.decorator_list}
         self.assertIn("pytest.mark.H20", decorators)
-        self.assertTrue(
-            any(
-                isinstance(node, ast.FunctionDef) and node.name == "setUpClass"
-                for node in test_class.body
-            )
-        )
-
         test_text = test_file.read_text(encoding="utf-8")
-        self.assertIn("ensure_compute_ops_loaded()", test_text)
-        self.assertIn("ctypes.CDLL(", test_text)
-        self.assertIn("mode=ctypes.RTLD_GLOBAL", test_text)
-        self.assertLess(
-            test_text.index("ensure_compute_ops_loaded()"),
-            test_text.index("ctypes.CDLL("),
-        )
-        self.assertLess(
-            test_text.index("ctypes.CDLL("),
-            test_text.index(
-                "from libth_pywrapped_model_cache_store_integration_test import"
-            ),
-        )
+        self.assertIn("subprocess.run(", test_text)
+        self.assertIn('"--native-scenario"', test_text)
+        self.assertIn("_run_native_scenario_isolated", test_text)
+        self.assertNotIn("ensure_compute_ops_loaded()", test_text)
 
         binding_file = (
             PROJECT_ROOT
             / "rtp_llm/cpp/models/test/PyWrappedModelCacheStoreIntegrationTest.cc"
         )
         binding_text = binding_file.read_text(encoding="utf-8")
-        self.assertIn('py::module_::import("librtp_compute_ops")', binding_text)
-        self.assertIn('m.attr("PyModelInputs")', binding_text)
-        self.assertIn('m.attr("PyModelOutputs")', binding_text)
-        self.assertNotIn("registerPyOpDefs(m)", binding_text)
+        self.assertIn("registerPyOpDefs(m)", binding_text)
+        self.assertNotIn('py::module_::import("librtp_compute_ops")', binding_text)
 
         build_text = build_file.read_text(encoding="utf-8")
         self.assertIn(
-            '"//rtp_llm/models_py/bindings/core:exec_ops_hdr"', build_text
-        )
-        self.assertNotIn(
             '"//rtp_llm/models_py/bindings/core:exec_ops_test_lib"', build_text
         )
 

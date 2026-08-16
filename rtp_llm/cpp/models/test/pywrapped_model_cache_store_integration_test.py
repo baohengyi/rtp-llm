@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import ctypes
+import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -13,24 +14,15 @@ _TEST_LIB_DIR = Path(__file__).resolve().parents[3] / "libs" / "test"
 PyModelInputs = None
 PyModelOutputs = None
 run_scenario = None
-_COMPUTE_OPS_GLOBAL_HANDLE = None
+_RESULT_PREFIX = "RTP_PYWRAPPED_SCENARIO_RESULT="
 
 
 def _load_native_test_binding() -> None:
-    global PyModelInputs, PyModelOutputs, run_scenario, _COMPUTE_OPS_GLOBAL_HANDLE
+    global PyModelInputs, PyModelOutputs, run_scenario
     if run_scenario is not None:
         return
     if str(_TEST_LIB_DIR) not in sys.path:
         sys.path.insert(0, str(_TEST_LIB_DIR))
-    from rtp_llm.ops import ensure_compute_ops_loaded
-
-    ensure_compute_ops_loaded()
-    import librtp_compute_ops
-
-    if _COMPUTE_OPS_GLOBAL_HANDLE is None:
-        _COMPUTE_OPS_GLOBAL_HANDLE = ctypes.CDLL(
-            librtp_compute_ops.__file__, mode=ctypes.RTLD_GLOBAL
-        )
     from libth_pywrapped_model_cache_store_integration_test import (
         PyModelInputs as _PyModelInputs,
         PyModelOutputs as _PyModelOutputs,
@@ -40,6 +32,38 @@ def _load_native_test_binding() -> None:
     PyModelInputs = _PyModelInputs
     PyModelOutputs = _PyModelOutputs
     run_scenario = _run_scenario
+
+
+def _run_native_scenario_in_process(scenario: str) -> dict:
+    _load_native_test_binding()
+    model = CacheStoreForwardModel()
+    result = run_scenario(model, scenario)
+    return {
+        "result": result,
+        "forward_calls": model.forward_calls,
+        "micro_batch_calls": model.micro_batch_calls,
+        "seen_input_lengths": model.seen_input_lengths,
+    }
+
+
+def _run_native_scenario_isolated(scenario: str) -> dict:
+    completed = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve()), "--native-scenario", scenario],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    payload_lines = [
+        line[len(_RESULT_PREFIX) :]
+        for line in completed.stdout.splitlines()
+        if line.startswith(_RESULT_PREFIX)
+    ]
+    if completed.returncode != 0 or len(payload_lines) != 1:
+        raise AssertionError(
+            f"isolated native scenario {scenario!r} failed with exit code "
+            f"{completed.returncode}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+        )
+    return json.loads(payload_lines[0])
 
 
 class CacheStoreForwardModel:
@@ -121,15 +145,11 @@ def _record_for_request(result: dict, request_id: int) -> dict:
 
 @pytest.mark.H20
 class PyWrappedModelCacheStoreIntegrationTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        _load_native_test_binding()
-
     def test_multi_tag_uses_each_tag_local_physical_block_table(self) -> None:
-        model = CacheStoreForwardModel()
-        result = run_scenario(model, "multi_tag")
+        execution = _run_native_scenario_isolated("multi_tag")
+        result = execution["result"]
 
-        self.assertEqual(model.forward_calls, 1)
+        self.assertEqual(execution["forward_calls"], 1)
         self.assertEqual(len(result["records"]), 2)
         blocks = _blocks_by_key(result)
 
@@ -159,12 +179,12 @@ class PyWrappedModelCacheStoreIntegrationTest(unittest.TestCase):
         self.assertEqual({block["length"] for block in linear_blocks.values()}, {24})
 
     def test_micro_batch_slices_request_metadata_with_block_rows(self) -> None:
-        model = CacheStoreForwardModel()
-        result = run_scenario(model, "micro_batch")
+        execution = _run_native_scenario_isolated("micro_batch")
+        result = execution["result"]
 
-        self.assertEqual(model.forward_calls, 0)
-        self.assertEqual(model.micro_batch_calls, 1)
-        self.assertEqual(model.seen_input_lengths, [[2, 4], [2]])
+        self.assertEqual(execution["forward_calls"], 0)
+        self.assertEqual(execution["micro_batch_calls"], 1)
+        self.assertEqual(execution["seen_input_lengths"], [[2, 4], [2]])
         self.assertEqual(len(result["records"]), 3)
 
         expected = {
@@ -189,12 +209,12 @@ class PyWrappedModelCacheStoreIntegrationTest(unittest.TestCase):
                 )
 
     def test_context_parallel_publishes_original_lengths_not_local_chunk(self) -> None:
-        model = CacheStoreForwardModel()
-        result = run_scenario(model, "cp_actual_lengths")
+        execution = _run_native_scenario_isolated("cp_actual_lengths")
+        result = execution["result"]
 
         # CP turns the six-token request into a four-token rank-local chunk for
         # attention, while CacheStore must still publish three two-token blocks.
-        self.assertEqual(model.seen_input_lengths, [[4]])
+        self.assertEqual(execution["seen_input_lengths"], [[4]])
         record = _record_for_request(result, 301)
         self.assertEqual(len(record["blocks"]), 3)
         base = result["base_addresses"]["default"]
@@ -215,8 +235,8 @@ class PyWrappedModelCacheStoreIntegrationTest(unittest.TestCase):
         )
 
     def test_mtp_writer_uses_selected_sub_config_for_real_write(self) -> None:
-        model = CacheStoreForwardModel()
-        result = run_scenario(model, "mtp_sub_config")
+        execution = _run_native_scenario_isolated("mtp_sub_config")
+        result = execution["result"]
 
         record = _record_for_request(result, 401)
         self.assertEqual(len(record["blocks"]), 2)
@@ -233,4 +253,11 @@ class PyWrappedModelCacheStoreIntegrationTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    if len(sys.argv) == 3 and sys.argv[1] == "--native-scenario":
+        print(
+            _RESULT_PREFIX
+            + json.dumps(_run_native_scenario_in_process(sys.argv[2]), separators=(",", ":")),
+            flush=True,
+        )
+    else:
+        unittest.main()
