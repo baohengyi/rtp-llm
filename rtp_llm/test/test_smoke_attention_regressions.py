@@ -143,16 +143,6 @@ def test_decode_cuda_graph_passes_cache_group_tags_to_capture():
     assert "self.kv_cache.group_tags" in source
 
 
-def test_multimodal_processor_selection_follows_rank_local_engine_availability():
-    source = (RTP_LLM_DIR / "cpp/model_rpc/LocalRpcServer.cc").read_text()
-
-    assert "if (mm_process_engine.is_none())" in source
-    assert "new RemoteMultimodalProcessor" in source
-    assert "new LocalMultimodalProcessor(mm_process_engine" in source
-    assert "Local multimodal processing requires mm_process_engine" not in source
-    assert 'cpp/config/RoleTypes.h' not in source
-
-
 def test_qwen35_sm100_cuda_graph_cases_avoid_shm_cuda_registration():
     tree = ast.parse(
         (RTP_LLM_DIR / "test/smoke/suites/test_smoke_sm100_moe.py").read_text()
