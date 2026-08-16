@@ -104,6 +104,7 @@ SMOKE_CASES = {
         "gpu_type": "SM100_ARM",
         "platform": "cuda",
         "markers": ["smoke", "cuda", "SM100_ARM"],
+        "envs": ["FASTSAFETENSORS_NOGDS=1"],
         "timeout": 600,
     },
     "next_moe_nvfp4_cudagraph_tp2_sm100": {
@@ -115,6 +116,7 @@ SMOKE_CASES = {
         "gpu_type": "SM100_ARM",
         "platform": "cuda",
         "markers": ["smoke", "cuda", "SM100_ARM"],
+        "envs": ["FASTSAFETENSORS_NOGDS=1"],
         "timeout": 600,
     },
 }

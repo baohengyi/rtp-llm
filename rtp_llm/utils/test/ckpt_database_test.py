@@ -7,7 +7,11 @@ import torch
 from safetensors.torch import save_file
 
 from rtp_llm.utils import ckpt_file_info
-from rtp_llm.utils.database import _LAYER_RE, CkptDatabase
+from rtp_llm.utils.database import (
+    _LAYER_RE,
+    _fastsafetensors_copier_config,
+    CkptDatabase,
+)
 
 
 class CkptDataBaseTest(unittest.TestCase):
@@ -77,6 +81,16 @@ class CkptDataBaseTest(unittest.TestCase):
             path + "/test.safetensors", database.pretrain_file_list[0].file_name
         )
         self.assertEqual(28, len(database.pretrain_file_list[0].get_tensor_names()))
+
+    def test_fastsafetensors_copier_defaults_to_existing_shm_path(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual((True, False), _fastsafetensors_copier_config())
+
+    def test_fastsafetensors_copier_can_disable_shm_for_unstable_hosts(self):
+        with patch.dict(
+            os.environ, {"FASTSAFETENSORS_NOGDS": "1"}, clear=True
+        ):
+            self.assertEqual((False, True), _fastsafetensors_copier_config())
 
 
 class LoraTest(unittest.TestCase):
