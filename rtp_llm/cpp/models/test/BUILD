@@ -65,7 +65,10 @@ cc_library(
         "//rtp_llm/cpp/utils:core_utils",
         "//rtp_llm/models_py/bindings:op_defs",
         "//rtp_llm/models_py/bindings/common:common",
-        "//rtp_llm/models_py/bindings/core:exec_ops_test_lib",
+        # Reuse the process-wide ExecOps implementation from librtp_compute_ops.
+        # Linking exec_ops_test_lib here creates a second globalRuntime() in this
+        # test plugin, which splits cache-store state from the loaded Python ops.
+        "//rtp_llm/models_py/bindings/core:exec_ops_hdr",
         "//rtp_llm/models_py/bindings/cuda/ops:cuda_impl",
         "//rtp_llm/models_py/bindings/cuda/ops:gpu_base",
     ] + torch_deps(),

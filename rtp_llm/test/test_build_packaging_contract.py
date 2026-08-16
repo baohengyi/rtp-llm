@@ -350,6 +350,14 @@ class BuildPackagingContractTest(TestCase):
         self.assertIn('m.attr("PyModelOutputs")', binding_text)
         self.assertNotIn("registerPyOpDefs(m)", binding_text)
 
+        build_text = build_file.read_text(encoding="utf-8")
+        self.assertIn(
+            '"//rtp_llm/models_py/bindings/core:exec_ops_hdr"', build_text
+        )
+        self.assertNotIn(
+            '"//rtp_llm/models_py/bindings/core:exec_ops_test_lib"', build_text
+        )
+
     def test_config_pickle_test_is_h20_pytest_only(self):
         build_file = PROJECT_ROOT / "rtp_llm/cpp/pybind/BUILD"
         if not build_file.exists():
