@@ -206,6 +206,26 @@ def test_sm100_head_dim_256_cuda_graph_skips_xqa_decode_backends():
     )
 
 
+def test_sm100_head_dim_256_cuda_graph_uses_flashinfer_cuda_core_decode():
+    tree = ast.parse((ATTENTION_DIR / "cuda_impl/py_flashinfer_mha.py").read_text())
+    helper = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_use_tensor_core_decode"
+    )
+    helper_source = ast.unparse(helper)
+
+    assert "is_sm_100()" in helper_source
+    assert "attn_inputs.is_cuda_graph" in helper_source
+    assert "attn_configs.size_per_head == 256" in helper_source
+    assert "return False" in helper_source
+
+    decode_init = ast.unparse(
+        _find_method(_find_class(tree, "PyFlashinferDecodeAttnOp"), "__init__")
+    )
+    assert "_use_tensor_core_decode(attn_configs, attn_inputs)" in decode_init
+
+
 def test_qwen3_standalone_goldens_match_python_native_h20_outputs():
     source = (
         RTP_LLM_DIR / "models_py/standalone/test/qwen3_test.py"
