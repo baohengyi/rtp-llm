@@ -343,6 +343,12 @@ class BuildPackagingContractTest(TestCase):
         binding_text = binding_file.read_text(encoding="utf-8")
         self.assertIn("registerPyOpDefs(m)", binding_text)
         self.assertNotIn('py::module_::import("librtp_compute_ops")', binding_text)
+        self.assertIn(
+            "std::make_shared<StoreContext>(shared_from_this())", binding_text
+        )
+        self.assertIn(
+            "store_context->store(request_block_buffers, timeout_ms)", binding_text
+        )
 
         build_text = build_file.read_text(encoding="utf-8")
         self.assertIn(
