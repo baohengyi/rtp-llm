@@ -1,4 +1,5 @@
 import ast
+import json
 from pathlib import Path
 
 
@@ -244,6 +245,30 @@ def test_qwen3_standalone_goldens_match_python_native_h20_outputs():
         in source
     )
     assert "3.9\u6bd43.11111111\u5927" in source
+
+
+def test_kimi_linear_openai_golden_accepts_only_observed_h20_choices():
+    comparer_source = (RTP_LLM_DIR / "test/smoke/openai_comparer.py").read_text()
+    assert '"choices_alternatives"' in comparer_source
+    assert "alternative_choices == actual_choices" in comparer_source
+
+    task_info = json.loads(
+        (
+            RTP_LLM_DIR
+            / "test/smoke/data/model/kimi_linear/q_r_bf16_tp2_kernel_block_size_64.json"
+        ).read_text()
+    )
+    result = task_info["query_result"][0]["result"]
+    primary = result["choices"][0]["message"]["content"]
+    alternatives = {
+        choices[0]["message"]["content"]
+        for choices in result["choices_alternatives"]
+    }
+
+    assert primary.endswith("\u8fd9\u4e9b\u65b9\u6cd5")
+    assert alternatives == {
+        "\u5f53\u7136\u53ef\u4ee5\uff01\u4ee5\u4e0b\u662f\u56f4\u7ed5\u201c\u82f1\u8bed\u542c\u529b\u65b9\u6cd5\u201d\u4e3b\u9898\u63d0\u51fa\u7684\u51e0\u4e2a\u6709\u6df1\u5ea6\u3001\u542f\u53d1\u6027\u7684\u95ee\u9898\uff0c\u9002\u5408\u7528\u4e8e\u8bfe\u5802\u8ba8\u8bba\u3001\u81ea\u6211\u53cd\u601d\u6216\u6559\u5b66\u7814\u7a76\uff1a\n\n---\n\n### \u4e00\u3001\u65b9\u6cd5\u7c7b\u95ee\u9898\n1. **\u4f60\u901a\u5e38\u5982\u4f55\u8bad\u7ec3\u82f1\u8bed\u542c\u529b\uff1f\u4f60\u89c9\u5f97\u81ea\u5df1\u6700\u6709\u6548\u7684\u65b9\u6cd5\u662f\u4ec0\u4e48\uff1f\u4e3a\u4ec0\u4e48\uff1f**\n2. **\u4f60\u662f\u5426\u5c1d\u8bd5\u8fc7\u201c\u7cbe\u542c\u201d\u548c\u201c\u6cdb\u542c\u201d\u7ed3\u5408\u7684\u65b9\u6cd5\uff1f\u4f60\u89c9\u5f97\u54ea\u79cd\u5bf9\u4f60\u5e2e\u52a9\u66f4\u5927\uff1f**\n3. **\u4f60\u662f\u5426\u4f7f\u7528\u8fc7\u201c\u542c\u5199\u201d\u6216\u201c\u8ddf\u8bfb\u201d\u7ec3\u4e60\uff1f\u8fd9\u4e9b\u65b9\u6cd5\u5bf9\u4f60\u63d0\u5347"
+    }
 
 
 def test_qwen_loader_detects_qwen3_vl_text_tower_prefix():

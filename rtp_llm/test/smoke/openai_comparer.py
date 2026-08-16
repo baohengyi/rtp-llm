@@ -1,5 +1,6 @@
 import copy
 import json
+import logging
 import os
 from typing import Any, Dict, List, Optional, Union
 
@@ -299,7 +300,26 @@ class OpenaiComparer(BaseComparer):
         expect_logprobs, expect_choices = self.extract_logprobs(expect_result.choices)
         actual_logprobs, actual_choices = self.extract_logprobs(actual_result.choices)
 
-        if expect_choices != actual_choices:
+        choices_match = expect_choices == actual_choices
+        if not choices_match:
+            for alternative in self.qr_info["result"].get(
+                "choices_alternatives", []
+            ):
+                alternative_json = copy.deepcopy(self.qr_info["result"])
+                alternative_json["choices"] = alternative
+                alternative_result = self.format_result(alternative_json)
+                alternative_logprobs, alternative_choices = self.extract_logprobs(
+                    alternative_result.choices
+                )
+                if alternative_choices == actual_choices:
+                    logging.info(
+                        "[STABILITY_DIAG] OpenAI choices matched a strict alternative"
+                    )
+                    expect_logprobs = alternative_logprobs
+                    choices_match = True
+                    break
+
+        if not choices_match:
             diffs.append(
                 self._format_expect_actual(
                     "choices not equal (after normalizing logprobs)",
