@@ -180,6 +180,32 @@ def test_sm100_head_dim_256_cuda_graph_skips_trtllm_gen_decode():
     assert "self.head_dim == 256" in support_source
 
 
+def test_sm100_head_dim_256_cuda_graph_skips_xqa_decode_backends():
+    tree = ast.parse((ATTENTION_DIR / "cuda_impl/xqa.py").read_text())
+    helper = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_reject_sm100_head_dim_256_cuda_graph"
+    )
+    helper_source = ast.unparse(helper)
+
+    assert "torch.cuda.get_device_capability()[0] == 10" in helper_source
+    assert "attn_inputs.is_cuda_graph" in helper_source
+    assert "attn_configs.size_per_head == 256" in helper_source
+
+    for class_name in ("XQAImpl", "XQADecodeImpl"):
+        support_source = ast.unparse(
+            _find_method(_find_class(tree, class_name), "support")
+        )
+        assert "_reject_sm100_head_dim_256_cuda_graph" in support_source
+
+    registry_source = (ATTENTION_DIR / "__init__.py").read_text()
+    assert registry_source.index("DECODE_MHA_IMPS.append(XQAImpl)") < registry_source.index(
+        "DECODE_MHA_IMPS.append(PyFlashinferDecodeImpl)"
+    )
+
+
 def test_qwen3_standalone_goldens_match_python_native_h20_outputs():
     source = (
         RTP_LLM_DIR / "models_py/standalone/test/qwen3_test.py"
