@@ -149,11 +149,11 @@ def test_qwen3_standalone_goldens_match_python_native_h20_outputs():
     ).read_text()
 
     assert (
-        "\u4f60\u597d\uff01\u6211\u662f\u5c0f\u660e\u54e5\uff0c\u5f88\u9ad8\u5174\u89c1\u5230\u4f60\uff01\u6211\u662f\u5c0f\u660e\u54e5\uff0c\u5f88\u9ad8\u5174\u8ba4\u8bc6\u4f60\uff01"
+        "\u4f60\u597d\uff01\u6211\u662f\u4f60\u7684\u865a\u62df\u52a9\u624b\uff0c\u4e00\u4e2a\u4e13\u6ce8\u4e8e\u5e2e\u52a9\u4f60\u89e3\u51b3\u95ee\u9898\u548c\u63d0\u4f9b\u652f\u6301\u7684AI\u52a9\u624b"
         in source
     )
     assert (
-        "3.9\u6bd43.11111111\u5927\uff0c1\u5927\uff0c\u56e0\u4e3a3.1000000000000000000000000000"
+        "3.9 \u548c 3.11 \u4e2d\uff0c**3.9 \u5927\u4e8e 3.11**\u3002"
         in source
     )
 
