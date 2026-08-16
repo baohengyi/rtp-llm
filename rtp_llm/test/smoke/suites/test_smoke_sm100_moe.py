@@ -100,11 +100,10 @@ SMOKE_CASES = {
         "--enable_cuda_graph 1 --act_type BF16 --dp_size 2 --world_size 2 "
         "--ep_size 2 --reserver_runtime_mem_mb 22000 --seq_size_per_block 2048 "
         "--concurrency_limit 64 --kernel_seq_size_per_block 64 "
-        "--use_deepep_moe 1 --use_deepep_low_latency 1",
+        "--use_deepep_moe 1 --use_deepep_low_latency 1 --load_method scratch",
         "gpu_type": "SM100_ARM",
         "platform": "cuda",
         "markers": ["smoke", "cuda", "SM100_ARM"],
-        "envs": ["FASTSAFETENSORS_NOGDS=1"],
         "timeout": 600,
     },
     "next_moe_nvfp4_cudagraph_tp2_sm100": {
@@ -112,11 +111,11 @@ SMOKE_CASES = {
         "smoke_args": "--decode_capture_config '1,2,3,4' --warm_up 0 "
         "--enable_cuda_graph 1 --act_type BF16 --tp_size 2 --world_size 2 "
         "--ep_size 2 --reserver_runtime_mem_mb 20000 --seq_size_per_block 2048 "
-        "--concurrency_limit 64 --kernel_seq_size_per_block 64",
+        "--concurrency_limit 64 --kernel_seq_size_per_block 64 "
+        "--load_method scratch",
         "gpu_type": "SM100_ARM",
         "platform": "cuda",
         "markers": ["smoke", "cuda", "SM100_ARM"],
-        "envs": ["FASTSAFETENSORS_NOGDS=1"],
         "timeout": 600,
     },
 }
