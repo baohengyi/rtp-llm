@@ -339,6 +339,18 @@ class BuildPackagingContractTest(TestCase):
 
         test_text = test_file.read_text(encoding="utf-8")
         self.assertIn("ensure_compute_ops_loaded()", test_text)
+        self.assertIn("ctypes.CDLL(", test_text)
+        self.assertIn("mode=ctypes.RTLD_GLOBAL", test_text)
+        self.assertLess(
+            test_text.index("ensure_compute_ops_loaded()"),
+            test_text.index("ctypes.CDLL("),
+        )
+        self.assertLess(
+            test_text.index("ctypes.CDLL("),
+            test_text.index(
+                "from libth_pywrapped_model_cache_store_integration_test import"
+            ),
+        )
 
         binding_file = (
             PROJECT_ROOT

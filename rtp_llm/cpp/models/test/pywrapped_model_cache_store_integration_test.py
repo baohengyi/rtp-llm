@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import sys
 import unittest
 from pathlib import Path
@@ -12,10 +13,11 @@ _TEST_LIB_DIR = Path(__file__).resolve().parents[3] / "libs" / "test"
 PyModelInputs = None
 PyModelOutputs = None
 run_scenario = None
+_COMPUTE_OPS_GLOBAL_HANDLE = None
 
 
 def _load_native_test_binding() -> None:
-    global PyModelInputs, PyModelOutputs, run_scenario
+    global PyModelInputs, PyModelOutputs, run_scenario, _COMPUTE_OPS_GLOBAL_HANDLE
     if run_scenario is not None:
         return
     if str(_TEST_LIB_DIR) not in sys.path:
@@ -23,6 +25,12 @@ def _load_native_test_binding() -> None:
     from rtp_llm.ops import ensure_compute_ops_loaded
 
     ensure_compute_ops_loaded()
+    import librtp_compute_ops
+
+    if _COMPUTE_OPS_GLOBAL_HANDLE is None:
+        _COMPUTE_OPS_GLOBAL_HANDLE = ctypes.CDLL(
+            librtp_compute_ops.__file__, mode=ctypes.RTLD_GLOBAL
+        )
     from libth_pywrapped_model_cache_store_integration_test import (
         PyModelInputs as _PyModelInputs,
         PyModelOutputs as _PyModelOutputs,
