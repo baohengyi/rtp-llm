@@ -64,6 +64,9 @@ def test_tbstars_fp8_ptpc_keeps_raw_weights_and_selects_reference_linear():
     reference_support = ast.unparse(
         _find_method(_find_class(linear_tree, "RocmFp8PTPCLinearReference"), "can_handle")
     )
+    reference_init = ast.unparse(
+        _find_method(_find_class(linear_tree, "RocmFp8PTPCLinearReference"), "__init__")
+    )
     no_swizzle_support = ast.unparse(
         _find_method(_find_class(linear_tree, "RocmFp8PTPCLinearNoSwizzle"), "can_handle")
     )
@@ -71,6 +74,10 @@ def test_tbstars_fp8_ptpc_keeps_raw_weights_and_selects_reference_linear():
         _find_method(_find_class(linear_tree, "RocmFp8PTPCLinearWithSwizzle"), "can_handle")
     )
     assert "hw_kernel_config.force_legacy_fp8_ptpc" in reference_support
+    assert (
+        "weight.reshape(self.output_size, self.hidden_size)" in reference_init
+    )
+    assert "checkpoint_weight.to(torch.float32).T * scale" in reference_init
     assert "not hw_kernel_config.force_legacy_fp8_ptpc" in no_swizzle_support
     assert "not hw_kernel_config.force_legacy_fp8_ptpc" in hipblas_support
 

@@ -240,9 +240,9 @@ class RocmFp8PTPCLinearDispatchTest(unittest.TestCase):
         weight_bf16 = torch.randn(N, K, dtype=torch.bfloat16, device=self.device)
         weight_q, weight_scales = rocm_per_token_quant_fp8(weight_bf16)
 
-        # The TBStars fallback intentionally retains the loader's raw [K, N]
-        # FP8 tensor so correctness is independent of Aiter preshuffle changes.
-        weight_for_init = weight_q.T.contiguous()
+        # Match PerChannelFp8Weight: checkpoint-contiguous [N, K] storage is
+        # exposed to Linear as a [K, N] reshape without transposing the data.
+        weight_for_init = weight_q.reshape(K, N)
         linear = RocmFp8PTPCLinearReference(
             weight=weight_for_init,
             weight_scales=weight_scales.T.contiguous(),
@@ -254,8 +254,7 @@ class RocmFp8PTPCLinearDispatchTest(unittest.TestCase):
         input_q, input_scales = rocm_per_token_quant_fp8(input_bf16, eps=1e-10)
         baseline = torch.matmul(
             input_q.to(torch.float32) * input_scales.to(torch.float32),
-            weight_for_init.to(torch.float32)
-            * weight_scales.T.to(torch.float32),
+            weight_q.to(torch.float32).T * weight_scales.T.to(torch.float32),
         ).to(input_bf16.dtype)
 
         self.assertEqual(output_1.shape, (M, N))
@@ -368,7 +367,11 @@ class RocmFp8PTPCLinearWithSwizzleTest(unittest.TestCase):
 
             hw_config.force_legacy_fp8_ptpc = True
             linear = LinearFactory.create_linear(
-                weight_q.T.contiguous(), self.bias, scale_b, quant_config, hw_config
+                weight_q.reshape(self.hidden_size, self.output_size),
+                self.bias,
+                scale_b,
+                quant_config,
+                hw_config,
             )
             self.assertIsInstance(linear, RocmFp8PTPCLinearReference)
 

@@ -220,7 +220,11 @@ class RocmFp8PTPCLinearReference(RocmFp8PTPCLinearBase):
                 "FP8 PTPC reference fallback requires one scale per output channel"
             )
         scale = weight_scales.reshape(1, self.output_size).to(torch.float32)
-        self.weight = weight.to(torch.float32) * scale
+        # PerChannelFp8Weight exposes checkpoint-contiguous [N, K] storage as
+        # a [K, N] reshape. Recover the logical checkpoint matrix before
+        # transposing it for input [M, K] @ weight [K, N].
+        checkpoint_weight = weight.reshape(self.output_size, self.hidden_size)
+        self.weight = checkpoint_weight.to(torch.float32).T * scale
         self.bias = bias
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
