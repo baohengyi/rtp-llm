@@ -5,6 +5,7 @@ from pathlib import Path
 
 RTP_LLM_DIR = Path(__file__).resolve().parents[1]
 ATTENTION_DIR = RTP_LLM_DIR / "models_py/modules/factory/attention"
+MODEL_WEIGHT_INFO = RTP_LLM_DIR / "model_loader/model_weight_info.py"
 
 
 def _find_class(tree: ast.Module, name: str) -> ast.ClassDef:
@@ -18,6 +19,23 @@ def _find_method(class_node: ast.ClassDef, name: str) -> ast.FunctionDef:
         node
         for node in class_node.body
         if isinstance(node, ast.FunctionDef) and node.name == name
+    )
+
+
+def test_tbstars_fp8_ptpc_selects_ck_layout_before_weight_loading():
+    tree = ast.parse(MODEL_WEIGHT_INFO.read_text())
+    deploy_info = _find_class(tree, "ModelDeployWeightInfo")
+    configure_source = ast.unparse(_find_method(deploy_info, "_configure_swizzle_a"))
+    init_source = ast.unparse(_find_method(deploy_info, "__init__"))
+
+    assert "model_config.quant_algo.isFp8PTPC()" in configure_source
+    assert "model_config.model_type == 'tbstars'" in configure_source
+    assert "model_config.hidden_size == 1024" in configure_source
+    assert "model_config.inter_size == 2816" in configure_source
+    assert "hw_kernel_config.use_swizzleA = False" in configure_source
+    assert (
+        "self._use_swizzleA = self._configure_swizzle_a(model_config, hw_kernel_config)"
+        in init_source
     )
 
 

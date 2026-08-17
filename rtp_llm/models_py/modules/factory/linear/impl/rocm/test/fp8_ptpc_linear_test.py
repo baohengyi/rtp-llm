@@ -230,6 +230,41 @@ class RocmFp8PTPCLinearDispatchTest(unittest.TestCase):
                 f"expected ~{expected_scale:.1f}) for M={M},N={N},K={K}",
             )
 
+    def _run_ck_against_dequant_reference(self, M, N, K):
+        from rtp_llm.models_py.kernels.rocm.fp8_kernel import rocm_per_token_quant_fp8
+        from rtp_llm.models_py.modules.factory.linear.impl.rocm.fp8_ptpc_linear import (
+            RocmFp8PTPCLinearNoSwizzle,
+        )
+
+        input_bf16 = torch.randn(M, K, dtype=torch.bfloat16, device=self.device)
+        weight_bf16 = torch.randn(N, K, dtype=torch.bfloat16, device=self.device)
+        input_q, input_scales = rocm_per_token_quant_fp8(input_bf16, eps=1e-10)
+        weight_q, weight_scales = rocm_per_token_quant_fp8(weight_bf16)
+
+        linear = RocmFp8PTPCLinearNoSwizzle(
+            weight=shuffle_weight(weight_q, layout=(16, 16)).T.contiguous(),
+            weight_scales=weight_scales.T.contiguous(),
+            bias=None,
+        )
+        output = linear(input_bf16)
+        reference = run_torch(
+            input_q,
+            weight_q,
+            input_scales.to(torch.float32),
+            weight_scales,
+            dtype=torch.bfloat16,
+        )
+
+        self.assertEqual(output.shape, (M, N))
+        self.assertFalse(torch.isnan(output).any())
+        self.assertFalse(torch.isinf(output).any())
+        torch.testing.assert_close(output, reference, atol=5e-1, rtol=5e-2)
+
+    def test_tbstars_projection_shapes_match_dequant_reference(self):
+        """TBStars no-bias up/down projections stay numerical on the CK layout."""
+        self._run_ck_against_dequant_reference(M=32, N=2816, K=1024)
+        self._run_ck_against_dequant_reference(M=32, N=1024, K=2816)
+
     # --- default path boundary tests ---
     def test_decode_small_m(self):
         """M=32, N=1024, K=256 -> default (protects decode)."""
