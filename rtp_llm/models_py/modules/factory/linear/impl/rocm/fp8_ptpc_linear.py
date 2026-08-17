@@ -125,8 +125,10 @@ class RocmFp8PTPCLinearNoSwizzle(RocmFp8PTPCLinearBase):
             return False
         return (
             hw_kernel_config is None
-            or not hw_kernel_config.use_swizzleA
-            or hw_kernel_config.force_legacy_fp8_ptpc
+            or (
+                not hw_kernel_config.use_swizzleA
+                and not hw_kernel_config.force_legacy_fp8_ptpc
+            )
         )
 
     def __init__(
@@ -180,6 +182,54 @@ class RocmFp8PTPCLinearNoSwizzle(RocmFp8PTPCLinearBase):
         if self.bias is not None:
             output = output + self.bias.to(output.dtype)
         return self._restore_dtype(output, original_dtype)
+
+
+class RocmFp8PTPCLinearReference(RocmFp8PTPCLinearBase):
+    """Numerically stable PTPC fallback for raw, unshuffled FP8 weights."""
+
+    @classmethod
+    def can_handle(
+        cls,
+        quant_config: object,
+        weight: torch.Tensor,
+        weight_scales: Optional[torch.Tensor],
+        hw_kernel_config: Optional["HWKernelConfig"] = None,
+        weight_scale_2: Optional[torch.Tensor] = None,
+        input_scale: Optional[torch.Tensor] = None,
+    ) -> bool:
+        return (
+            cls._can_handle_fp8_ptpc(quant_config, weight, weight_scales)
+            and hw_kernel_config is not None
+            and hw_kernel_config.force_legacy_fp8_ptpc
+        )
+
+    def __init__(
+        self,
+        weight: torch.Tensor,
+        weight_scales: Optional[torch.Tensor] = None,
+        input_scales: Optional[torch.Tensor] = None,
+        bias: Optional[torch.Tensor] = None,
+        quant_config: object = None,
+        weight_scale_2: Optional[torch.Tensor] = None,
+    ):
+        super().__init__(
+            weight, weight_scales, input_scales, bias, quant_config, weight_scale_2
+        )
+        if weight_scales is None or weight_scales.numel() != self.output_size:
+            raise ValueError(
+                "FP8 PTPC reference fallback requires one scale per output channel"
+            )
+        scale = weight_scales.reshape(1, self.output_size).to(torch.float32)
+        self.weight = weight.to(torch.float32) * scale
+        self.bias = bias
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        input_fp8, input_scales, _, original_dtype = self._quantize_input(input)
+        input_dequant = input_fp8.to(torch.float32) * input_scales
+        output = torch.matmul(input_dequant, self.weight)
+        if self.bias is not None:
+            output = output + self.bias.to(torch.float32)
+        return output.to(original_dtype)
 
 
 class RocmFp8PTPCLinearWithSwizzle(RocmFp8PTPCLinearBase):

@@ -154,10 +154,9 @@ class ModelDeployWeightInfo:
     def _configure_legacy_fp8_ptpc(
         model_config: "ModelConfig", hw_kernel_config: "HWKernelConfig"
     ) -> None:
-        # The hipBLASLt swizzleA path was validated for biased VisionBert
-        # projections, but changes TBStars 1024/2816 no-bias numerics. Keep
-        # the original swizzled weight layout while selecting the legacy Aiter
-        # PTPC implementation that consumed that layout before the optimization.
+        # Both the hipBLASLt swizzleA path and the current Aiter preshuffle path
+        # change TBStars 1024/2816 no-bias numerics. Mark this exact signature
+        # for the raw-weight reference fallback configured during weight loading.
         hw_kernel_config.force_legacy_fp8_ptpc = (
             hw_kernel_config.use_swizzleA
             and model_config.quant_algo.isFp8PTPC()
@@ -167,8 +166,8 @@ class ModelDeployWeightInfo:
         )
         if hw_kernel_config.force_legacy_fp8_ptpc:
             logging.warning(
-                "Using the legacy Aiter FP8 PTPC linear for TBStars "
-                "hidden=1024/inter=2816 while preserving swizzled weights"
+                "Using the stable FP8 PTPC reference fallback for TBStars "
+                "hidden=1024/inter=2816 with raw weights"
             )
 
     def __init__(

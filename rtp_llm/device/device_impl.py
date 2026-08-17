@@ -954,13 +954,20 @@ class RocmImpl(GpuImpl):
             W.linear_attn_ba_w,
             W.linear_attn_out_w,
         ]:
-            if self.py_env_configs.py_hw_kernel_config.use_swizzleA:
-                if weight.dtype != torch.float8_e4m3fn:
-                    weight = swizzle_tensor(weight.t(), False).t()
-                else:
-                    weight = swizzle_tensor(weight, weight.dtype != torch.float8_e4m3fn)
-            elif weight.dtype == torch.float8_e4m3fn:
-                weight = self.shuffle_gemm_weight(weight)
+            hw_kernel_config = self.py_env_configs.py_hw_kernel_config
+            # The current preshuffle kernels no longer reproduce the legacy
+            # TBStars numerics. Keep its exact PTPC shapes in the original
+            # [K, N] layout for the reference linear fallback.
+            if not hw_kernel_config.force_legacy_fp8_ptpc:
+                if hw_kernel_config.use_swizzleA:
+                    if weight.dtype != torch.float8_e4m3fn:
+                        weight = swizzle_tensor(weight.t(), False).t()
+                    else:
+                        weight = swizzle_tensor(
+                            weight, weight.dtype != torch.float8_e4m3fn
+                        )
+                elif weight.dtype == torch.float8_e4m3fn:
+                    weight = self.shuffle_gemm_weight(weight)
 
         return weight
 

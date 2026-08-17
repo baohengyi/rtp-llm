@@ -230,20 +230,20 @@ class RocmFp8PTPCLinearDispatchTest(unittest.TestCase):
                 f"expected ~{expected_scale:.1f}) for M={M},N={N},K={K}",
             )
 
-    def _run_tbstars_default_kernel_baseline(self, M, N, K):
+    def _run_tbstars_reference_fallback(self, M, N, K):
         from rtp_llm.models_py.kernels.rocm.fp8_kernel import rocm_per_token_quant_fp8
         from rtp_llm.models_py.modules.factory.linear.impl.rocm.fp8_ptpc_linear import (
-            RocmFp8PTPCLinearNoSwizzle,
+            RocmFp8PTPCLinearReference,
         )
 
         input_bf16 = torch.randn(M, K, dtype=torch.bfloat16, device=self.device)
         weight_bf16 = torch.randn(N, K, dtype=torch.bfloat16, device=self.device)
         weight_q, weight_scales = rocm_per_token_quant_fp8(weight_bf16)
 
-        # TBStars historically used swizzled [K, N] weights with the legacy
-        # Aiter PTPC implementation. Reproduce that exact loader/factory pair.
-        weight_for_init = swizzle_tensor(weight_q, False).T
-        linear = RocmFp8PTPCLinearNoSwizzle(
+        # The TBStars fallback intentionally retains the loader's raw [K, N]
+        # FP8 tensor so correctness is independent of Aiter preshuffle changes.
+        weight_for_init = weight_q.T.contiguous()
+        linear = RocmFp8PTPCLinearReference(
             weight=weight_for_init,
             weight_scales=weight_scales.T.contiguous(),
             bias=None,
@@ -251,18 +251,12 @@ class RocmFp8PTPCLinearDispatchTest(unittest.TestCase):
         output_1 = linear(input_bf16)
         output_2 = linear(input_bf16)
 
-        # The CK-preswizzled path uses Aiter's default kernel for decode-sized M.
-        # Compare the wrapper against that established baseline; a dense
-        # dequantized matmul is not an equivalent reference for this layout.
         input_q, input_scales = rocm_per_token_quant_fp8(input_bf16, eps=1e-10)
-        baseline = aiter.gemm_a8w8_bpreshuffle(
-            input_q,
-            linear.weight,
-            input_scales.to(torch.float32),
-            linear.weight_scales,
-            None,
-            input_bf16.dtype,
-        )
+        baseline = torch.matmul(
+            input_q.to(torch.float32) * input_scales.to(torch.float32),
+            weight_for_init.to(torch.float32)
+            * weight_scales.T.to(torch.float32),
+        ).to(input_bf16.dtype)
 
         self.assertEqual(output_1.shape, (M, N))
         self.assertFalse(torch.isnan(output_1).any())
@@ -270,11 +264,11 @@ class RocmFp8PTPCLinearDispatchTest(unittest.TestCase):
         torch.testing.assert_close(output_1, output_2, atol=1e-3, rtol=0)
         torch.testing.assert_close(output_1, baseline, atol=1e-3, rtol=0)
 
-    def test_tbstars_projection_shapes_match_default_kernel(self):
-        """TBStars no-bias projections stay stable on the legacy Aiter path."""
-        self._run_tbstars_default_kernel_baseline(M=32, N=2816, K=1024)
-        self._run_tbstars_default_kernel_baseline(M=32, N=5632, K=1024)
-        self._run_tbstars_default_kernel_baseline(M=32, N=1024, K=2816)
+    def test_tbstars_projection_shapes_match_reference_fallback(self):
+        """TBStars no-bias projections avoid version-sensitive Aiter layouts."""
+        self._run_tbstars_reference_fallback(M=32, N=2816, K=1024)
+        self._run_tbstars_reference_fallback(M=32, N=5632, K=1024)
+        self._run_tbstars_reference_fallback(M=32, N=1024, K=2816)
 
     # --- default path boundary tests ---
     def test_decode_small_m(self):
@@ -347,6 +341,7 @@ class RocmFp8PTPCLinearWithSwizzleTest(unittest.TestCase):
         from rtp_llm.models_py.modules.factory import LinearFactory
         from rtp_llm.models_py.modules.factory.linear.impl.rocm.fp8_ptpc_linear import (
             RocmFp8PTPCLinearNoSwizzle,
+            RocmFp8PTPCLinearReference,
             RocmFp8PTPCLinearWithSwizzle,
         )
         from rtp_llm.ops import HWKernelConfig
@@ -360,6 +355,7 @@ class RocmFp8PTPCLinearWithSwizzleTest(unittest.TestCase):
         original_strategies = list(LinearFactory._strategies)
         try:
             LinearFactory.clear()
+            LinearFactory.register(RocmFp8PTPCLinearReference)
             LinearFactory.register(RocmFp8PTPCLinearWithSwizzle)
             LinearFactory.register(RocmFp8PTPCLinearNoSwizzle)
 
@@ -372,9 +368,9 @@ class RocmFp8PTPCLinearWithSwizzleTest(unittest.TestCase):
 
             hw_config.force_legacy_fp8_ptpc = True
             linear = LinearFactory.create_linear(
-                weight_with_swizzle, self.bias, scale_b, quant_config, hw_config
+                weight_q.T.contiguous(), self.bias, scale_b, quant_config, hw_config
             )
-            self.assertIsInstance(linear, RocmFp8PTPCLinearNoSwizzle)
+            self.assertIsInstance(linear, RocmFp8PTPCLinearReference)
 
             hw_config = HWKernelConfig()
             hw_config.use_swizzleA = False

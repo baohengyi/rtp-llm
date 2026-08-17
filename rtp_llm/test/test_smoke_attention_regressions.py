@@ -12,6 +12,7 @@ FP8_PTPC_LINEAR = (
     RTP_LLM_DIR
     / "models_py/modules/factory/linear/impl/rocm/fp8_ptpc_linear.py"
 )
+DEVICE_IMPL = RTP_LLM_DIR / "device/device_impl.py"
 
 
 def _find_class(tree: ast.Module, name: str) -> ast.ClassDef:
@@ -28,7 +29,7 @@ def _find_method(class_node: ast.ClassDef, name: str) -> ast.FunctionDef:
     )
 
 
-def test_tbstars_fp8_ptpc_preserves_swizzle_and_selects_legacy_linear():
+def test_tbstars_fp8_ptpc_keeps_raw_weights_and_selects_reference_linear():
     tree = ast.parse(MODEL_WEIGHT_INFO.read_text())
     deploy_info = _find_class(tree, "ModelDeployWeightInfo")
     configure_source = ast.unparse(
@@ -60,14 +61,30 @@ def test_tbstars_fp8_ptpc_preserves_swizzle_and_selects_legacy_linear():
         )
 
     linear_tree = ast.parse(FP8_PTPC_LINEAR.read_text())
-    legacy_support = ast.unparse(
+    reference_support = ast.unparse(
+        _find_method(_find_class(linear_tree, "RocmFp8PTPCLinearReference"), "can_handle")
+    )
+    no_swizzle_support = ast.unparse(
         _find_method(_find_class(linear_tree, "RocmFp8PTPCLinearNoSwizzle"), "can_handle")
     )
     hipblas_support = ast.unparse(
         _find_method(_find_class(linear_tree, "RocmFp8PTPCLinearWithSwizzle"), "can_handle")
     )
-    assert "hw_kernel_config.force_legacy_fp8_ptpc" in legacy_support
+    assert "hw_kernel_config.force_legacy_fp8_ptpc" in reference_support
+    assert "not hw_kernel_config.force_legacy_fp8_ptpc" in no_swizzle_support
     assert "not hw_kernel_config.force_legacy_fp8_ptpc" in hipblas_support
+
+    device_tree = ast.parse(DEVICE_IMPL.read_text())
+    force_branches = [
+        node
+        for node in ast.walk(device_tree)
+        if isinstance(node, ast.If)
+        and ast.unparse(node.test) == "not hw_kernel_config.force_legacy_fp8_ptpc"
+    ]
+    assert len(force_branches) == 1
+    branch_source = ast.unparse(force_branches[0])
+    assert "swizzle_tensor" in branch_source
+    assert "shuffle_gemm_weight" in branch_source
 
 
 def test_fused_rope_calls_support_old_arm_and_new_x86_rtp_kernel_signatures():
