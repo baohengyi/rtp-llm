@@ -241,8 +241,13 @@ class RocmFp8PTPCLinearDispatchTest(unittest.TestCase):
         input_q, input_scales = rocm_per_token_quant_fp8(input_bf16, eps=1e-10)
         weight_q, weight_scales = rocm_per_token_quant_fp8(weight_bf16)
 
+        # Production FP8 PTPC weights enter the linear factory as [K, N], and
+        # the ROCm loader preshuffles that physical layout before construction.
+        weight_for_init = shuffle_weight(
+            weight_q.T.contiguous(), layout=(16, 16)
+        )
         linear = RocmFp8PTPCLinearNoSwizzle(
-            weight=shuffle_weight(weight_q, layout=(16, 16)).T.contiguous(),
+            weight=weight_for_init,
             weight_scales=weight_scales.T.contiguous(),
             bias=None,
         )
