@@ -240,11 +240,9 @@ class RocmFp8PTPCLinearDispatchTest(unittest.TestCase):
         weight_bf16 = torch.randn(N, K, dtype=torch.bfloat16, device=self.device)
         weight_q, weight_scales = rocm_per_token_quant_fp8(weight_bf16)
 
-        # Production FP8 PTPC weights enter the linear factory as [K, N], and
-        # the ROCm loader preshuffles that physical layout before construction.
-        weight_for_init = shuffle_weight(
-            weight_q.T.contiguous(), layout=(16, 16)
-        )
+        # TBStars historically used swizzled [K, N] weights with the legacy
+        # Aiter PTPC implementation. Reproduce that exact loader/factory pair.
+        weight_for_init = swizzle_tensor(weight_q, False).T
         linear = RocmFp8PTPCLinearNoSwizzle(
             weight=weight_for_init,
             weight_scales=weight_scales.T.contiguous(),
@@ -273,8 +271,9 @@ class RocmFp8PTPCLinearDispatchTest(unittest.TestCase):
         torch.testing.assert_close(output_1, baseline, atol=1e-3, rtol=0)
 
     def test_tbstars_projection_shapes_match_default_kernel(self):
-        """TBStars no-bias up/down projections stay stable on the CK layout."""
+        """TBStars no-bias projections stay stable on the legacy Aiter path."""
         self._run_tbstars_default_kernel_baseline(M=32, N=2816, K=1024)
+        self._run_tbstars_default_kernel_baseline(M=32, N=5632, K=1024)
         self._run_tbstars_default_kernel_baseline(M=32, N=1024, K=2816)
 
     # --- default path boundary tests ---
@@ -370,6 +369,12 @@ class RocmFp8PTPCLinearWithSwizzleTest(unittest.TestCase):
                 weight_with_swizzle, self.bias, scale_b, quant_config, hw_config
             )
             self.assertIsInstance(linear, RocmFp8PTPCLinearWithSwizzle)
+
+            hw_config.force_legacy_fp8_ptpc = True
+            linear = LinearFactory.create_linear(
+                weight_with_swizzle, self.bias, scale_b, quant_config, hw_config
+            )
+            self.assertIsInstance(linear, RocmFp8PTPCLinearNoSwizzle)
 
             hw_config = HWKernelConfig()
             hw_config.use_swizzleA = False

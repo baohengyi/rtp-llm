@@ -109,7 +109,7 @@ class RocmFp8PTPCLinearBase(LinearBase):
 
 
 class RocmFp8PTPCLinearNoSwizzle(RocmFp8PTPCLinearBase):
-    """Original CK-preswizzled FP8 PTPC path used when swizzleA is disabled."""
+    """Legacy Aiter FP8 PTPC path, including pre-hipBLASLt swizzled weights."""
 
     @classmethod
     def can_handle(
@@ -123,7 +123,11 @@ class RocmFp8PTPCLinearNoSwizzle(RocmFp8PTPCLinearBase):
     ) -> bool:
         if not cls._can_handle_fp8_ptpc(quant_config, weight, weight_scales):
             return False
-        return hw_kernel_config is None or not hw_kernel_config.use_swizzleA
+        return (
+            hw_kernel_config is None
+            or not hw_kernel_config.use_swizzleA
+            or hw_kernel_config.force_legacy_fp8_ptpc
+        )
 
     def __init__(
         self,
@@ -193,7 +197,11 @@ class RocmFp8PTPCLinearWithSwizzle(RocmFp8PTPCLinearBase):
     ) -> bool:
         if not cls._can_handle_fp8_ptpc(quant_config, weight, weight_scales):
             return False
-        return hw_kernel_config is not None and hw_kernel_config.use_swizzleA
+        return (
+            hw_kernel_config is not None
+            and hw_kernel_config.use_swizzleA
+            and not hw_kernel_config.force_legacy_fp8_ptpc
+        )
 
     def __init__(
         self,

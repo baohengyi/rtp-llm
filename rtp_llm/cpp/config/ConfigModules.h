@@ -212,6 +212,7 @@ struct HWKernelConfig {
     bool        ft_disable_custom_ar         = true;
     std::string rocm_hipblaslt_config        = "gemm_config.csv";
     bool        use_swizzleA                 = false;
+    bool        force_legacy_fp8_ptpc        = false;
     bool        enable_cuda_graph            = false;
     bool        enable_cuda_graph_debug_mode = false;
     bool        enable_native_cuda_graph     = false;

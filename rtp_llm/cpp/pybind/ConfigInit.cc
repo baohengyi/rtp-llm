@@ -723,6 +723,7 @@ PYBIND11_MODULE(libth_transformer_config, m) {
         .def_readwrite("ft_disable_custom_ar", &HWKernelConfig::ft_disable_custom_ar)
         .def_readwrite("rocm_hipblaslt_config", &HWKernelConfig::rocm_hipblaslt_config)
         .def_readwrite("use_swizzleA", &HWKernelConfig::use_swizzleA)
+        .def_readwrite("force_legacy_fp8_ptpc", &HWKernelConfig::force_legacy_fp8_ptpc)
         .def_readwrite("enable_cuda_graph", &HWKernelConfig::enable_cuda_graph)
         .def_readwrite("enable_cuda_graph_debug_mode", &HWKernelConfig::enable_cuda_graph_debug_mode)
         .def_readwrite("enable_native_cuda_graph", &HWKernelConfig::enable_native_cuda_graph)
@@ -747,10 +748,11 @@ PYBIND11_MODULE(libth_transformer_config, m) {
                                       self.prefill_capture_seq_lens,
                                       self.decode_capture_batch_sizes,
                                       self.disable_dpc_random,
-                                      self.rocm_disable_custom_ag);
+                                      self.rocm_disable_custom_ag,
+                                      self.force_legacy_fp8_ptpc);
             },
             [](py::tuple t) {
-                if (t.size() != 14)
+                if (t.size() != 14 && t.size() != 15)
                     throw std::runtime_error("Invalid state!");
                 HWKernelConfig c;
                 try {
@@ -768,6 +770,9 @@ PYBIND11_MODULE(libth_transformer_config, m) {
                     c.decode_capture_batch_sizes   = t[11].cast<std::vector<int>>();
                     c.disable_dpc_random           = t[12].cast<bool>();
                     c.rocm_disable_custom_ag       = t[13].cast<bool>();
+                    if (t.size() == 15) {
+                        c.force_legacy_fp8_ptpc = t[14].cast<bool>();
+                    }
                 } catch (const std::exception& e) {
                     throw std::runtime_error(std::string("HWKernelConfig unpickle error: ") + e.what());
                 }

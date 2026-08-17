@@ -201,6 +201,7 @@ std::string HWKernelConfig::to_string() const {
         << "ft_disable_custom_ar: " << ft_disable_custom_ar << "\n"
         << "rocm_hipblaslt_config: " << rocm_hipblaslt_config << "\n"
         << "use_swizzleA: " << use_swizzleA << "\n"
+        << "force_legacy_fp8_ptpc: " << force_legacy_fp8_ptpc << "\n"
         << "enable_cuda_graph: " << enable_cuda_graph << "\n"
         << "enable_cuda_graph_debug_mode: " << enable_cuda_graph_debug_mode << "\n"
         << "enable_native_cuda_graph: " << enable_native_cuda_graph << "\n"

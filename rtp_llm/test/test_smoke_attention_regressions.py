@@ -6,6 +6,12 @@ from pathlib import Path
 RTP_LLM_DIR = Path(__file__).resolve().parents[1]
 ATTENTION_DIR = RTP_LLM_DIR / "models_py/modules/factory/attention"
 MODEL_WEIGHT_INFO = RTP_LLM_DIR / "model_loader/model_weight_info.py"
+HW_KERNEL_CONFIG = RTP_LLM_DIR / "cpp/config/ConfigModules.h"
+CONFIG_BINDINGS = RTP_LLM_DIR / "cpp/pybind/ConfigInit.cc"
+FP8_PTPC_LINEAR = (
+    RTP_LLM_DIR
+    / "models_py/modules/factory/linear/impl/rocm/fp8_ptpc_linear.py"
+)
 
 
 def _find_class(tree: ast.Module, name: str) -> ast.ClassDef:
@@ -22,21 +28,44 @@ def _find_method(class_node: ast.ClassDef, name: str) -> ast.FunctionDef:
     )
 
 
-def test_tbstars_fp8_ptpc_selects_ck_layout_before_weight_loading():
+def test_tbstars_fp8_ptpc_preserves_swizzle_and_selects_legacy_linear():
     tree = ast.parse(MODEL_WEIGHT_INFO.read_text())
     deploy_info = _find_class(tree, "ModelDeployWeightInfo")
-    configure_source = ast.unparse(_find_method(deploy_info, "_configure_swizzle_a"))
+    configure_source = ast.unparse(
+        _find_method(deploy_info, "_configure_legacy_fp8_ptpc")
+    )
     init_source = ast.unparse(_find_method(deploy_info, "__init__"))
 
     assert "model_config.quant_algo.isFp8PTPC()" in configure_source
     assert "model_config.model_type == 'tbstars'" in configure_source
     assert "model_config.hidden_size == 1024" in configure_source
     assert "model_config.inter_size == 2816" in configure_source
-    assert "hw_kernel_config.use_swizzleA = False" in configure_source
+    assert "hw_kernel_config.force_legacy_fp8_ptpc" in configure_source
+    assert "hw_kernel_config.use_swizzleA = False" not in configure_source
     assert (
-        "self._use_swizzleA = self._configure_swizzle_a(model_config, hw_kernel_config)"
+        "self._configure_legacy_fp8_ptpc(model_config, hw_kernel_config)"
         in init_source
     )
+    assert (
+        "self._use_swizzleA = hw_kernel_config.use_swizzleA"
+        in init_source
+    )
+
+    assert "bool        force_legacy_fp8_ptpc" in HW_KERNEL_CONFIG.read_text()
+    assert (
+        '.def_readwrite("force_legacy_fp8_ptpc"'
+        in CONFIG_BINDINGS.read_text()
+    )
+
+    linear_tree = ast.parse(FP8_PTPC_LINEAR.read_text())
+    legacy_support = ast.unparse(
+        _find_method(_find_class(linear_tree, "RocmFp8PTPCLinearNoSwizzle"), "can_handle")
+    )
+    hipblas_support = ast.unparse(
+        _find_method(_find_class(linear_tree, "RocmFp8PTPCLinearWithSwizzle"), "can_handle")
+    )
+    assert "hw_kernel_config.force_legacy_fp8_ptpc" in legacy_support
+    assert "not hw_kernel_config.force_legacy_fp8_ptpc" in hipblas_support
 
 
 def test_fused_rope_calls_support_old_arm_and_new_x86_rtp_kernel_signatures():

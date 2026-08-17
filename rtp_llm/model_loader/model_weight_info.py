@@ -151,27 +151,25 @@ class ModelDeployWeightInfo:
     }
 
     @staticmethod
-    def _configure_swizzle_a(
+    def _configure_legacy_fp8_ptpc(
         model_config: "ModelConfig", hw_kernel_config: "HWKernelConfig"
-    ) -> bool:
+    ) -> None:
         # The hipBLASLt swizzleA path was validated for biased VisionBert
-        # projections, but changes TBStars 1024/2816 no-bias numerics. Select
-        # the prior CK layout before weights are rewritten so loading and the
-        # linear factory observe the same configuration.
-        use_tbstars_ck_layout = (
+        # projections, but changes TBStars 1024/2816 no-bias numerics. Keep
+        # the original swizzled weight layout while selecting the legacy Aiter
+        # PTPC implementation that consumed that layout before the optimization.
+        hw_kernel_config.force_legacy_fp8_ptpc = (
             hw_kernel_config.use_swizzleA
             and model_config.quant_algo.isFp8PTPC()
             and model_config.model_type == "tbstars"
             and model_config.hidden_size == 1024
             and model_config.inter_size == 2816
         )
-        if use_tbstars_ck_layout:
+        if hw_kernel_config.force_legacy_fp8_ptpc:
             logging.warning(
-                "Disabling swizzleA for TBStars FP8 PTPC hidden=1024/inter=2816; "
-                "using the CK-preswizzled layout"
+                "Using the legacy Aiter FP8 PTPC linear for TBStars "
+                "hidden=1024/inter=2816 while preserving swizzled weights"
             )
-            hw_kernel_config.use_swizzleA = False
-        return hw_kernel_config.use_swizzleA
 
     def __init__(
         self,
@@ -186,9 +184,8 @@ class ModelDeployWeightInfo:
         self.model_config = model_config
         self.merge_lora = merge_lora
 
-        self._use_swizzleA = self._configure_swizzle_a(
-            model_config, hw_kernel_config
-        )
+        self._configure_legacy_fp8_ptpc(model_config, hw_kernel_config)
+        self._use_swizzleA = hw_kernel_config.use_swizzleA
         self._use_qk_norm = model_config.qk_norm
         self._hidden_size = model_config.hidden_size
         # inter_size is now accessed from model config when needed, not stored
