@@ -225,10 +225,28 @@ class RocmFp8PTPCLinearReference(RocmFp8PTPCLinearBase):
         # transposing it for input [M, K] @ weight [K, N].
         checkpoint_weight = weight.reshape(self.output_size, self.hidden_size)
         self.weight = checkpoint_weight.to(torch.float32).T * scale
+        self.fp8_dtype = weight.dtype
         self.bias = bias
 
+    def _quantize_input_reference(
+        self, input: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.dtype]:
+        """Quantize without depending on version-specific Aiter kernels."""
+        original_dtype = input.dtype
+        input_bf16 = (
+            input if input.dtype == torch.bfloat16 else input.to(torch.bfloat16)
+        )
+        input_fp32 = input_bf16.to(torch.float32)
+        input_scales = input_fp32.abs().amax(dim=-1, keepdim=True)
+        input_scales = input_scales / torch.finfo(self.fp8_dtype).max
+        input_scales = torch.where(
+            input_scales == 0, torch.ones_like(input_scales), input_scales
+        )
+        input_fp8 = (input_fp32 / input_scales).to(self.fp8_dtype)
+        return input_fp8, input_scales, original_dtype
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        input_fp8, input_scales, _, original_dtype = self._quantize_input(input)
+        input_fp8, input_scales, original_dtype = self._quantize_input_reference(input)
         input_dequant = input_fp8.to(torch.float32) * input_scales
         output = torch.matmul(input_dequant, self.weight)
         if self.bias is not None:

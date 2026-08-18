@@ -251,9 +251,15 @@ class RocmFp8PTPCLinearDispatchTest(unittest.TestCase):
         output_1 = linear(input_bf16)
         output_2 = linear(input_bf16)
 
-        input_q, input_scales = rocm_per_token_quant_fp8(input_bf16, eps=1e-10)
+        input_fp32 = input_bf16.to(torch.float32)
+        input_scales = input_fp32.abs().amax(dim=-1, keepdim=True)
+        input_scales = input_scales / torch.finfo(weight_q.dtype).max
+        input_scales = torch.where(
+            input_scales == 0, torch.ones_like(input_scales), input_scales
+        )
+        input_q = (input_fp32 / input_scales).to(weight_q.dtype)
         baseline = torch.matmul(
-            input_q.to(torch.float32) * input_scales.to(torch.float32),
+            input_q.to(torch.float32) * input_scales,
             weight_q.to(torch.float32).T * weight_scales.T.to(torch.float32),
         ).to(input_bf16.dtype)
 
@@ -262,6 +268,11 @@ class RocmFp8PTPCLinearDispatchTest(unittest.TestCase):
         self.assertFalse(torch.isinf(output_1).any())
         torch.testing.assert_close(output_1, output_2, atol=1e-3, rtol=0)
         torch.testing.assert_close(output_1, baseline, atol=1e-3, rtol=0)
+
+        zero_input = torch.zeros_like(input_bf16[:1])
+        zero_output = linear(zero_input)
+        self.assertFalse(torch.isnan(zero_output).any())
+        self.assertFalse(torch.isinf(zero_output).any())
 
     def test_tbstars_projection_shapes_match_reference_fallback(self):
         """TBStars no-bias projections avoid version-sensitive Aiter layouts."""

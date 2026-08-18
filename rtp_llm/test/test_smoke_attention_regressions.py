@@ -78,6 +78,21 @@ def test_tbstars_fp8_ptpc_keeps_raw_weights_and_selects_reference_linear():
         "weight.reshape(self.output_size, self.hidden_size)" in reference_init
     )
     assert "checkpoint_weight.to(torch.float32).T * scale" in reference_init
+    reference_quant = ast.unparse(
+        _find_method(
+            _find_class(linear_tree, "RocmFp8PTPCLinearReference"),
+            "_quantize_input_reference",
+        )
+    )
+    reference_forward = ast.unparse(
+        _find_method(
+            _find_class(linear_tree, "RocmFp8PTPCLinearReference"), "forward"
+        )
+    )
+    assert "torch.finfo(self.fp8_dtype).max" in reference_quant
+    assert "torch.where(input_scales == 0" in reference_quant
+    assert "self._quantize_input_reference(input)" in reference_forward
+    assert "self._quantize_input(input)" not in reference_forward
     assert "not hw_kernel_config.force_legacy_fp8_ptpc" in no_swizzle_support
     assert "not hw_kernel_config.force_legacy_fp8_ptpc" in hipblas_support
 
