@@ -185,7 +185,7 @@ class RocmFp8PTPCLinearNoSwizzle(RocmFp8PTPCLinearBase):
 
 
 class RocmFp8PTPCLinearReference(RocmFp8PTPCLinearBase):
-    """Numerically stable PTPC fallback for raw, unshuffled FP8 weights."""
+    """Raw hipBLASLt PTPC fallback for TBStars' unsupported swizzle shapes."""
 
     @classmethod
     def can_handle(
@@ -219,39 +219,32 @@ class RocmFp8PTPCLinearReference(RocmFp8PTPCLinearBase):
             raise ValueError(
                 "FP8 PTPC reference fallback requires one scale per output channel"
             )
-        scale = weight_scales.reshape(1, self.output_size).to(torch.float32)
         # PerChannelFp8Weight exposes checkpoint-contiguous [N, K] storage as
         # a [K, N] reshape. Recover the logical checkpoint matrix before
-        # transposing it for input [M, K] @ weight [K, N].
+        # transposing it into the raw hipBLASLt [K, N] column-major view.
         checkpoint_weight = weight.reshape(self.output_size, self.hidden_size)
-        self.weight = checkpoint_weight.to(torch.float32).T * scale
-        self.fp8_dtype = weight.dtype
+        self.weight = checkpoint_weight.T
+        self.weight_scales = self._as_hipb_scale_b(
+            weight_scales, self.output_size
+        )
         self.bias = bias
 
-    def _quantize_input_reference(
-        self, input: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.dtype]:
-        """Quantize without depending on version-specific Aiter kernels."""
-        original_dtype = input.dtype
-        input_bf16 = (
-            input if input.dtype == torch.bfloat16 else input.to(torch.bfloat16)
-        )
-        input_fp32 = input_bf16.to(torch.float32)
-        input_scales = input_fp32.abs().amax(dim=-1, keepdim=True)
-        input_scales = input_scales / torch.finfo(self.fp8_dtype).max
-        input_scales = torch.where(
-            input_scales == 0, torch.ones_like(input_scales), input_scales
-        )
-        input_fp8 = (input_fp32 / input_scales).to(self.fp8_dtype)
-        return input_fp8, input_scales, original_dtype
-
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        input_fp8, input_scales, original_dtype = self._quantize_input_reference(input)
-        input_dequant = input_fp8.to(torch.float32) * input_scales
-        output = torch.matmul(input_dequant, self.weight)
-        if self.bias is not None:
-            output = output + self.bias.to(torch.float32)
-        return output.to(original_dtype)
+        self.init_hipblas()
+        input_fp8, input_scales, input_bf16, original_dtype = self._quantize_input(
+            input
+        )
+        output = aiter.hipb_mm(
+            input_fp8,
+            self.weight,
+            solution_index=-1,
+            bias=self.bias,
+            out_dtype=input_bf16.dtype,
+            scaleA=input_scales,
+            scaleB=self.weight_scales,
+            bpreshuffle=False,
+        )
+        return self._restore_dtype(output, original_dtype)
 
 
 class RocmFp8PTPCLinearWithSwizzle(RocmFp8PTPCLinearBase):
