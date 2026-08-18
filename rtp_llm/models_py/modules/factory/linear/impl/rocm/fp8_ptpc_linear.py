@@ -185,7 +185,7 @@ class RocmFp8PTPCLinearNoSwizzle(RocmFp8PTPCLinearBase):
 
 
 class RocmFp8PTPCLinearReference(RocmFp8PTPCLinearBase):
-    """Raw hipBLASLt PTPC fallback for TBStars' unsupported swizzle shapes."""
+    """CKTile PTPC fallback for TBStars' unsupported small-batch shapes."""
 
     @classmethod
     def can_handle(
@@ -217,33 +217,60 @@ class RocmFp8PTPCLinearReference(RocmFp8PTPCLinearBase):
         )
         if weight_scales is None or weight_scales.numel() != self.output_size:
             raise ValueError(
-                "FP8 PTPC reference fallback requires one scale per output channel"
+                "CKTile FP8 PTPC fallback requires one scale per output channel"
             )
         # PerChannelFp8Weight exposes checkpoint-contiguous [N, K] storage as
-        # a [K, N] reshape. Recover the logical checkpoint matrix before
-        # transposing it into the raw hipBLASLt [K, N] column-major view.
+        # a [K, N] reshape. Recover the logical checkpoint matrix, then build
+        # the layout consumed by gemm_a8w8_bpreshuffle_cktile. This avoids the
+        # version-sensitive default preshuffle and hipBLASLt dispatches.
         checkpoint_weight = weight.reshape(self.output_size, self.hidden_size)
-        self.weight = checkpoint_weight.T
+        self.weight = self._shuffle_weight_for_cktile(checkpoint_weight)
         self.weight_scales = self._as_hipb_scale_b(
             weight_scales, self.output_size
         )
         self.bias = bias
 
+    @staticmethod
+    def _shuffle_weight_for_cktile(weight: torch.Tensor) -> torch.Tensor:
+        output_size, hidden_size = weight.shape
+        block_n = 16
+        block_k = 32
+        pack_k = 16 // weight.element_size()
+        if output_size % block_n != 0 or hidden_size % block_k != 0:
+            raise ValueError(
+                "CKTile FP8 PTPC fallback requires N % 16 == 0 and K % 32 == 0"
+            )
+        return (
+            weight.view(
+                output_size // block_n,
+                block_n,
+                hidden_size // block_k,
+                block_k // pack_k,
+                pack_k,
+            )
+            .permute(0, 2, 3, 1, 4)
+            .contiguous()
+            .view(output_size, hidden_size)
+        )
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        self.init_hipblas()
         input_fp8, input_scales, input_bf16, original_dtype = self._quantize_input(
             input
         )
-        output = aiter.hipb_mm(
+        output = torch.empty(
+            (input_fp8.shape[0], self.output_size),
+            dtype=input_bf16.dtype,
+            device=input_bf16.device,
+        )
+        gemm_a8w8_bpreshuffle_cktile(
             input_fp8,
             self.weight,
-            solution_index=-1,
-            bias=self.bias,
-            out_dtype=input_bf16.dtype,
-            scaleA=input_scales,
-            scaleB=self.weight_scales,
-            bpreshuffle=False,
+            input_scales,
+            self.weight_scales,
+            output,
         )
+        if self.bias is not None:
+            output = output + self.bias.to(output.dtype)
         return self._restore_dtype(output, original_dtype)
 
 

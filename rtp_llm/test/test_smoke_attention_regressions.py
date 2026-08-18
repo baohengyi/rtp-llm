@@ -77,7 +77,7 @@ def test_tbstars_fp8_ptpc_keeps_raw_weights_and_selects_reference_linear():
     assert (
         "weight.reshape(self.output_size, self.hidden_size)" in reference_init
     )
-    assert "self.weight = checkpoint_weight.T" in reference_init
+    assert "self._shuffle_weight_for_cktile(checkpoint_weight)" in reference_init
     assert "self._as_hipb_scale_b(weight_scales, self.output_size)" in reference_init
     reference_forward = ast.unparse(
         _find_method(
@@ -85,8 +85,7 @@ def test_tbstars_fp8_ptpc_keeps_raw_weights_and_selects_reference_linear():
         )
     )
     assert "self._quantize_input(input)" in reference_forward
-    assert "aiter.hipb_mm" in reference_forward
-    assert "bpreshuffle=False" in reference_forward
+    assert "gemm_a8w8_bpreshuffle_cktile" in reference_forward
     assert "not hw_kernel_config.force_legacy_fp8_ptpc" in no_swizzle_support
     assert "not hw_kernel_config.force_legacy_fp8_ptpc" in hipblas_support
 

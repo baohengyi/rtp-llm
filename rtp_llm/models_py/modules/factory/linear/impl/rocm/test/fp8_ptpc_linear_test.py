@@ -230,7 +230,7 @@ class RocmFp8PTPCLinearDispatchTest(unittest.TestCase):
                 f"expected ~{expected_scale:.1f}) for M={M},N={N},K={K}",
             )
 
-    def _run_tbstars_raw_hipb_fallback(self, M, N, K):
+    def _run_tbstars_cktile_fallback(self, M, N, K):
         from rtp_llm.models_py.kernels.rocm.fp8_kernel import rocm_per_token_quant_fp8
         from rtp_llm.models_py.modules.factory.linear.impl.rocm.fp8_ptpc_linear import (
             RocmFp8PTPCLinearReference,
@@ -268,11 +268,11 @@ class RocmFp8PTPCLinearDispatchTest(unittest.TestCase):
         self.assertFalse(torch.isnan(zero_output).any())
         self.assertFalse(torch.isinf(zero_output).any())
 
-    def test_tbstars_projection_shapes_match_raw_hipb_fallback(self):
-        """TBStars projections use raw FP8 GEMM without weight preshuffling."""
-        self._run_tbstars_raw_hipb_fallback(M=32, N=2816, K=1024)
-        self._run_tbstars_raw_hipb_fallback(M=32, N=5632, K=1024)
-        self._run_tbstars_raw_hipb_fallback(M=32, N=1024, K=2816)
+    def test_tbstars_projection_shapes_match_cktile_fallback(self):
+        """TBStars projections use explicit CKTile with its required layout."""
+        self._run_tbstars_cktile_fallback(M=32, N=2816, K=1024)
+        self._run_tbstars_cktile_fallback(M=32, N=5632, K=1024)
+        self._run_tbstars_cktile_fallback(M=32, N=1024, K=2816)
 
     # --- default path boundary tests ---
     def test_decode_small_m(self):

@@ -955,9 +955,9 @@ class RocmImpl(GpuImpl):
             W.linear_attn_out_w,
         ]:
             hw_kernel_config = self.py_env_configs.py_hw_kernel_config
-            # The current preshuffle kernels no longer reproduce the legacy
-            # TBStars numerics. Keep its exact PTPC shapes in the original
-            # [K, N] layout for the reference linear fallback.
+            # swizzleA is not valid for the exact TBStars PTPC signature. Keep
+            # its checkpoint-contiguous storage for the explicit CKTile
+            # fallback, which applies CKTile's layout exactly once.
             if not hw_kernel_config.force_legacy_fp8_ptpc:
                 if hw_kernel_config.use_swizzleA:
                     if weight.dtype != torch.float8_e4m3fn:

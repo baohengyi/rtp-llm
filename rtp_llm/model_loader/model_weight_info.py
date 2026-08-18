@@ -154,9 +154,9 @@ class ModelDeployWeightInfo:
     def _configure_legacy_fp8_ptpc(
         model_config: "ModelConfig", hw_kernel_config: "HWKernelConfig"
     ) -> None:
-        # Both the hipBLASLt swizzleA path and the current Aiter preshuffle path
-        # change TBStars 1024/2816 no-bias numerics. Mark this exact signature
-        # for the raw-weight reference fallback configured during weight loading.
+        # The swizzleA hipBLASLt path changes TBStars 1024/2816 no-bias
+        # numerics. Mark this exact signature for the explicit CKTile fallback
+        # configured during weight loading.
         hw_kernel_config.force_legacy_fp8_ptpc = (
             hw_kernel_config.use_swizzleA
             and model_config.quant_algo.isFp8PTPC()
@@ -166,8 +166,8 @@ class ModelDeployWeightInfo:
         )
         if hw_kernel_config.force_legacy_fp8_ptpc:
             logging.warning(
-                "Using the stable FP8 PTPC reference fallback for TBStars "
-                "hidden=1024/inter=2816 with raw weights"
+                "Using the explicit CKTile FP8 PTPC fallback for TBStars "
+                "hidden=1024/inter=2816"
             )
 
     def __init__(
