@@ -107,6 +107,24 @@ class BuildPackagingContractTest(TestCase):
                 "xgrammar 0.2.5 metadata requires transformers<5",
             )
 
+    def test_xgrammar_platform_extras_use_compatible_tvm_ffi(self):
+        xgrammar_minimum_tvm_ffi = Version("0.1.10")
+        for extra_name in ("cuda12", "cuda12_9"):
+            extra_requirements = {
+                requirement.name: requirement
+                for requirement in map(Requirement, _oss_optional_extras()[extra_name])
+            }
+            tvm_ffi_version = next(
+                Version(specifier.version)
+                for specifier in extra_requirements["apache-tvm-ffi"].specifier
+                if specifier.operator == "=="
+            )
+            self.assertGreaterEqual(
+                tvm_ffi_version,
+                xgrammar_minimum_tvm_ffi,
+                f"{extra_name} must satisfy xgrammar's apache-tvm-ffi requirement",
+            )
+
     def test_dash_sc_protos_are_part_of_python_build_outputs(self):
         setup_module = _load_setup_module()
 
