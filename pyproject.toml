@@ -199,7 +199,9 @@ base-dependencies = [
     "openai",
     "nest_asyncio",
     "partial_json_parser",
-    "xgrammar==0.2.5",
+    # 0.2.5 metadata requires transformers<5. 0.2.6rc1 removes that stale
+    # upper bound and supports the transformers 5.2 baseline above.
+    "xgrammar==0.2.6rc1",
 
     # Monitoring
     "thrift",

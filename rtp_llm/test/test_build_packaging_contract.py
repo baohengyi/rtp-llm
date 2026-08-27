@@ -7,6 +7,8 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
 
+from packaging.requirements import Requirement
+from packaging.version import Version
 from setuptools import find_namespace_packages
 
 try:
@@ -76,6 +78,35 @@ def _load_setup_module():
 
 
 class BuildPackagingContractTest(TestCase):
+    def test_transformers5_uses_compatible_xgrammar_metadata(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        requirements = {
+            requirement.name: requirement
+            for requirement in map(
+                Requirement,
+                pyproject["tool"]["rtp-llm"]["base-dependencies"],
+            )
+        }
+        transformers_version = next(
+            Version(specifier.version)
+            for specifier in requirements["transformers"].specifier
+            if specifier.operator == "=="
+        )
+        xgrammar_version = next(
+            Version(specifier.version)
+            for specifier in requirements["xgrammar"].specifier
+            if specifier.operator == "=="
+        )
+
+        if transformers_version.major >= 5:
+            self.assertGreaterEqual(
+                xgrammar_version,
+                Version("0.2.6rc1"),
+                "xgrammar 0.2.5 metadata requires transformers<5",
+            )
+
     def test_dash_sc_protos_are_part_of_python_build_outputs(self):
         setup_module = _load_setup_module()
 
