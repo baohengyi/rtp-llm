@@ -125,6 +125,12 @@ class BuildPackagingContractTest(TestCase):
                 f"{extra_name} must satisfy xgrammar's apache-tvm-ffi requirement",
             )
 
+    def test_cub_compat_does_not_require_cuda_header_on_rocm(self):
+        compat_header = (PROJECT_ROOT / "3rdparty/cub_compat.h").read_text()
+
+        self.assertNotIn("#include <cub/version.cuh>", compat_header)
+        self.assertIn("defined(CUB_VERSION)", compat_header)
+
     def test_dash_sc_protos_are_part_of_python_build_outputs(self):
         setup_module = _load_setup_module()
 

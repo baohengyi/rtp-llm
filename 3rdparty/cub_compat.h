@@ -16,8 +16,6 @@
 #ifndef RTP_LLM_3RDPARTY_CUB_COMPAT_H_
 #define RTP_LLM_3RDPARTY_CUB_COMPAT_H_
 
-#include <cub/version.cuh>
-
 // Gate on the cub/CCCL version itself rather than the compiler: CCCL 3.x
 // (CUDA 13) removed these names, while older toolchains that still ship them
 // (e.g. the PPU SDK, which reports __CUDACC_VER_MAJOR__ >= 13 with a 2.x cub,
