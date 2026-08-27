@@ -18,6 +18,23 @@ SMOKE_CASES = {
         "markers": ["smoke", "cuda", "H20"],
         "timeout": 600,
     },
+    "qwen3_vl_cp2": {
+        "task_info": "data/model/qwen_vl/q_r_3_cp2.json",
+        "smoke_args": {
+            "prefill": "--warm_up 0 --act_type BF16 --cache_store_rdma_mode 0 "
+            "--use_local 1 --use_local_preprocess 1 --role_type PREFILL "
+            "--tp_size 2 --world_size 2 --dp_size 1 --reuse_cache 1 "
+            "--enable_cuda_graph 0 --cp_rotate_method ALL_GATHER",
+            "decode": "--warm_up 0 --act_type BF16 --cache_store_rdma_mode 0 "
+            "--use_local 1 --role_type DECODE --tp_size 2 --world_size 2 "
+            "--dp_size 1 --reuse_cache 1 --enable_cuda_graph 0 "
+            "--cp_rotate_method PREFILL_CP",
+        },
+        "gpu_type": "H20",
+        "platform": "cuda",
+        "markers": ["smoke", "cuda", "H20"],
+        "timeout": 600,
+    },
     "qwen3_vl_gpu_batch": {
         "task_info": "data/model/qwen_vl/q_r_3_gpu_batch.json",
         "smoke_args": {
@@ -53,8 +70,14 @@ SMOKE_CASES = {
             "--use_deepep_low_latency 1",
         },
         "envs": {
-            "prefill": ["ACCL_LOW_LATENCY_OPTIMIZE=1"],
-            "decode": ["ACCL_LOW_LATENCY_OPTIMIZE=1"],
+            "prefill": [
+                "ACCL_LOW_LATENCY_OPTIMIZE=1",
+                "DSV4_FP8_QUANT_KERNEL=legacy",
+            ],
+            "decode": [
+                "ACCL_LOW_LATENCY_OPTIMIZE=1",
+                "DSV4_FP8_QUANT_KERNEL=legacy",
+            ],
         },
         "gpu_type": "H20",
         "platform": "cuda",

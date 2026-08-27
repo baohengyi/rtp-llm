@@ -24,9 +24,9 @@ from typing import Any, Dict, List, Optional
 
 import grpc
 from pydantic import BaseModel
-from smoke.base_comparer import BaseComparer
-from smoke.common_def import QueryStatus, SmokeException
-from smoke.grammar_constraint_validator import validate_constraint
+from rtp_llm.test.smoke.base_comparer import BaseComparer
+from rtp_llm.test.smoke.common_def import QueryStatus, SmokeException
+from rtp_llm.test.smoke.grammar_constraint_validator import validate_constraint
 
 from rtp_llm.config.py_config_modules import DASH_SC_GRPC_SERVER_PORT_OFFSET
 from rtp_llm.dash_sc.client import (

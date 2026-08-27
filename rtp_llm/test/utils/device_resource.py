@@ -276,6 +276,9 @@ def get_gpu_ids():
     return total_gpus
 
 
+get_smoke_gpu_pool = get_gpu_ids
+
+
 class DeviceResource:
     def __init__(self, required_gpu_count: int, timeout: Optional[int] = None):
         """
@@ -410,30 +413,90 @@ class DeviceResource:
         self._lock_start_idx = (self._lock_start_idx + 1) % n
 
     def _lock_gpus(self):
+        candidate_groups = self._candidate_gpu_groups()
         with ExitStack() as stack:
-            gpu_ids = []
             now = time.time()
-            for id in self._iter_gpu_ids():
-                if self._gpu_bad_until.get(str(id), 0) > now:
-                    continue
-                lock_device = FileLock(f"{self.gpu_status_root_path}/{id}")
-                try:
-                    stack.enter_context(lock_device.acquire(timeout=0))
-                except Timeout:
-                    logging.info(f"lock device {id} failed")
-                    continue
-                if self._has_non_session_live_cuda_pids(str(id)):
-                    raise GpuLockTimeoutError(
-                        f"GPU {id} lock acquired but non-session CUDA process is still live"
-                    )
-                gpu_ids.append(str(id))
-                logging.info(f"{get_ip()} lock device {id} done")
-                if len(gpu_ids) >= self.required_gpu_count:
-                    logging.info(f"use gpus:[{gpu_ids}]")
-                    self.gpu_locks = stack.pop_all()
-                    self.gpu_ids = gpu_ids
-                    return True
+            for group in candidate_groups:
+                gpu_ids = []
+                with ExitStack() as group_stack:
+                    for id in group:
+                        if self._gpu_bad_until.get(str(id), 0) > now:
+                            logging.info(f"skip GPU {id}: temporary cooldown")
+                            break
+                        if self._has_zombie_gpu_contexts(str(id)):
+                            logging.info(f"skip GPU {id}: zombie CUDA contexts detected")
+                            break
+                        lock_device = FileLock(f"{self.gpu_status_root_path}/{id}")
+                        try:
+                            group_stack.enter_context(lock_device.acquire(timeout=1))
+                        except Timeout as _:
+                            logging.info(f"lock device {id} failed")
+                            break
+                        if self._has_non_session_live_cuda_pids(str(id)):
+                            logging.info(
+                                "skip GPU %s: non-session CUDA process detected", id
+                            )
+                            break
+                        gpu_ids.append(str(id))
+                        logging.info(f"{get_ip()} lock device {id} done")
+                    if len(gpu_ids) == self.required_gpu_count:
+                        logging.info(f"use gpus:[{gpu_ids}]")
+                        stack.enter_context(group_stack.pop_all())
+                        self.gpu_locks = stack.pop_all()
+                        self.gpu_ids = gpu_ids
+                        return True
         return False
+
+    def _candidate_gpu_groups(self) -> List[List[int]]:
+        if self.required_gpu_count <= 1:
+            return [[id] for id in self.total_gpus]
+
+        numa_groups = self._get_topology_numa_groups()
+        candidates: List[List[int]] = []
+        seen = set()
+        total_gpu_set = set(self.total_gpus)
+        for group in numa_groups:
+            visible_group = [id for id in group if id in total_gpu_set]
+            for start in range(0, len(visible_group) - self.required_gpu_count + 1):
+                candidate = visible_group[start : start + self.required_gpu_count]
+                key = tuple(candidate)
+                if key not in seen:
+                    seen.add(key)
+                    candidates.append(candidate)
+
+        if not candidates:
+            for start in range(0, len(self.total_gpus), self.required_gpu_count):
+                candidate = self.total_gpus[start : start + self.required_gpu_count]
+                if len(candidate) == self.required_gpu_count:
+                    candidates.append(candidate)
+        if candidates:
+            logging.info(f"candidate gpu groups: {candidates}")
+        return candidates
+
+    def _get_topology_numa_groups(self) -> List[List[int]]:
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "topo", "-m"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                return []
+            groups: Dict[str, List[int]] = {}
+            for raw_line in result.stdout.splitlines():
+                line = raw_line.strip()
+                if not line.startswith("GPU"):
+                    continue
+                parts = line.split()
+                if len(parts) < 3 or not parts[0][3:].isdigit():
+                    continue
+                gpu_id = int(parts[0][3:])
+                numa_id = parts[-2]
+                groups.setdefault(numa_id, []).append(gpu_id)
+            return [sorted(group) for _, group in sorted(groups.items())]
+        except Exception:
+            return []
 
     def __enter__(self):
         timeout_desc = f"{self.timeout}s" if self.timeout is not None else "infinite"

@@ -35,7 +35,6 @@ def check_use_prompt_batch(task_info: TaskInfo) -> bool:
             return True
     return False
 
-
 def get_runner_type(
     env_args: Union[List[str], Dict[str, List[str]]]
 ) -> Type[CaseRunner]:

@@ -11,11 +11,15 @@ from io import BytesIO
 from typing import Dict, Optional
 
 import torch
+import requests
 
+from rtp_llm.config.exceptions import ExceptionType, FtRuntimeException
+from rtp_llm.config.py_config_modules import VitConfig
 from rtp_llm.cpp.model_rpc.proto.model_rpc_service_pb2 import (
     MMPreprocessConfigPB,
     MultimodalInputsPB,
 )
+from rtp_llm.multimodal.mm_error_messages import MMErr, raise_mm
 from rtp_llm.ops import MMPreprocessConfig as _CppMMPreprocessConfig, MultimodalInput as _CppMultimodalInput
 from rtp_llm.utils.grpc_util import trans_tensor
 from rtp_llm.utils.lru_dict import LruDict
@@ -172,38 +176,96 @@ def get_json_result_from_url(url: str, download_headers: str = ""):
     return res
 
 
-def _download_url_bytes(url: str, download_headers: str = "") -> bytes:
+def _validate_file_size(size_bytes: int, max_file_size_kb: Optional[int]) -> None:
+    if max_file_size_kb is not None and max_file_size_kb > 0:
+        if size_bytes > max_file_size_kb * 1024:
+            raise_mm(MMErr.FILE_TOO_LARGE)
+
+
+def _download_http_content(
+    url: str, headers: dict, max_file_size_kb: Optional[int]
+) -> bytes:
+    response = None
+    try:
+        response = request_get(url, headers)
+        if response.status_code != 200:
+            raise_mm(MMErr.DL_FAILED, ExceptionType.MM_DOWNLOAD_FAILED)
+
+        content_length = response.headers.get("Content-Length")
+        if content_length is not None:
+            try:
+                _validate_file_size(int(content_length), max_file_size_kb)
+            except (TypeError, ValueError):
+                pass
+
+        content = bytearray()
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            if chunk:
+                content.extend(chunk)
+                _validate_file_size(len(content), max_file_size_kb)
+        return bytes(content)
+    except FtRuntimeException:
+        raise
+    except (requests.exceptions.Timeout, TimeoutError):
+        raise_mm(MMErr.DL_TIMEOUT, ExceptionType.MM_DOWNLOAD_FAILED)
+    except requests.exceptions.ConnectionError:
+        raise_mm(MMErr.DL_FAILED, ExceptionType.MM_DOWNLOAD_FAILED)
+    except (
+        requests.exceptions.InvalidURL,
+        requests.exceptions.MissingSchema,
+        requests.exceptions.InvalidSchema,
+        requests.exceptions.URLRequired,
+    ):
+        raise_mm(MMErr.URL_INVALID, ExceptionType.MM_WRONG_FORMAT_ERROR)
+    except Exception:
+        logger.exception("failed to download multimodal content")
+        raise_mm(MMErr.DL_FAILED, ExceptionType.MM_DOWNLOAD_FAILED)
+    finally:
+        if response is not None:
+            response.close()
+
+
+def _download_url_bytes(
+    url: str,
+    download_headers: str = "",
+    max_file_size_kb: Optional[int] = VitConfig.DEFAULT_MM_IMAGE_MAX_FILE_SIZE_KB,
+) -> bytes:
     """Download raw bytes for *url* (HTTP/HTTPS, OSS, base64, or local path)."""
     headers = _get_http_heads(download_headers)
     try:
         if url.startswith("http") or url.startswith("https"):
-            response = request_get(url, headers)
-            if response.status_code == 200:
-                return response.content
-            else:
-                raise Exception(f"download failed, error code: {response.status_code}")
+            content = _download_http_content(url, headers, max_file_size_kb)
         elif url.startswith("oss"):
-            return get_bytes_io_from_oss_path(url).getvalue()
+            content = get_bytes_io_from_oss_path(url).getvalue()
         elif get_base64_prefix(url) > 0:
-            return base64.b64decode(url[get_base64_prefix(url) :])
+            content = base64.b64decode(url[get_base64_prefix(url) :])
         else:
-            # treat url as local path
             with open(url, "rb") as fh:
-                return fh.read()
-    except Exception as e:
-        raise Exception(f"download and load {url} error, exception {e}")
+                content = fh.read()
+        _validate_file_size(len(content), max_file_size_kb)
+        return content
+    except FtRuntimeException:
+        raise
+    except Exception:
+        logger.exception("failed to load multimodal content")
+        raise_mm(MMErr.DL_FAILED, ExceptionType.MM_DOWNLOAD_FAILED)
 
 
 _url_singleflight_lock = threading.Lock()
 _url_singleflight_events: Dict[str, threading.Event] = {}
 
 
-def get_bytes_io_from_url(url: str, download_headers: str = ""):
+def get_bytes_io_from_url(
+    url: str,
+    download_headers: str = "",
+    max_file_size_kb: Optional[int] = VitConfig.DEFAULT_MM_IMAGE_MAX_FILE_SIZE_KB,
+):
     """Get BytesIO from URL.
 
     Args:
         url: URL to fetch from.
         download_headers: JSON string containing HTTP headers. If empty, uses default headers.
+        max_file_size_kb: Maximum accepted payload size in KB.
 
     The cache stores immutable bytes instead of a shared BytesIO so concurrent
     callers cannot race on a mutable cursor. A per-URL singleflight prevents
@@ -212,11 +274,13 @@ def get_bytes_io_from_url(url: str, download_headers: str = ""):
 
     cached_bytes = url_data_cache_.check_cache(url)
     if cached_bytes is not None:
+        _validate_file_size(len(cached_bytes), max_file_size_kb)
         return BytesIO(cached_bytes)
 
     with _url_singleflight_lock:
         cached_bytes = url_data_cache_.check_cache(url)
         if cached_bytes is not None:
+            _validate_file_size(len(cached_bytes), max_file_size_kb)
             return BytesIO(cached_bytes)
         if url in _url_singleflight_events:
             event = _url_singleflight_events[url]
@@ -230,13 +294,14 @@ def get_bytes_io_from_url(url: str, download_headers: str = ""):
         event.wait()
         cached_bytes = url_data_cache_.check_cache(url)
         if cached_bytes is not None:
+            _validate_file_size(len(cached_bytes), max_file_size_kb)
             return BytesIO(cached_bytes)
         # Cache disabled or downloader failed without inserting; fall back.
-        cached_bytes = _download_url_bytes(url, download_headers)
+        cached_bytes = _download_url_bytes(url, download_headers, max_file_size_kb)
         return BytesIO(cached_bytes)
 
     try:
-        cached_bytes = _download_url_bytes(url, download_headers)
+        cached_bytes = _download_url_bytes(url, download_headers, max_file_size_kb)
         url_data_cache_.insert_cache(url, cached_bytes)
     finally:
         with _url_singleflight_lock:

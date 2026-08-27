@@ -18,7 +18,11 @@
 
 #include <cub/version.cuh>
 
-#if defined(CUB_MAJOR_VERSION) && CUB_MAJOR_VERSION >= 3
+// Gate on the cub/CCCL version itself rather than the compiler: CCCL 3.x
+// (CUDA 13) removed these names, while older toolchains that still ship them
+// (e.g. the PPU SDK, which reports __CUDACC_VER_MAJOR__ >= 13 with a 2.x cub,
+// and hipcub, which defines no CUB_VERSION) would make the aliases ambiguous.
+#if defined(CUB_VERSION) && CUB_VERSION >= 300000
 
 #include <cuda/functional>
 #include <thrust/iterator/counting_iterator.h>
@@ -59,6 +63,6 @@ using TransformInputIterator = ::thrust::transform_iterator<ConversionOp, InputI
 
 }  // namespace cub
 
-#endif  // CUB_MAJOR_VERSION >= 3
+#endif  // CUB_VERSION >= 300000
 
 #endif  // RTP_LLM_3RDPARTY_CUB_COMPAT_H_

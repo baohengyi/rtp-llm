@@ -95,6 +95,7 @@ rtp_llm = [
     "ops/**/*.pyi",
     "openai/renderers/qwen_agent/utils/*.tiktoken",
     "models_py/**/data/*.json",
+    "cpp/model_rpc/proto/*.proto",
     "test/**/*.proto",
     "test/**/*.json",
     "test/**/*.jsonl",
@@ -173,6 +174,9 @@ base-dependencies = [
     "concurrent_log_handler",
     "pybind11_stubgen",
     "pyOpenSSL==24.1.0",
+    "jsonschema==4.26.0",
+    "watchdog==6.0.0",
+    "zstandard==0.25.0",
 
     # Image/Media
     "Pillow",
@@ -195,6 +199,7 @@ base-dependencies = [
     "openai",
     "nest_asyncio",
     "partial_json_parser",
+    "xgrammar==0.2.5",
 
     # Monitoring
     "thrift",
@@ -351,7 +356,7 @@ forbid_skips = true
 description = "OSS smoke H20 full gate (excludes light cases)"
 paths = ["rtp_llm/test/smoke/suites/"]
 markexpr = "manual and smoke and H20 and not light"
-expected_count = 50
+expected_count = 52
 forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_sm8x_light_oss]
@@ -397,7 +402,7 @@ description = "OSS smoke ROCm (smoke-rocm-oss)"
 paths = ["rtp_llm/test/smoke/suites/"]
 # Must match smoke_defs_oss.py gpu markers (MI308X_ROCM7), not the hyphenated gpu_type string.
 markexpr = "manual and smoke and MI308X_ROCM7"
-expected_count = 21
+expected_count = 25
 forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_remote_cache_oss]

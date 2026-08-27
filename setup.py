@@ -88,10 +88,13 @@ DASH_SC_PROTO_OUTPUTS = [
 PROTO_OUTPUTS = [
     "rtp_llm/cpp/model_rpc/proto/model_rpc_service_pb2.py",
     "rtp_llm/cpp/model_rpc/proto/model_rpc_service_pb2_grpc.py",
+    "rtp_llm/cpp/model_rpc/proto/flexlb_schedule_service_pb2.py",
+    "rtp_llm/cpp/model_rpc/proto/flexlb_schedule_service_pb2_grpc.py",
 ] + REMOTE_TESTS_PROTO_OUTPUTS + DASH_SC_PROTO_OUTPUTS
 
 PROTO_SOURCES = [
     "rtp_llm/cpp/model_rpc/proto/model_rpc_service.proto",
+    "rtp_llm/cpp/model_rpc/proto/flexlb_schedule_service.proto",
 ] + REMOTE_TESTS_PROTO_SOURCES
 
 

@@ -1,29 +1,37 @@
 import inspect
 from dataclasses import dataclass
+from functools import cache
 from typing import Optional
 
 import torch
+
 from librtp_compute_ops import LayerKVCache, PyAttentionInputs, get_scalar_type
+from rtp_llm.ops.attention_input_utils import select_prefill_position_ids
 from libth_transformer_config import (
     AttentionConfigs,
     check_rope_cache,
     get_rope_cache_once,
 )
-from rtp_kernel.fused_rope_kvcache import (
-    convert_offset_to_block_array,
-    decode_fused_rope_kvcache,
-    prefill_fused_rope_kvcache,
-)
 
 
-_PREFILL_POSITION_IDS_ARG = (
-    "position_ids"
-    if "position_ids" in inspect.signature(prefill_fused_rope_kvcache).parameters
-    else "cp_position_ids"
-)
-_DECODE_HAS_CU_SEQLENS = (
-    "cu_seqlens" in inspect.signature(decode_fused_rope_kvcache).parameters
-)
+@cache
+def _get_fused_rope_kvcache():
+    # Lazy: keeps import free of JIT builds; warm-up still hits this pre-readiness.
+    from rtp_kernel import fused_rope_kvcache
+
+    return fused_rope_kvcache
+
+
+@cache
+def _prefill_position_ids_arg() -> str:
+    fn = _get_fused_rope_kvcache().prefill_fused_rope_kvcache
+    return "position_ids" if "position_ids" in inspect.signature(fn).parameters else "cp_position_ids"
+
+
+@cache
+def _decode_has_cu_seqlens() -> bool:
+    fn = _get_fused_rope_kvcache().decode_fused_rope_kvcache
+    return "cu_seqlens" in inspect.signature(fn).parameters
 
 
 @dataclass
@@ -53,7 +61,7 @@ class FusedRopeKVCachePrefillOpBase:
             attn_inputs.kv_cache_kernel_block_id_device is not None
             and attn_inputs.kv_cache_kernel_block_id_device.numel() > 0
         ):
-            kv_cache_offset = convert_offset_to_block_array(
+            kv_cache_offset = _get_fused_rope_kvcache().convert_offset_to_block_array(
                 attn_inputs.kv_cache_kernel_block_id_device
             )
         else:
@@ -61,13 +69,12 @@ class FusedRopeKVCachePrefillOpBase:
         kv_cache_offset_h = None  # not used
 
         # The older ARM rtp-kernel ABI only accepts CP shuffle indices here.
-        position_ids = (
-            attn_inputs.combo_position_ids
-            if _PREFILL_POSITION_IDS_ARG == "position_ids"
-            else None
-        )
-        if attn_inputs.context_parallel_info is not None:
+        if _prefill_position_ids_arg() == "position_ids":
+            position_ids = select_prefill_position_ids(attn_inputs)
+        elif attn_inputs.context_parallel_info is not None:
             position_ids = attn_inputs.context_parallel_info.prefill_shuffle_indices
+        else:
+            position_ids = None
 
         return FusedRopeAttnParams(
             kv_cache_offset,
@@ -102,7 +109,7 @@ class FusedRopeKVCachePrefillOpBase:
         rope_config = self.attn_configs.rope_config
         rope_cache = get_rope_cache_once(rope_config, self.attn_configs.max_seq_len)
 
-        return prefill_fused_rope_kvcache(
+        return _get_fused_rope_kvcache().prefill_fused_rope_kvcache(
             qkv,
             params.cu_seqlens,
             params.cu_seqlens.size(0) - 1,
@@ -221,7 +228,7 @@ class FusedRopeKVCacheDecodeOp:
             "sequence_lengths must be CUDA or pinned host memory"
         )
         decode_args = [qkv]
-        if _DECODE_HAS_CU_SEQLENS:
+        if _decode_has_cu_seqlens():
             decode_args.extend([params.position_ids, params.sequence_lengths])
         else:
             decode_args.append(params.sequence_lengths)
@@ -235,7 +242,7 @@ class FusedRopeKVCacheDecodeOp:
                 params.kv_cache_offset,
             ]
         )
-        return decode_fused_rope_kvcache(
+        return _get_fused_rope_kvcache().decode_fused_rope_kvcache(
             *decode_args,
             tokens_per_block=self.attn_configs.kernel_tokens_per_block,
             store_kv=False,
@@ -266,7 +273,7 @@ class FusedRopeKVCacheDecodeOp:
             attn_inputs.kv_cache_kernel_block_id_device is not None
             and attn_inputs.kv_cache_kernel_block_id_device.numel() > 0
         )
-        kv_cache_offset = convert_offset_to_block_array(
+        kv_cache_offset = _get_fused_rope_kvcache().convert_offset_to_block_array(
             attn_inputs.kv_cache_kernel_block_id_device
         )
         kv_cache_offset_h = None  # not used

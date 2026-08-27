@@ -12,7 +12,7 @@ from rtp_llm.ops.compute_ops import (
     preprocess_weight_scale,
 )
 from rtp_llm.utils.model_weight import W
-from rtp_llm.utils.swizzle_utils import swizzle_tensor
+from rtp_llm.utils.swizzle_utils import should_swizzle_linear_attn_ba, swizzle_tensor
 
 
 def is_gfx950(arch_fallback: Optional[str] = None) -> bool:
@@ -959,7 +959,14 @@ class RocmImpl(GpuImpl):
             # its checkpoint-contiguous storage for the explicit CKTile
             # fallback, which applies CKTile's layout exactly once.
             if not hw_kernel_config.force_legacy_fp8_ptpc:
-                if hw_kernel_config.use_swizzleA:
+                use_swizzle = hw_kernel_config.use_swizzleA
+                if key == W.linear_attn_ba_w:
+                    # BA remains BF16 even when qkvz is quantized. Select its
+                    # physical layout from the actual TP-local shape.
+                    use_swizzle = use_swizzle and should_swizzle_linear_attn_ba(
+                        weight
+                    )
+                if use_swizzle:
                     if weight.dtype != torch.float8_e4m3fn:
                         weight = swizzle_tensor(weight.t(), False).t()
                     else:

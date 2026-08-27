@@ -9,11 +9,22 @@ tf_proto_library_cc(
 )
 
 cc_library(
+    name = "grpc_buffer_list_link_fix",
+    srcs = ["@grpc//:src/core/lib/iomgr/buffer_list.cc"],
+    alwayslink = True,
+    copts = ["-DGRPC_LINUX_ERRQUEUE=1"],
+    deps = ["@grpc//:grpc_base_c"],
+)
+
+cc_library(
     name = "model_rpc_service_cc_proto",
     hdrs = ["model_rpc_service.pb.h",
             "model_rpc_service.grpc.pb.h"],
     srcs = ["model_rpc_service.pb.cc",
             "model_rpc_service.grpc.pb.cc"],
-    deps = [":model_rpc_service_cc_impl"],
+    deps = [
+        ":grpc_buffer_list_link_fix",
+        ":model_rpc_service_cc_impl",
+    ],
     visibility = ["//visibility:public"],
 )
