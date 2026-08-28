@@ -35,7 +35,12 @@ class _PrefillPagedCudaGraphTestMixin:
     """Shared setup for BASE and FP8 CUDA graph tests."""
 
     def _make_inputs(
-        self, input_lengths, prefix_lengths, with_copy_params=False, max_seq_len=0
+        self,
+        input_lengths,
+        prefix_lengths,
+        with_copy_params=False,
+        max_seq_len=0,
+        active_batch_size=None,
     ):
         """Create PyAttentionInputs for prefill (single or multi batch)."""
         if isinstance(input_lengths, int):
@@ -43,6 +48,12 @@ class _PrefillPagedCudaGraphTestMixin:
             prefix_lengths = [prefix_lengths]
 
         batch_size = len(input_lengths)
+        if active_batch_size is None:
+            active_batch_size = batch_size
+        if not 0 < active_batch_size <= batch_size:
+            raise ValueError(
+                f"active_batch_size must be in [1, {batch_size}], got {active_batch_size}"
+            )
         inp = PyAttentionInputs()
         inp.is_cuda_graph = with_copy_params
         inp.is_prefill = True
@@ -81,7 +92,7 @@ class _PrefillPagedCudaGraphTestMixin:
             ms = max_seq_len if max_seq_len > 0 else max(input_lengths)
             cp = PyPrefillCudaGaphCopyParams()
             cp.cuda_graph_prefill_batch_size = torch.tensor(
-                [batch_size], dtype=torch.int32
+                [active_batch_size], dtype=torch.int32
             ).pin_memory()
             cp.max_seq_len = ms
             cp.max_batch_size = batch_size
@@ -180,8 +191,29 @@ class _PrefillPagedCudaGraphTestMixin:
         )
         cg_op = PyFlashinferPrefillPagedAttnOp(config.attn_configs, cg_init)
         cg_op.prepare(cg_init)
-        cg_replay = self._make_inputs(input_lengths, prefix_lengths, True, max_seq_len)
+        capture_batch_size = len(capture_input_lengths)
+        active_batch_size = len(input_lengths)
+        self.assertGreaterEqual(capture_batch_size, active_batch_size)
+        inactive_batch_size = capture_batch_size - active_batch_size
+        cg_replay = self._make_inputs(
+            input_lengths + [0] * inactive_batch_size,
+            prefix_lengths + [0] * inactive_batch_size,
+            True,
+            max_seq_len,
+            active_batch_size=active_batch_size,
+        )
         cg_op.prepare(cg_replay, forbid_realloc=True)
+        self.assertEqual(cg_op.prefill_wrapper._fixed_batch_size, capture_batch_size)
+        self.assertEqual(
+            cg_op.fmha_params.decode_page_indptr_d.numel(), capture_batch_size + 1
+        )
+        self.assertEqual(
+            cg_op.fmha_params.paged_kv_last_page_len_d.numel(), capture_batch_size
+        )
+        self.assertEqual(
+            cg_op.prefill_cuda_graph_copy_params.cuda_graph_prefill_batch_size.item(),
+            active_batch_size,
+        )
         cg_out = cg_op.forward(q, kv_cache)
 
         if verify_cast_buffer_reuse:
