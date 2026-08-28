@@ -494,6 +494,19 @@ class ServerArgsSetTest(TestCase):
         self.assertEqual(cfg.vit_config.gpu_max_batch_size, 8)
         self.assertEqual(cfg.vit_config.gpu_batch_wait_ms, 500)
 
+    def test_deprecated_disable_flashinfer_native_is_accepted(self):
+        sys.argv = ["prog", "--disable_flashinfer_native", "1"]
+
+        import rtp_llm.server.server_args.server_args
+
+        importlib.reload(rtp_llm.server.server_args.server_args)
+        with self.assertWarnsRegex(
+            DeprecationWarning, "--disable_flashinfer_native is deprecated"
+        ):
+            py_env_configs = rtp_llm.server.server_args.server_args.setup_args()
+
+        self.assertEqual(py_env_configs.fmha_config.attn_backend, "auto")
+
     def test_repetition_detection_config(self):
         """Test that repetition detection args bind to PyEnvConfigs."""
         sys.argv = [

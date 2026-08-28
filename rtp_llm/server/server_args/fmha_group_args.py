@@ -169,3 +169,10 @@ def init_fmha_group_args(parser, fmha_config):
         default=None,
         help=argparse.SUPPRESS,
     )
+    fmha_group.add_argument(
+        "--disable_flashinfer_native",
+        action=_DeprecatedFmhaFlag,
+        nargs="?",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
