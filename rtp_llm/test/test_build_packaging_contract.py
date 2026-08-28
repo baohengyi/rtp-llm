@@ -601,6 +601,16 @@ class BuildPackagingContractTest(TestCase):
         self.assertEqual(profile["paths"], expected_paths)
         self.assertTrue(all((PROJECT_ROOT / path).exists() for path in expected_paths))
 
+    def test_non_sm100_py_ut_profiles_ignore_dsv4(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        profiles = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"]
+        dsv4_paths = ["rtp_llm/test/dsv4", "rtp_llm/models_py/modules/dsv4"]
+        self.assertEqual(profiles["py_ut_sm8x"]["ignore_paths"], dsv4_paths)
+        self.assertEqual(profiles["py_ut_sm9x"]["ignore_paths"], dsv4_paths)
+        self.assertNotIn("ignore_paths", profiles["py_ut_sm100_arm"])
+
     def test_rocm_wheel_version_matches_dependency_abi(self):
         """The rocm wheel version suffix must track the ROCm ABI the rocm extras are built for.
 

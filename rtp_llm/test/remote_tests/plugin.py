@@ -1971,6 +1971,7 @@ class RemoteREAPIPlugin:
         # - Therefore "../X/" in the local profile must be rewritten to "X/" for
         #   the worker. Plain "rtp_llm/..." paths flow through unchanged.
         profile_paths_args = ""
+        profile_ignore_args = ""
         if ci_profile:
             try:
                 from rtp_llm.test.ci_profile_plugin import (
@@ -1996,6 +1997,15 @@ class RemoteREAPIPlugin:
                     profile_paths_args = (
                         " ".join(shlex.quote(p) for p in worker_paths) + " "
                     )
+                ignore_paths = prof.get("ignore_paths") or []
+                if isinstance(ignore_paths, list) and ignore_paths:
+                    worker_ignores = []
+                    for p in ignore_paths:
+                        wp = p
+                        while wp.startswith("../"):
+                            wp = wp[3:]
+                        worker_ignores.append(shlex.quote(f"--ignore={wp}"))
+                    profile_ignore_args = " ".join(worker_ignores) + " "
             except Exception:
                 profile_cli_args = f"-v --tb=short --timeout={self.timeout_policy.pytest_timeout_seconds} "
 
@@ -2007,7 +2017,7 @@ class RemoteREAPIPlugin:
         common = (
             f"{pytest_args} {profile_cli_args}"
             f"--continue-on-collection-errors "
-            f"--override-ini='addopts=' {ignore_args} "
+            f"--override-ini='addopts=' {ignore_args} {profile_ignore_args}"
             f"--tb=short "
             f"--timeout={self.timeout_policy.pytest_timeout_seconds}"
         ).strip()

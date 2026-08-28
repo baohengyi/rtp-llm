@@ -323,11 +323,13 @@ default_pytest_cli = "-v --tb=short --timeout=300"
 [tool.rtp_llm.pytest_ci.profiles.py_ut_sm8x]
 description = "Python UT on SM8x class GPUs (py-ut-sm8x)"
 gpu_type = "A10"
+ignore_paths = ["rtp_llm/test/dsv4", "rtp_llm/models_py/modules/dsv4"]
 markexpr = "not H20 and not MI308X and not SM100 and not SM100_ARM and not smoke and not perf and not manual"
 
 [tool.rtp_llm.pytest_ci.profiles.py_ut_sm9x]
 description = "Python UT on H20 / SM9x pool (py-ut-sm9x)"
 gpu_type = "H20"
+ignore_paths = ["rtp_llm/test/dsv4", "rtp_llm/models_py/modules/dsv4"]
 markexpr = "H20 and not MI308X and not SM100 and not SM100_ARM and not smoke and not perf and not manual"
 
 [tool.rtp_llm.pytest_ci.profiles.py_ut_sm100_arm]

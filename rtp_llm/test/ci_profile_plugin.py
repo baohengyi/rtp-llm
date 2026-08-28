@@ -171,6 +171,20 @@ def pytest_configure(config: pytest.Config) -> None:
         # Restrict collection roots (e.g. smoke file or frontend dirs only)
         config.args[:] = resolve_profile_paths(root, paths)
 
+    ignore_paths = prof.get("ignore_paths")
+    if ignore_paths is not None:
+        if not isinstance(ignore_paths, list) or not all(
+            isinstance(p, str) for p in ignore_paths
+        ):
+            raise pytest.UsageError(
+                f"--rtp-ci-profile: profile {name!r} 'ignore_paths' must be a list of strings"
+            )
+        ignored = list(getattr(config.option, "ignore", None) or [])
+        for path in resolve_profile_paths(root, ignore_paths):
+            if path not in ignored:
+                ignored.append(path)
+        config.option.ignore = ignored
+
 
 @pytest.hookimpl(trylast=True)
 def pytest_collection_finish(session: pytest.Session) -> None:

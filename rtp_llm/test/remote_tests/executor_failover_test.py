@@ -439,6 +439,44 @@ def test_session_command_locks_total_gpu_pool_and_slices_workers():
     )
 
 
+def test_session_command_forwards_profile_ignore_paths(monkeypatch):
+    monkeypatch.setattr(
+        ci_profile_plugin,
+        "_get_pytest_ci_section",
+        lambda root: {"default_pytest_cli": ""},
+    )
+    monkeypatch.setattr(
+        ci_profile_plugin,
+        "_get_profile",
+        lambda root, name: {
+            "markexpr": "not SM100_ARM",
+            "ignore_paths": [
+                "rtp_llm/test/dsv4",
+                "rtp_llm/models_py/modules/dsv4",
+            ],
+        },
+    )
+    plugin = object.__new__(remote_plugin.RemoteREAPIPlugin)
+    plugin.workers = 1
+    plugin._collect_outputs = False
+    plugin.config = SimpleNamespace(
+        option=SimpleNamespace(markexpr="not SM100_ARM", keyword=""),
+        rootpath=Path("."),
+    )
+    plugin.timeout_policy = select_remote_timeout_policy("py_ut_sm8x", per_test=False)
+    runtime = remote_exec_rtp.RemoteRuntimeConfig(
+        ignore_args=[],
+        env_vars={},
+        platform_properties={"gpu": "A10", "gpu_count": "1"},
+        remote_setup_prefix="",
+    )
+
+    shell = plugin._build_session_command("", runtime, ci_profile="py_ut_sm8x")[2]
+
+    assert "--ignore=rtp_llm/test/dsv4" in shell
+    assert "--ignore=rtp_llm/models_py/modules/dsv4" in shell
+
+
 def test_executor_pool_resolves_hostname_inside_remote_framework(monkeypatch):
     monkeypatch.setattr(
         endpoint_info,
