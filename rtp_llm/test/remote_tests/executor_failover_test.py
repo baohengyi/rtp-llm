@@ -179,6 +179,25 @@ def test_collect_remote_files_includes_smoke_jpeg(tmp_path):
     assert "rtp_llm/test/smoke/data/model/1.jpeg" in files
 
 
+def test_collect_remote_files_includes_tipc_jit_sources(tmp_path):
+    rootdir = tmp_path / "repo"
+    suite = rootdir / "rtp_llm" / "test" / "smoke" / "suites" / "test_smoke.py"
+    source = rootdir / "rtp_llm" / "model_loader" / "tipc" / "csrc" / "ipc.cc"
+    header = rootdir / "rtp_llm" / "model_loader" / "tipc" / "csrc" / "ipc.h"
+    suite.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True)
+    suite.write_text("def test_placeholder(): pass\n")
+    source.write_text("// CUDA IPC implementation\n")
+    header.write_text("// CUDA IPC declarations\n")
+
+    files = remote_exec_rtp.collect_remote_files(
+        rootdir.resolve(), [_FakeCollectedItem(suite.resolve(), smoke=True)]
+    )
+
+    assert "rtp_llm/model_loader/tipc/csrc/ipc.cc" in files
+    assert "rtp_llm/model_loader/tipc/csrc/ipc.h" in files
+
+
 def test_collect_remote_files_includes_perf_data(tmp_path):
     repo = tmp_path / "repo"
     rootdir = repo / "github-opensource"

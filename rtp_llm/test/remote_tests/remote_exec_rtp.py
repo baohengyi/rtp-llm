@@ -487,6 +487,7 @@ def _collect_repo_runtime_files(
     for pattern in (
         "rtp_llm/**/*.pyi",
         "internal_source/rtp_llm/**/*.pyi",
+        "rtp_llm/model_loader/tipc/csrc/**/*",
         "rtp_llm/cpp/cuda_graph/cuda_graph_runner.cc",
         "3rdparty/cub_compat.h",
     ):

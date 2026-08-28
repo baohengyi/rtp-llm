@@ -402,6 +402,24 @@ def test_kimi_linear_openai_golden_accepts_only_observed_h20_choices():
     } == {("\n\nCAP theorem states that a distributed system can only",)}
 
 
+def test_kimi_linear_cudagraph_accepts_only_observed_h20_cap_response():
+    task_info = json.loads(
+        (
+            RTP_LLM_DIR
+            / "test/smoke/data/model/kimi_linear/q_r_cuda_graph.json"
+        ).read_text()
+    )
+    batch = task_info["query_result"][1]["result"]["response_batch"]
+
+    assert len(batch) == 3
+    assert {response["response"] for response in batch} == {
+        "\n\nCAP theorem states that a distributed system can only"
+    }
+    assert {
+        tuple(response["response_alternatives"]) for response in batch
+    } == {("\n\nCAP theorem states that any distributed system can guarantee",)}
+
+
 def test_qwen3_vl_cp2_golden_accepts_only_observed_h20_choices():
     task_info = json.loads(
         (
