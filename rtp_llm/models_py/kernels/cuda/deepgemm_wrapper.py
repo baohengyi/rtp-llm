@@ -200,10 +200,11 @@ def _lazy_init_deep_gemm(symbols: List[str]) -> None:
             _deep_gemm_impl_old_map[symbol],
         )
         if resolved is None:
-            raise RuntimeError(
-                f"DeepGEMM symbol {_deep_gemm_impl_new_map[symbol]} and "
-                f"{_deep_gemm_impl_old_map[symbol]} not found in deep_gemm module"
-            )
+            # DeepGEMM builds are architecture-specific. Older A10/H20 wheels
+            # do not export the SM100 FP4 symbols, but their FP8/BF16 kernels
+            # remain usable. Keep unavailable implementations as None so the
+            # corresponding wrapper fails only if that kernel is actually used.
+            continue
         globals()[symbol_impl] = resolved
 
 

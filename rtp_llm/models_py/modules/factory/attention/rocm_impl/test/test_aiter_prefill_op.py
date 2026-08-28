@@ -18,6 +18,8 @@ Skips automatically off ROCm or without ``aiter`` so the suite stays green
 on the rest of the fleet.
 """
 
+from __future__ import annotations
+
 import math
 import unittest
 from typing import List, Optional, Sequence

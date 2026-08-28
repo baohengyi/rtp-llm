@@ -2,8 +2,10 @@ import ast
 import importlib.util
 import os
 import re
+import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -610,6 +612,57 @@ class BuildPackagingContractTest(TestCase):
         self.assertEqual(profiles["py_ut_sm8x"]["ignore_paths"], dsv4_paths)
         self.assertEqual(profiles["py_ut_sm9x"]["ignore_paths"], dsv4_paths)
         self.assertNotIn("ignore_paths", profiles["py_ut_sm100_arm"])
+
+    def test_deepgemm_optional_symbol_does_not_block_available_symbols(self):
+        wrapper_path = (
+            PROJECT_ROOT
+            / "rtp_llm"
+            / "models_py"
+            / "kernels"
+            / "cuda"
+            / "deepgemm_wrapper.py"
+        )
+        tree = ast.parse(wrapper_path.read_text())
+        init_func = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_lazy_init_deep_gemm"
+        )
+        namespace = {
+            "List": list,
+            "has_deep_gemm": lambda: True,
+            "_prepare_deep_gemm_jit_env": lambda: None,
+            "resolve_symbol": lambda module, new, old: getattr(
+                module, new, getattr(module, old, None)
+            ),
+            "_deep_gemm_impl_new_map": {
+                "available": "available_impl",
+                "optional": "optional_impl",
+            },
+            "_deep_gemm_impl_old_map": {
+                "available": "available_impl",
+                "optional": "optional_impl",
+            },
+        }
+        exec(
+            compile(
+                ast.fix_missing_locations(
+                    ast.Module(body=[init_func], type_ignores=[])
+                ),
+                str(wrapper_path),
+                "exec",
+            ),
+            namespace,
+        )
+
+        available_impl = object()
+        fake_deep_gemm = SimpleNamespace(available_impl=available_impl)
+        with patch.dict(sys.modules, {"deep_gemm": fake_deep_gemm}):
+            namespace["_lazy_init_deep_gemm"](["available", "optional"])
+
+        self.assertIs(namespace["_available_impl"], available_impl)
+        self.assertIsNone(namespace.get("_optional_impl"))
 
     def test_rocm_wheel_version_matches_dependency_abi(self):
         """The rocm wheel version suffix must track the ROCm ABI the rocm extras are built for.
