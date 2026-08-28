@@ -338,6 +338,12 @@ markexpr = "SM100_ARM and not smoke and not perf and not manual"
 [tool.rtp_llm.pytest_ci.profiles.py_ut_amd]
 description = "Python UT on AMD MI308X (py-ut-amd)"
 gpu_type = "MI308X"
+paths = [
+    "rtp_llm/models_py/modules/base/rocm/test/",
+    "rtp_llm/models_py/modules/factory/fused_moe/impl/rocm/test/",
+    "rtp_llm/models_py/modules/factory/linear/impl/rocm/test/",
+    "rtp_llm/utils/test/jit_cache_smoke_test.py",
+]
 markexpr = "MI308X and not smoke and not perf and not manual"
 
 [tool.rtp_llm.pytest_ci.profiles.py_ut_frontend]

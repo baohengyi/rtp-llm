@@ -584,6 +584,23 @@ class BuildPackagingContractTest(TestCase):
             missing, [], f"pyproject testpaths point at non-existent directories: {missing}"
         )
 
+    def test_py_ut_amd_profile_collects_only_rocm_roots(self):
+        """ROCm collection must not import CUDA-only modules before -m filtering."""
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        profile = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"][
+            "py_ut_amd"
+        ]
+        expected_paths = [
+            "rtp_llm/models_py/modules/base/rocm/test/",
+            "rtp_llm/models_py/modules/factory/fused_moe/impl/rocm/test/",
+            "rtp_llm/models_py/modules/factory/linear/impl/rocm/test/",
+            "rtp_llm/utils/test/jit_cache_smoke_test.py",
+        ]
+        self.assertEqual(profile["paths"], expected_paths)
+        self.assertTrue(all((PROJECT_ROOT / path).exists() for path in expected_paths))
+
     def test_rocm_wheel_version_matches_dependency_abi(self):
         """The rocm wheel version suffix must track the ROCm ABI the rocm extras are built for.
 
