@@ -12,6 +12,9 @@ FP8_PTPC_LINEAR = (
     RTP_LLM_DIR
     / "models_py/modules/factory/linear/impl/rocm/fp8_ptpc_linear.py"
 )
+CUDA_LINEAR_REGISTRY = (
+    RTP_LLM_DIR / "models_py/modules/factory/linear/impl/cuda/__init__.py"
+)
 DEVICE_IMPL = RTP_LLM_DIR / "device/device_impl.py"
 
 
@@ -27,6 +30,25 @@ def _find_method(class_node: ast.ClassDef, name: str) -> ast.FunctionDef:
         for node in class_node.body
         if isinstance(node, ast.FunctionDef) and node.name == name
     )
+
+
+def test_cuda_f16_linear_registers_before_optional_quantized_backends():
+    tree = ast.parse(CUDA_LINEAR_REGISTRY.read_text())
+    cuda_branch = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.If) and ast.unparse(node.test) == "is_cuda()"
+    )
+
+    statements = [ast.unparse(node) for node in cuda_branch.body]
+    f16_register = statements.index("LinearFactory.register(CudaF16Linear)")
+    fp8_import = next(
+        index
+        for index, statement in enumerate(statements)
+        if "fp8_gemm_linear" in statement
+    )
+
+    assert f16_register < fp8_import
 
 
 def test_tbstars_fp8_ptpc_keeps_raw_weights_and_selects_reference_linear():

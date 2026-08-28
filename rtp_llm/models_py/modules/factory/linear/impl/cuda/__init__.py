@@ -13,10 +13,13 @@ from rtp_llm.models_py.utils.arch import get_sm, is_cuda
 # Register CUDA strategies only on CUDA devices
 if is_cuda():
     from .f16_linear import CudaF16Linear
+
+    # Keep the unquantized fallback available even if an optional FP8 backend
+    # cannot be imported on the current CUDA architecture.
+    LinearFactory.register(CudaF16Linear)
+
     from .fp8_gemm_linear import CudaFp8GEMMLinear
     from .fp8_per_tensor_linear import CudaFp8PerTensorLinear
-
-    LinearFactory.register(CudaF16Linear)
 
     major, minor = get_sm()
     if major >= 10:
