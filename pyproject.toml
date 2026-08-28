@@ -415,6 +415,7 @@ paths = ["rtp_llm/test/smoke/suites/"]
 markexpr = "manual and smoke and MI308X_ROCM7"
 expected_count = 25
 forbid_skips = true
+remote_env = { REMOTE_JIT_DIR = "/tmp/rtp-llm/.remote_jit_cache" }
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_remote_cache_oss]
 description = "OSS smoke remote cache (smoke-remote-cache-oss)"

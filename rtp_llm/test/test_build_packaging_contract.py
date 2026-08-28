@@ -625,6 +625,18 @@ class BuildPackagingContractTest(TestCase):
             {"REMOTE_JIT_DIR": "/tmp/rtp-llm/.remote_jit_cache"},
         )
 
+    def test_rocm_smoke_profile_preserves_remote_jit_cache_contract(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        profile = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"][
+            "smoke_rocm_oss"
+        ]
+        self.assertEqual(
+            profile["remote_env"],
+            {"REMOTE_JIT_DIR": "/tmp/rtp-llm/.remote_jit_cache"},
+        )
+
     def test_jit_cache_smoke_adapters_do_not_reexport_testcase(self):
         """Imported TestCase classes are collected again from every adapter module."""
         suite_dir = PROJECT_ROOT / "rtp_llm" / "test" / "smoke" / "suites"
