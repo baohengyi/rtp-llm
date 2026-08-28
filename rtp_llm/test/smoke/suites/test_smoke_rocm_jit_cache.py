@@ -5,7 +5,7 @@ import unittest
 import pytest
 
 from rtp_llm.test.smoke_framework.manifest import build_smoke_params
-from rtp_llm.utils.test.jit_cache_smoke_test import JitCacheSmokeTest
+from rtp_llm.utils.test import jit_cache_smoke_test
 
 
 SMOKE_CASES = {
@@ -31,7 +31,9 @@ _test_params = build_smoke_params(
 @pytest.mark.parametrize("test_name,test_config", _test_params)
 def test_smoke_rocm_jit_cache(test_name: str, test_config: dict, monkeypatch):
     monkeypatch.setenv("SMOKE_ARGS", test_config["smoke_args"])
-    suite = unittest.TestSuite([JitCacheSmokeTest("test_qwen3_rocm")])
+    suite = unittest.TestSuite(
+        [jit_cache_smoke_test.JitCacheSmokeTest("test_qwen3_rocm")]
+    )
     result = unittest.TestResult()
     suite.run(result)
     if result.skipped:
