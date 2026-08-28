@@ -613,6 +613,18 @@ class BuildPackagingContractTest(TestCase):
         self.assertEqual(profiles["py_ut_sm9x"]["ignore_paths"], dsv4_paths)
         self.assertNotIn("ignore_paths", profiles["py_ut_sm100_arm"])
 
+    def test_h20_full_smoke_profile_preserves_remote_jit_cache_contract(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        profile = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"][
+            "smoke_h20_full_oss"
+        ]
+        self.assertEqual(
+            profile["remote_env"],
+            {"REMOTE_JIT_DIR": "/tmp/rtp-llm/.remote_jit_cache"},
+        )
+
     def test_jit_cache_smoke_adapters_do_not_reexport_testcase(self):
         """Imported TestCase classes are collected again from every adapter module."""
         suite_dir = PROJECT_ROOT / "rtp_llm" / "test" / "smoke" / "suites"

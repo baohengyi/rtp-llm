@@ -368,6 +368,7 @@ paths = ["rtp_llm/test/smoke/suites/"]
 markexpr = "manual and smoke and H20 and not light"
 expected_count = 52
 forbid_skips = true
+remote_env = { REMOTE_JIT_DIR = "/tmp/rtp-llm/.remote_jit_cache" }
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_sm8x_light_oss]
 description = "OSS smoke L20 light gate"

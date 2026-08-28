@@ -402,6 +402,32 @@ def test_kimi_linear_openai_golden_accepts_only_observed_h20_choices():
     } == {("\n\nCAP theorem states that a distributed system can only",)}
 
 
+def test_qwen3_vl_cp2_golden_accepts_only_observed_h20_choices():
+    task_info = json.loads(
+        (
+            RTP_LLM_DIR / "test/smoke/data/model/qwen_vl/q_r_3_cp2.json"
+        ).read_text()
+    )
+    observed_task_info = json.loads(
+        (RTP_LLM_DIR / "test/smoke/data/model/qwen_vl/q_r_3.json").read_text()
+    )
+    result = task_info["query_result"][0]["result"]
+    observed_choices = observed_task_info["query_result"][0]["result"]["choices"]
+    primary = result["choices"][0]["message"]["content"]
+    alternatives = {
+        choices[0]["message"]["content"]
+        for choices in result["choices_alternatives"]
+    }
+
+    assert result["choices_alternatives"] == [observed_choices]
+    assert primary.endswith(
+        "The dog is reaching its paw out to gently touch the woman's hand in a"
+    )
+    assert alternatives == {
+        "This is a heartwarming, sun-drenched photograph capturing a tender moment between a woman and her dog on a beach at sunset.\n\n**Key Elements:**\n\n*   **The Subjects:** A woman with long, dark hair, wearing a plaid shirt and dark pants, is sitting on the sand. She is smiling warmly, looking at her dog. Beside her, a large, light-colored Labrador Retriever, wearing a colorful harness, sits attentively, extending its paw to give a"
+    }
+
+
 def test_qwen_loader_detects_qwen3_vl_text_tower_prefix():
     tree = ast.parse((RTP_LLM_DIR / "models/qwen_v2.py").read_text())
     process_meta = _find_method(_find_class(tree, "QWenV2Weight"), "_process_meta")
