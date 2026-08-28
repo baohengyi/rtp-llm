@@ -375,6 +375,33 @@ class OpenaiComparer(BaseComparer):
                 + type(actual_result).__name__
             )
 
+        if not skip_choices and not skip_usage:
+            _, actual_choices = self.extract_logprobs(actual_result.choices)
+            for alternative in self.qr_info["result"].get(
+                "result_alternatives", []
+            ):
+                if set(alternative) != {"choices", "usage"}:
+                    raise SmokeException(
+                        QueryStatus.COMPARE_FAILED,
+                        "result_alternatives entries must contain exactly choices and usage",
+                    )
+                alternative_json = copy.deepcopy(self.qr_info["result"])
+                alternative_json.update(alternative)
+                alternative_result = self.format_result(alternative_json)
+                _, alternative_choices = self.extract_logprobs(
+                    alternative_result.choices
+                )
+                if (
+                    alternative_choices == actual_choices
+                    and alternative_result.usage == actual_result.usage
+                ):
+                    logging.info(
+                        "[STABILITY_DIAG] OpenAI choices and usage matched "
+                        "a strict result alternative"
+                    )
+                    expect_result = alternative_result
+                    break
+
         if not skip_usage and expect_result.usage != actual_result.usage:
             diffs.append(
                 self._format_expect_actual(

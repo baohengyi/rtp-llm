@@ -457,6 +457,41 @@ def test_kimi_linear_cudagraph_accepts_only_observed_h20_outputs():
     } == {("\n\nCAP theorem states that any distributed system can guarantee",)}
 
 
+def test_deepseek_v2_accepts_only_observed_h20_choices_and_usage_pair():
+    comparer_source = (RTP_LLM_DIR / "test/smoke/openai_comparer.py").read_text()
+    assert '"result_alternatives"' in comparer_source
+    assert "alternative_choices == actual_choices" in comparer_source
+    assert "alternative_result.usage == actual_result.usage" in comparer_source
+    assert 'set(alternative) != {"choices", "usage"}' in comparer_source
+
+    task_info = json.loads(
+        (
+            RTP_LLM_DIR
+            / "test/smoke/data/model/deepseek_v2/q_r_3090_mla.json"
+        ).read_text()
+    )
+    result = task_info["query_result"][0]["result"]
+    alternatives = result["result_alternatives"]
+
+    assert len(alternatives) == 1
+    assert set(alternatives[0]) == {"choices", "usage"}
+    assert result["usage"] == {
+        "prompt_tokens": 17,
+        "total_tokens": 202,
+        "completion_tokens": 185,
+    }
+    assert alternatives[0]["usage"] == {
+        "prompt_tokens": 17,
+        "total_tokens": 203,
+        "completion_tokens": 186,
+    }
+    assert result["choices"] != alternatives[0]["choices"]
+    assert alternatives[0]["choices"][0]["message"]["content"].endswith(
+        "如何将听力训练与口语、阅读和写作等其他语言技能结合起来，"
+        "以达到更好的学习效果？"
+    )
+
+
 def test_qwen3_vl_cp2_golden_accepts_only_observed_h20_choices():
     task_info = json.loads(
         (
