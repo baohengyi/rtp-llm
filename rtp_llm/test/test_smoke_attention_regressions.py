@@ -402,13 +402,32 @@ def test_kimi_linear_openai_golden_accepts_only_observed_h20_choices():
     } == {("\n\nCAP theorem states that a distributed system can only",)}
 
 
-def test_kimi_linear_cudagraph_accepts_only_observed_h20_cap_response():
+def test_kimi_linear_cudagraph_accepts_only_observed_h20_outputs():
     task_info = json.loads(
         (
             RTP_LLM_DIR
             / "test/smoke/data/model/kimi_linear/q_r_cuda_graph.json"
         ).read_text()
     )
+    result = task_info["query_result"][0]["result"]
+    observed_task_info = json.loads(
+        (
+            RTP_LLM_DIR
+            / "test/smoke/data/model/kimi_linear/q_r_bf16_tp2_kernel_block_size_64.json"
+        ).read_text()
+    )
+    observed_choices = observed_task_info["query_result"][0]["result"][
+        "choices_alternatives"
+    ][0]
+
+    assert result["choices_alternatives"] == [observed_choices]
+    assert {
+        choices[0]["message"]["content"]
+        for choices in result["choices_alternatives"]
+    } == {
+        "当然可以！以下是围绕“英语听力方法”主题提出的几个有深度、启发性的问题，适合用于课堂讨论、自我反思或教学研究：\n\n---\n\n### 一、方法类问题\n1. **你通常如何训练英语听力？你觉得自己最有效的方法是什么？为什么？**\n2. **你是否尝试过“精听”和“泛听”结合的方法？你觉得哪种对你帮助更大？**\n3. **你是否使用过“听写”或“跟读”练习？这些方法对你提升"
+    }
+
     batch = task_info["query_result"][1]["result"]["response_batch"]
 
     assert len(batch) == 3
