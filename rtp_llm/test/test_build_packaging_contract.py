@@ -664,6 +664,36 @@ class BuildPackagingContractTest(TestCase):
         self.assertIs(namespace["_available_impl"], available_impl)
         self.assertIsNone(namespace.get("_optional_impl"))
 
+    def test_model_rpc_test_does_not_leak_ops_mocks(self):
+        test_path = (
+            PROJECT_ROOT
+            / "rtp_llm"
+            / "cpp"
+            / "model_rpc"
+            / "test"
+            / "model_rpc_client_test.py"
+        )
+        tree = ast.parse(test_path.read_text())
+
+        leaked_modules = []
+        for node in tree.body:
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if not isinstance(target, ast.Subscript):
+                    continue
+                value = target.value
+                if (
+                    isinstance(value, ast.Attribute)
+                    and isinstance(value.value, ast.Name)
+                    and value.value.id == "sys"
+                    and value.attr == "modules"
+                ):
+                    leaked_modules.append(ast.unparse(target))
+
+        self.assertEqual(leaked_modules, [])
+
     def test_rocm_wheel_version_matches_dependency_abi(self):
         """The rocm wheel version suffix must track the ROCm ABI the rocm extras are built for.
 

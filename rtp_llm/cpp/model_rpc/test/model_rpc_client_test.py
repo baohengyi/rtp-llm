@@ -1,17 +1,17 @@
 import asyncio
 import importlib
 import json
+import logging
+import os
 import struct
 import sys
+import unittest
 from enum import Enum
+from typing import AsyncGenerator
+from unittest import TestCase, main
 from unittest.mock import MagicMock, patch
 
-# Mock the ops module to avoid CUDA dependency in this unit test
-# This MUST be at the very top before any other imports, even before unittest
-mock_ops = MagicMock()
-mock_comm = MagicMock()
-mock_nccl_op = MagicMock()
-mock_compute_ops = MagicMock()
+import torch
 
 
 class _FakeRoleType(Enum):
@@ -22,40 +22,46 @@ class _FakeRoleType(Enum):
     FRONTEND = 4
 
 
-mock_comm.nccl_op = mock_nccl_op
-mock_ops.comm = mock_comm
-mock_ops.compute_ops = mock_compute_ops
-mock_ops.RoleType = _FakeRoleType
-sys.modules["rtp_llm.ops"] = mock_ops
-sys.modules["rtp_llm.ops.comm"] = mock_comm
-sys.modules["rtp_llm.ops.compute_ops"] = mock_compute_ops
-sys.modules["rtp_llm.ops.comm.nccl_op"] = mock_nccl_op
-import logging
-import os
-import struct
-import sys
-import unittest
-from typing import AsyncGenerator
-from unittest import TestCase, main
-from unittest.mock import MagicMock, patch
+def _mocked_ops_modules():
+    mock_ops = MagicMock()
+    mock_comm = MagicMock()
+    mock_nccl_op = MagicMock()
+    mock_compute_ops = MagicMock()
+    mock_comm.nccl_op = mock_nccl_op
+    mock_ops.comm = mock_comm
+    mock_ops.compute_ops = mock_compute_ops
+    mock_ops.RoleType = _FakeRoleType
+    return {
+        "rtp_llm.ops": mock_ops,
+        "rtp_llm.ops.comm": mock_comm,
+        "rtp_llm.ops.compute_ops": mock_compute_ops,
+        "rtp_llm.ops.comm.nccl_op": mock_nccl_op,
+    }
 
-import torch
-
-from rtp_llm.config.generate_config import GenerateConfig, RoleAddr, RoleType, ThinkingMode
-from rtp_llm.config.log_config import setup_logging
-from rtp_llm.config.response_format_compiler import ReasoningFormat
-from rtp_llm.cpp.model_rpc.proto.model_rpc_service_pb2 import (
-    GenerateConfigPB,
-    GenerateInputPB,
-    GenerateOutputsPB,
-    RoleAddrPB,
-    TensorPB,
-)
-from rtp_llm.utils.base_model_datatypes import (
-    GenerateInput,
-    GenerateOutputs,
-    RequestInfo,
-)
+# These imports need lightweight ops symbols, but the replacements must not leak
+# into pytest's later package setup. A leaked MagicMock makes pytest interpret
+# ``mock.pytest_plugins`` as a plugin declaration for every collected test.
+with patch.dict(sys.modules, _mocked_ops_modules()):
+    from rtp_llm.config.generate_config import (
+        GenerateConfig,
+        RoleAddr,
+        RoleType,
+        ThinkingMode,
+    )
+    from rtp_llm.config.log_config import setup_logging
+    from rtp_llm.config.response_format_compiler import ReasoningFormat
+    from rtp_llm.cpp.model_rpc.proto.model_rpc_service_pb2 import (
+        GenerateConfigPB,
+        GenerateInputPB,
+        GenerateOutputsPB,
+        RoleAddrPB,
+        TensorPB,
+    )
+    from rtp_llm.utils.base_model_datatypes import (
+        GenerateInput,
+        GenerateOutputs,
+        RequestInfo,
+    )
 
 
 class FakeStub:
@@ -101,23 +107,8 @@ class FakeStub:
 
 
 def _load_model_rpc_symbols():
-    mock_ops = MagicMock()
-    mock_comm = MagicMock()
-    mock_nccl_op = MagicMock()
-    mock_compute_ops = MagicMock()
-    mock_comm.nccl_op = mock_nccl_op
-    mock_ops.comm = mock_comm
-    mock_ops.compute_ops = mock_compute_ops
     module_name = "rtp_llm.cpp.model_rpc.model_rpc_client"
-    with patch.dict(
-        sys.modules,
-        {
-            "rtp_llm.ops": mock_ops,
-            "rtp_llm.ops.comm": mock_comm,
-            "rtp_llm.ops.compute_ops": mock_compute_ops,
-            "rtp_llm.ops.comm.nccl_op": mock_nccl_op,
-        },
-    ):
+    with patch.dict(sys.modules, _mocked_ops_modules()):
         module = importlib.import_module(module_name)
         module = importlib.reload(module)
     sys.modules.pop(module_name, None)
