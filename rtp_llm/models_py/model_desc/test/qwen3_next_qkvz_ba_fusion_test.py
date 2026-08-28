@@ -32,7 +32,10 @@ class TestQwen3NextQkvzBaFusion(unittest.TestCase):
         fake_impl = SimpleNamespace(
             _is_gfx950=lambda: False,
             py_env_configs=SimpleNamespace(
-                py_hw_kernel_config=SimpleNamespace(use_swizzleA=True)
+                py_hw_kernel_config=SimpleNamespace(
+                    force_legacy_fp8_ptpc=False,
+                    use_swizzleA=True,
+                ),
             ),
         )
         aligned_ba = torch.randn(2048, 16, dtype=torch.bfloat16, device=self.device)

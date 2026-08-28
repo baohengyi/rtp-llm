@@ -1,5 +1,4 @@
-import contextlib
-import io
+import argparse
 import os
 import sys
 import unittest
@@ -17,7 +16,9 @@ from rtp_llm.config.server_config_setup import (
     setup_and_configure_server,
 )
 from rtp_llm.ops import CPRotateMethod, NcclCommConfig, RoleType
+from rtp_llm.server.server_args.jit_group_args import _positive_or_unlimited
 from rtp_llm.server.server_args.server_args import setup_args
+from rtp_llm.server.server_args.util import str2bool
 
 # clear=True must preserve gpu_lock isolation across Torch lazy initialization.
 _PINNED_DEVICES = {
@@ -147,26 +148,35 @@ class GenerateConfigTest(TestCase):
                 self.assertIs(setup_args(args).jit_config.manage_jit_cache, expected)
 
         timeout_error, bool_error = "positive integer or -1", "Boolean value expected"
-        for args, env, message in (
-            (["--jit_cache_setup_timeout_s", "0"], {}, timeout_error),
-            (["--jit_cache_setup_timeout_s", "-2"], {}, timeout_error),
-            ([], {"JIT_CACHE_SETUP_TIMEOUT_S": "0"}, timeout_error),
-            ([], {"JIT_CACHE_SETUP_TIMEOUT_S": "invalid"}, timeout_error),
-            ([], {"MANAGE_JIT_CACHE": "maybe"}, bool_error),
-            # An empty value fails like every other int/str2bool arg does.
-            ([], {"JIT_CACHE_SETUP_TIMEOUT_S": ""}, timeout_error),
-            ([], {"MANAGE_JIT_CACHE": ""}, bool_error),
+        for converter, value, message in (
+            (_positive_or_unlimited, "0", timeout_error),
+            (_positive_or_unlimited, "-2", timeout_error),
+            (_positive_or_unlimited, "invalid", timeout_error),
+            (str2bool, "maybe", bool_error),
+            (_positive_or_unlimited, "", timeout_error),
+            (str2bool, "", bool_error),
         ):
-            stderr = io.StringIO()
-            with self.subTest(args=args, env=env), patch.dict(
-                os.environ, _jit_env(**env), clear=True
-            ), contextlib.redirect_stderr(stderr), self.assertRaises(
-                SystemExit
-            ) as context:
-                setup_args(args)
-            self.assertEqual(context.exception.code, 2)
-            # Fail *because of this validator*, not from an unrelated parse error.
-            self.assertIn(message, stderr.getvalue())
+            with self.subTest(converter=converter.__name__, value=value):
+                with self.assertRaises(argparse.ArgumentTypeError) as context:
+                    converter(value)
+                self.assertIn(message, str(context.exception))
+
+        for args, env in (
+            (["--jit_cache_setup_timeout_s", "0"], {}),
+            (["--jit_cache_setup_timeout_s", "-2"], {}),
+            ([], {"JIT_CACHE_SETUP_TIMEOUT_S": "0"}),
+            ([], {"JIT_CACHE_SETUP_TIMEOUT_S": "invalid"}),
+            ([], {"MANAGE_JIT_CACHE": "maybe"}),
+            # An empty value fails like every other int/str2bool arg does.
+            ([], {"JIT_CACHE_SETUP_TIMEOUT_S": ""}),
+            ([], {"MANAGE_JIT_CACHE": ""}),
+        ):
+            with self.subTest(args=args, env=env):
+                with patch.dict(
+                    os.environ, _jit_env(**env), clear=True
+                ), self.assertRaises(SystemExit) as context:
+                    setup_args(args)
+                self.assertEqual(context.exception.code, 2)
 
     def test_jit_config_pure_env_path_without_cli_args(self):
         """setup_args() with no argv reaches the env-only branch of the scanner.

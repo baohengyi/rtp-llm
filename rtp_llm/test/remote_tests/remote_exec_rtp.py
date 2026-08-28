@@ -488,6 +488,7 @@ def _collect_repo_runtime_files(
         "rtp_llm/**/*.pyi",
         "internal_source/rtp_llm/**/*.pyi",
         "rtp_llm/cpp/cuda_graph/cuda_graph_runner.cc",
+        "3rdparty/cub_compat.h",
     ):
         files.extend(
             str(p.relative_to(rootdir)) for p in rootdir.glob(pattern) if p.is_file()
