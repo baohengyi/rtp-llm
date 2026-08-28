@@ -32,6 +32,14 @@ def _find_method(class_node: ast.ClassDef, name: str) -> ast.FunctionDef:
     )
 
 
+def _find_function(tree: ast.Module, name: str) -> ast.FunctionDef:
+    return next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == name
+    )
+
+
 def test_cuda_f16_linear_registers_before_optional_quantized_backends():
     tree = ast.parse(CUDA_LINEAR_REGISTRY.read_text())
     cuda_branch = next(
@@ -126,16 +134,20 @@ def test_tbstars_fp8_ptpc_keeps_raw_weights_and_selects_reference_linear():
 
 def test_fused_rope_calls_support_old_arm_and_new_x86_rtp_kernel_signatures():
     tree = ast.parse((RTP_LLM_DIR / "ops/fused_rope_kvcache_op.py").read_text())
-    source = ast.unparse(tree)
-    assert "'position_ids' in inspect.signature(prefill_fused_rope_kvcache).parameters" in source
-    assert "else 'cp_position_ids'" in source
-    assert "'cu_seqlens' in inspect.signature(decode_fused_rope_kvcache).parameters" in source
+    prefill_arg_source = ast.unparse(_find_function(tree, "_prefill_position_ids_arg"))
+    assert "_get_fused_rope_kvcache().prefill_fused_rope_kvcache" in prefill_arg_source
+    assert "'position_ids' in inspect.signature(fn).parameters" in prefill_arg_source
+    assert "else 'cp_position_ids'" in prefill_arg_source
+
+    decode_abi_source = ast.unparse(_find_function(tree, "_decode_has_cu_seqlens"))
+    assert "_get_fused_rope_kvcache().decode_fused_rope_kvcache" in decode_abi_source
+    assert "'cu_seqlens' in inspect.signature(fn).parameters" in decode_abi_source
 
     prefill_prepare = _find_method(
         _find_class(tree, "FusedRopeKVCachePrefillOpBase"), "prepare"
     )
     prepare_source = ast.unparse(prefill_prepare)
-    assert "_PREFILL_POSITION_IDS_ARG == 'position_ids'" in prepare_source
+    assert "_prefill_position_ids_arg() == 'position_ids'" in prepare_source
     assert "attn_inputs.context_parallel_info.prefill_shuffle_indices" in prepare_source
 
     prefill_forward = _find_method(
@@ -145,24 +157,30 @@ def test_fused_rope_calls_support_old_arm_and_new_x86_rtp_kernel_signatures():
         node
         for node in ast.walk(prefill_forward)
         if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "prefill_fused_rope_kvcache"
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "prefill_fused_rope_kvcache"
     )
-    assert any(keyword.arg is None for keyword in prefill_call.keywords)
+    dynamic_keywords = [
+        keyword for keyword in prefill_call.keywords if keyword.arg is None
+    ]
+    assert len(dynamic_keywords) == 1
+    assert ast.unparse(dynamic_keywords[0].value) == (
+        "{_prefill_position_ids_arg(): params.position_ids}"
+    )
 
     decode_forward = _find_method(
         _find_class(tree, "FusedRopeKVCacheDecodeOp"), "forward"
     )
     decode_source = ast.unparse(decode_forward)
-    assert "if _DECODE_HAS_CU_SEQLENS" in decode_source
+    assert "if _decode_has_cu_seqlens()" in decode_source
     assert "decode_args.extend([params.position_ids, params.sequence_lengths])" in decode_source
     assert "decode_args.append(params.sequence_lengths)" in decode_source
     call = next(
         node
         for node in ast.walk(decode_forward)
         if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "decode_fused_rope_kvcache"
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "decode_fused_rope_kvcache"
     )
     assert [ast.unparse(arg) for arg in call.args] == ["*decode_args"]
     assert any(keyword.arg == "tokens_per_block" for keyword in call.keywords)
