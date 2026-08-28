@@ -214,7 +214,9 @@ def run_smoke_test(test_name: str, test_config: Mapping[str, Any]) -> None:
     try:
         task_states = runner.run()
         logging.info("raw info: %s", str(task_states))
-        assert task_states.ret is True, f"smoke task run failed: {test_name}"
+        assert task_states.ret is True, (
+            f"smoke task run failed: {test_name}\n{task_states.err_msg}"
+        )
     finally:
         for key, old_val in reversed(_env_keys_set):
             if old_val is None:

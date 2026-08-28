@@ -378,37 +378,49 @@ class MagaServerManager(object):
         self.print_process_log()
         return False, None
 
-    def print_process_log(self, max_lines: int = 0):
-        """Print server process log. If max_lines > 0, only print last N lines."""
+    def read_process_log(self, max_lines: int = 0, max_chars: int = 0) -> str:
+        """Read a bounded server log tail for diagnostics and test reports."""
         if self._log_file is None:
-            return
+            return ""
         if self._file_stream is not None:
             try:
                 self._file_stream.flush()
             except Exception:
                 pass
         try:
-            if os.path.exists(self._log_file):
-                with open(self._log_file, "r") as f:
-                    if max_lines > 0:
-                        all_lines = f.readlines()
-                        content = "".join(all_lines[-max_lines:])
-                        if len(all_lines) > max_lines:
-                            content = (
-                                f"... ({len(all_lines) - max_lines} lines truncated)\n"
-                                + content
-                            )
-                    else:
-                        content = f.read()
-                if content:
-                    logging.warning("=" * 80)
-                    logging.warning(f"Server process log ({self._log_file}):")
-                    logging.warning("=" * 80)
-                    logging.warning(f"{content}")
-                    logging.warning("=" * 80)
+            if not os.path.exists(self._log_file):
+                return ""
+            with open(self._log_file, "r") as f:
+                if max_lines > 0:
+                    all_lines = f.readlines()
+                    content = "".join(all_lines[-max_lines:])
+                    if len(all_lines) > max_lines:
+                        content = (
+                            f"... ({len(all_lines) - max_lines} lines truncated)\n"
+                            + content
+                        )
                 else:
-                    logging.warning(f"Log file {self._log_file} is empty")
-            else:
-                logging.warning(f"Log file {self._log_file} does not exist")
+                    content = f.read()
+            if max_chars > 0 and len(content) > max_chars:
+                content = (
+                    f"... ({len(content) - max_chars} chars truncated)\n"
+                    + content[-max_chars:]
+                )
+            return content
         except Exception as e:
             logging.warning(f"Failed to read log file {self._log_file}: {e}")
+            return ""
+
+    def print_process_log(self, max_lines: int = 0):
+        """Print server process log. If max_lines > 0, only print last N lines."""
+        content = self.read_process_log(max_lines=max_lines)
+        if content:
+            logging.warning("=" * 80)
+            logging.warning(f"Server process log ({self._log_file}):")
+            logging.warning("=" * 80)
+            logging.warning(f"{content}")
+            logging.warning("=" * 80)
+        elif self._log_file and os.path.exists(self._log_file):
+            logging.warning(f"Log file {self._log_file} is empty")
+        elif self._log_file:
+            logging.warning(f"Log file {self._log_file} does not exist")

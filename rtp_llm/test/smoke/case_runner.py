@@ -298,7 +298,16 @@ class CaseRunner(object):
             )
             if keep_alive:
                 return self._keep_server_alive(server_manager, enable_remote_cache)
-            return self.curl_server(server_manager)
+            task_states = self.curl_server(server_manager)
+            if task_states.ret is not True:
+                process_log = server_manager.read_process_log(
+                    max_lines=200, max_chars=30000
+                )
+                if process_log:
+                    task_states.err_msg += (
+                        "\n[server process.log tail]\n" + process_log
+                    )
+            return task_states
         finally:
             if server_manager is not None and not keep_alive:
                 try:
