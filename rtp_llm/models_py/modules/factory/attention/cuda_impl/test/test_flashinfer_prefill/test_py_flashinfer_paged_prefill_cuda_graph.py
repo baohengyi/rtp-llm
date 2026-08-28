@@ -107,6 +107,12 @@ class _PrefillPagedCudaGraphTestMixin:
         if max_seq_len == 0:
             max_seq_len = max(input_lengths)
 
+        capture_input_lengths = capture_input_lengths or input_lengths
+        capture_prefix_lengths = capture_prefix_lengths or prefix_lengths
+        if isinstance(capture_input_lengths, int):
+            capture_input_lengths = [capture_input_lengths]
+            capture_prefix_lengths = [capture_prefix_lengths]
+
         config = self._create_config(
             head_num=head_num,
             head_num_kv=head_num_kv,
@@ -114,6 +120,9 @@ class _PrefillPagedCudaGraphTestMixin:
             seq_size_per_block=PAGE_SIZE,
         )
         seq_lengths = [p + i for p, i in zip(prefix_lengths, input_lengths)]
+        capture_seq_lengths = [
+            p + i for p, i in zip(capture_prefix_lengths, capture_input_lengths)
+        ]
         total_q = sum(input_lengths)
         total_kv = sum(seq_lengths)
 
@@ -149,6 +158,15 @@ class _PrefillPagedCudaGraphTestMixin:
             size_per_head,
             cache_dtype,
             self.device,
+            # FlashInfer retains the captured fixed batch size. During a
+            # smaller-batch replay, inactive slots may still read their
+            # captured page metadata even though their output is discarded.
+            # Model the production cache pool by keeping every captured page
+            # address valid, rather than sizing the fixture to active rows.
+            total_pages=max(
+                sum(math.ceil(s / PAGE_SIZE) for s in seq_lengths),
+                sum(math.ceil(s / PAGE_SIZE) for s in capture_seq_lengths),
+            ),
         )
 
         # Normal path
@@ -157,8 +175,6 @@ class _PrefillPagedCudaGraphTestMixin:
         normal_out = normal_op.forward(q, kv_cache)
 
         # CUDA graph path: capture then replay
-        capture_input_lengths = capture_input_lengths or input_lengths
-        capture_prefix_lengths = capture_prefix_lengths or prefix_lengths
         cg_init = self._make_inputs(
             capture_input_lengths, capture_prefix_lengths, True, max_seq_len
         )
