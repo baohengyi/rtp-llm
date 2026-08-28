@@ -300,12 +300,22 @@ class CaseRunner(object):
                 return self._keep_server_alive(server_manager, enable_remote_cache)
             task_states = self.curl_server(server_manager)
             if task_states.ret is not True:
-                process_log = server_manager.read_process_log(
-                    max_lines=200, max_chars=30000
+                log_errors = scan_process_log(
+                    server_manager.log_file_path, max_lines=30
                 )
-                if process_log:
+                if log_errors:
+                    process_log_diagnostics = "\n".join(log_errors)
+                    if len(process_log_diagnostics) > 6000:
+                        process_log_diagnostics = (
+                            "... process.log diagnostics truncated ...\n"
+                            + process_log_diagnostics[-6000:]
+                        )
+                    logging.error(
+                        "[server process.log errors]\n%s", process_log_diagnostics
+                    )
                     task_states.err_msg += (
-                        "\n[server process.log tail]\n" + process_log
+                        "\n[server process.log errors]\n"
+                        + process_log_diagnostics
                     )
             return task_states
         finally:
