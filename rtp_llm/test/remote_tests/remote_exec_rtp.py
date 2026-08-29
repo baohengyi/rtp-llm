@@ -39,6 +39,25 @@ _EXCLUDE_DIRS = frozenset(
     }
 )
 _REMOTE_INPUT_DIR = Path(".pytest_cache") / "remote_inputs"
+
+# Non-Python files read directly by test_build_packaging_contract.py. Native
+# pytest sessions do not get Bazel runfiles, so these source contracts must be
+# explicit CAS inputs.
+_SOURCE_CONTRACT_FILES = (
+    "3rdparty/cub_compat.h",
+    "rtp_llm/cpp/cache/test/BUILD",
+    "rtp_llm/cpp/cache/test/KVCacheManagerCPSlotMapperTest.cc",
+    "rtp_llm/cpp/cache/test/SharedBlockCacheTest.cc",
+    "rtp_llm/cpp/cuda_graph/cuda_graph_runner.cc",
+    "rtp_llm/cpp/disaggregate/cache_store/test/BUILD",
+    "rtp_llm/cpp/models/logits_processor/test/BUILD",
+    "rtp_llm/cpp/models/test/BUILD",
+    "rtp_llm/cpp/models/test/PyWrappedModelCacheStoreIntegrationTest.cc",
+    "rtp_llm/cpp/normal_engine/speculative/test/BUILD",
+    "rtp_llm/cpp/normal_engine/speculative/test/MtpBatchStreamProcessorTest.cc",
+    "rtp_llm/cpp/pybind/BUILD",
+    "rtp_llm/cpp/utils/test/BUILD",
+)
 _RUNTIME_LIBS_ARCHIVE = _REMOTE_INPUT_DIR / "rtp_llm_libs.tar"
 _PPU_RUNTIME_DIR = _REMOTE_INPUT_DIR / "ppu_runtime"
 _CORE_RUNTIME_LIBS = (
@@ -488,11 +507,7 @@ def _collect_repo_runtime_files(
         "rtp_llm/**/*.pyi",
         "internal_source/rtp_llm/**/*.pyi",
         "rtp_llm/model_loader/tipc/csrc/**/*",
-        "rtp_llm/cpp/cuda_graph/cuda_graph_runner.cc",
-        "rtp_llm/cpp/models/test/BUILD",
-        "rtp_llm/cpp/pybind/BUILD",
-        "3rdparty/cub_compat.h",
-    ):
+    ) + _SOURCE_CONTRACT_FILES:
         files.extend(
             str(p.relative_to(rootdir)) for p in rootdir.glob(pattern) if p.is_file()
         )

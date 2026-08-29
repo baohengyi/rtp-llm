@@ -198,6 +198,36 @@ def test_collect_remote_files_includes_tipc_jit_sources(tmp_path):
     assert "rtp_llm/model_loader/tipc/csrc/ipc.h" in files
 
 
+def test_collect_repo_runtime_files_includes_source_contracts(tmp_path):
+    source_contracts = {
+        "3rdparty/cub_compat.h",
+        "rtp_llm/cpp/cache/test/BUILD",
+        "rtp_llm/cpp/cache/test/KVCacheManagerCPSlotMapperTest.cc",
+        "rtp_llm/cpp/cache/test/SharedBlockCacheTest.cc",
+        "rtp_llm/cpp/cuda_graph/cuda_graph_runner.cc",
+        "rtp_llm/cpp/disaggregate/cache_store/test/BUILD",
+        "rtp_llm/cpp/models/logits_processor/test/BUILD",
+        "rtp_llm/cpp/models/test/BUILD",
+        "rtp_llm/cpp/models/test/PyWrappedModelCacheStoreIntegrationTest.cc",
+        "rtp_llm/cpp/normal_engine/speculative/test/BUILD",
+        "rtp_llm/cpp/normal_engine/speculative/test/MtpBatchStreamProcessorTest.cc",
+        "rtp_llm/cpp/pybind/BUILD",
+        "rtp_llm/cpp/utils/test/BUILD",
+    }
+    assert set(remote_exec_rtp._SOURCE_CONTRACT_FILES) == source_contracts
+
+    for relative_path in source_contracts:
+        path = tmp_path / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("source contract\n", encoding="utf-8")
+
+    files = remote_exec_rtp._collect_repo_runtime_files(
+        tmp_path, include_libs=False
+    )
+
+    assert source_contracts.issubset(files)
+
+
 def test_collect_remote_files_includes_perf_data(tmp_path):
     repo = tmp_path / "repo"
     rootdir = repo / "github-opensource"
