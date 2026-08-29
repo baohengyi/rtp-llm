@@ -84,5 +84,12 @@ cc_test(
     ],
     copts = copts(),
     deps = google_test_deps + ["//rtp_llm/cpp/utils:device_pin"],
-    env = {"GPU_COUNT": "0"},
+    env = {
+        "GPU_COUNT": "1",
+        "TEST_USING_DEVICE": "CUDA",
+    },
+    exec_properties = {
+        "gpu": "A10",
+        "gpu_count": "1",
+    },
 )

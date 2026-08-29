@@ -55,7 +55,12 @@ cc_test(
     ] + device_impl_target() + cuda13_torch_link_deps,
     env = {
         "CACHE_STORE_RDMA_MODE": "0",
+        "GPU_COUNT": "2",
+        "TEST_USING_DEVICE": "CUDA",
     },
     copts = ["-fno-access-control"] + copts(),
-    exec_properties = {'gpu':'A10'},
+    exec_properties = {
+        "gpu": "A10",
+        "gpu_count": "2",
+    },
 )

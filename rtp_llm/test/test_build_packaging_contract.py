@@ -902,6 +902,90 @@ class BuildPackagingContractTest(TestCase):
                 )
                 self.assertNotIn("skip", decorator_names)
 
+    def test_cpp_ut_default_targets_do_not_register_disabled_cases(self):
+        default_sources = [
+            "rtp_llm/cpp/cache/test/KVCacheManagerCPSlotMapperTest.cc",
+            "rtp_llm/cpp/cache/test/SharedBlockCacheTest.cc",
+            "rtp_llm/cpp/normal_engine/speculative/test/MtpBatchStreamProcessorTest.cc",
+        ]
+        for relative_path in default_sources:
+            source = (PROJECT_ROOT / relative_path).read_text()
+            self.assertNotIn("DISABLED_", source, relative_path)
+
+        cp_source = (PROJECT_ROOT / default_sources[0]).read_text()
+        for test_name in (
+            "MallocAutoInjectReducesBlockCount",
+            "MallocWithoutCPAllocatesFullBlocks",
+            "AllocatorMapperControlsMalloc",
+            "InsertAutoInjectsMapper",
+        ):
+            self.assertIn(f"TEST_F(KVCacheManagerCPSlotMapperTest, {test_name})", cp_source)
+        self.assertGreaterEqual(cp_source.count("config_.finalizeBlockNums"), 4)
+
+    def test_cpp_manual_benchmarks_are_outside_default_targets(self):
+        def target_block(relative_path, target_name):
+            build_text = (PROJECT_ROOT / relative_path).read_text()
+            marker = f'name = "{target_name}"'
+            marker_pos = build_text.index(marker)
+            block_start = build_text.rfind("cc_test(", 0, marker_pos)
+            block_end = build_text.index("\n)", marker_pos) + 2
+            return build_text[block_start:block_end]
+
+        perf_targets = (
+            (
+                "rtp_llm/cpp/cache/test/BUILD",
+                "shared_block_cache_perf_test",
+                "SharedBlockCachePerfTest.cc",
+            ),
+            (
+                "rtp_llm/cpp/normal_engine/speculative/test/BUILD",
+                "mtp_batch_stream_processor_perf_test",
+                "MtpBatchStreamProcessorPerfTest.cc",
+            ),
+            (
+                "rtp_llm/cpp/models/logits_processor/test/BUILD",
+                "spec_logits_verify_runner_perf_test",
+                "SpecLogitsVerifyRunnerPerfTest.cc",
+            ),
+        )
+        for build_path, target_name, source_name in perf_targets:
+            block = target_block(build_path, target_name)
+            self.assertIn(source_name, block)
+            self.assertRegex(block, r'tags\s*=\s*\["manual"\]')
+
+        self.assertNotIn(
+            "SharedBlockCachePerfTest.cc",
+            target_block("rtp_llm/cpp/cache/test/BUILD", "shared_block_cache_test"),
+        )
+        self.assertNotIn(
+            "MtpBatchStreamProcessorPerfTest.cc",
+            target_block(
+                "rtp_llm/cpp/normal_engine/speculative/test/BUILD",
+                "mtp_batch_stream_processor_test",
+            ),
+        )
+
+    def test_cpp_device_pin_targets_request_the_resources_they_assert(self):
+        def target_block(relative_path, target_name):
+            build_text = (PROJECT_ROOT / relative_path).read_text()
+            marker_pos = build_text.index(f'name = "{target_name}"')
+            block_start = build_text.rfind("cc_test(", 0, marker_pos)
+            block_end = build_text.index("\n)", marker_pos) + 2
+            return build_text[block_start:block_end]
+
+        device_pin = target_block("rtp_llm/cpp/utils/test/BUILD", "device_pin_test")
+        self.assertIn('"GPU_COUNT": "1"', device_pin)
+        self.assertIn('"gpu_count": "1"', device_pin)
+        self.assertIn('"gpu": "A10"', device_pin)
+
+        cache_store = target_block(
+            "rtp_llm/cpp/disaggregate/cache_store/test/BUILD",
+            "cache_store_gtest",
+        )
+        self.assertIn('"GPU_COUNT": "2"', cache_store)
+        self.assertIn('"gpu_count": "2"', cache_store)
+        self.assertIn('"gpu": "A10"', cache_store)
+
     def test_non_sm100_py_ut_profiles_ignore_dsv4(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             pyproject = tomllib.load(f)

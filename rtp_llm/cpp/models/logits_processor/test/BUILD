@@ -87,9 +87,8 @@ cc_test(
     exec_properties = {'gpu':'H20'},
 )
 
-# The benchmark is gated behind the DISABLED_ gtest prefix; run it explicitly
-# with --test_arg=--gtest_also_run_disabled_tests. Keeping the target in the
-# default test graph preserves compile coverage for the runner API.
+# Manual benchmark. The manual tag keeps it out of wildcard cpp-ut discovery;
+# run the target explicitly when collecting performance evidence.
 cc_test(
     name = "spec_logits_verify_runner_perf_test",
     srcs = [
@@ -101,6 +100,7 @@ cc_test(
         "TEST_USING_DEVICE": "CUDA",
     },
     exec_properties = {'gpu':'H20'},
+    tags = ["manual"],
 )
 
 cc_test(

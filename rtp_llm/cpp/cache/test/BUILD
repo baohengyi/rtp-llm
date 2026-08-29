@@ -184,6 +184,19 @@ cc_test(
 )
 
 cc_test(
+    name = "shared_block_cache_perf_test",
+    srcs = [
+        "SharedBlockCachePerfTest.cc",
+    ],
+    data = [],
+    copts = test_copts,
+    deps = block_cache_test_deps,
+    env = {},
+    exec_properties = {'gpu':'H20'},
+    tags = ["manual"],
+)
+
+cc_test(
     name = "block_pool_test",
     srcs = [
         "BlockPoolTest.cc",
