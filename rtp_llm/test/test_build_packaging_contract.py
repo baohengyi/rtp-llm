@@ -628,6 +628,7 @@ class BuildPackagingContractTest(TestCase):
             "rtp_llm/models_py/modules/factory/attention/rocm_impl/test/test_fused_qkv_transpose_v3.py",
             "rtp_llm/models_py/modules/factory/attention/rocm_impl/test/test_aiter_decode_triton_noasm.py",
             "rtp_llm/models_py/modules/factory/fused_moe/impl/rocm/test/test_generic_moe_allreduce.py",
+            "rtp_llm/models_py/modules/factory/fused_moe/impl/rocm/test/torch_moe_ref_test.py",
             "rtp_llm/models_py/distributed/test/moriep_test.py",
             "rtp_llm/models_py/triton_kernels/fla/test/test_flydsl_chunk_gdn_cache_store.py",
         ]

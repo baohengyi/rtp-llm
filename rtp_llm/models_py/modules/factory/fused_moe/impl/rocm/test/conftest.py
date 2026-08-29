@@ -8,8 +8,9 @@ except (ImportError, RuntimeError):
 
 if not _aiter_available:
     # Only ignore tests that require aiter/ROCm hardware. CPU-only regression
-    # tests (e.g. torch_moe_ref_test.py, test_pure_tp_router.py) must remain
-    # collectable so they run in generic CI.
+    # tests such as test_pure_tp_router.py must remain collectable so they run
+    # in generic CI. Tests that use CPU tensors but import the ROCm executor
+    # stack, such as torch_moe_ref_test.py, are routed with an MI308X marker.
     #
     # NOTE: these globs key off the filename prefix, so a CPU-only test in this
     # directory must NOT be named rocm_*/deepep_*/moriep_* or it will be silently

@@ -392,7 +392,9 @@ class ModelRpcClientTest(TestCase):
         client = FakeModelRpcClient()
         generate_config: GenerateConfig = GenerateConfig(using_hf_sampling=False)
         input = GenerateInput(
+            request_id=1,
             token_ids=torch.tensor([1, 2, 3, 4, 5, 6, 7, 8]),
+            mm_inputs=[],
             generate_config=generate_config,
         )
         res = asyncio.run(self._run(client, input))

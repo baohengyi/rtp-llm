@@ -33,6 +33,7 @@ class KmonTest(unittest.TestCase):
         self.assertDictEqual(points[1].tags, {"key": "v1"})
         self.assertDictEqual(points[2].tags, {"key": "v2"})
         self.assertAlmostEqual(points[1].value * 1.5, points[2].value)
+
     def test_report(self) -> None:
         kmon = KMonitor({"tag_a": "aa"})
         metric_name = "test_metric"
@@ -49,7 +50,8 @@ class KmonTest(unittest.TestCase):
             tokens = events[i].body.decode("utf-8").split(" ")
             self.assertEqual(tokens[0], metric_name)
             self.assertAlmostEqual(float(tokens[2]), 2.5 + 1.1 * i)
-            self.assertEqual(tokens[3], "tag_a=aa")
+            tags = dict(token.split("=", 1) for token in tokens[3:])
+            self.assertEqual(tags["tag_a"], "aa")
 
 
 if __name__ == "__main__":
