@@ -25,8 +25,11 @@ import unittest
 from typing import List, Optional, Sequence
 from unittest.mock import patch
 
+import pytest
 import torch
 import torch.nn.functional as F
+
+pytestmark = [pytest.mark.gpu(type="MI308X")]
 
 _IS_ROCM_BUILD = torch.version.hip is not None
 

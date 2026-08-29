@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pytest
 import torch
 from safetensors.torch import save_file
 
@@ -244,6 +245,7 @@ class HandleRecyclingTest(unittest.TestCase):
                 os.path.join(tmp, f"model-{layer}.safetensors"),
             )
 
+    @pytest.mark.gpu(type="MI308X")
     def test_recycling_enabled_on_real_rocm_build(self):
         # The ROCm target reaches this without patching the production gate.
         if torch.version.hip is None:

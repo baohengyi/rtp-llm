@@ -586,22 +586,94 @@ class BuildPackagingContractTest(TestCase):
             missing, [], f"pyproject testpaths point at non-existent directories: {missing}"
         )
 
-    def test_py_ut_amd_profile_collects_only_rocm_roots(self):
-        """ROCm collection must not import CUDA-only modules before -m filtering."""
+    def test_py_ut_amd_profile_collects_rocm_sources(self):
+        """ROCm collection must not import unrelated CUDA-only modules."""
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             pyproject = tomllib.load(f)
 
-        profile = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"][
-            "py_ut_amd"
-        ]
+        profiles = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"]
+        profile = profiles["py_ut_amd"]
         expected_paths = [
             "rtp_llm/models_py/modules/base/rocm/test/",
+            "rtp_llm/models_py/modules/factory/attention/rocm_impl/test/",
             "rtp_llm/models_py/modules/factory/fused_moe/impl/rocm/test/",
             "rtp_llm/models_py/modules/factory/linear/impl/rocm/test/",
+            "rtp_llm/models_py/model_desc/test/qwen3_next_qkvz_ba_fusion_test.py",
+            "rtp_llm/models_py/triton_kernels/fla/test/test_flydsl_chunk_gdn_cache_store.py",
+            "rtp_llm/utils/test/ckpt_database_test.py",
             "rtp_llm/utils/test/jit_cache_smoke_test.py",
         ]
         self.assertEqual(profile["paths"], expected_paths)
         self.assertTrue(all((PROJECT_ROOT / path).exists() for path in expected_paths))
+        self.assertIn("MI308X", profile["markexpr"])
+        self.assertIn("not MI308X", profiles["py_ut_sm8x"]["markexpr"])
+
+    def test_rocm_unit_cases_are_routed_by_mi308x_marker(self):
+        """ROCm-only cases must be deselected before running on CUDA workers."""
+
+        def is_mi308x_marker(node):
+            return (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "gpu"
+                and any(
+                    keyword.arg == "type"
+                    and isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value == "MI308X"
+                    for keyword in node.keywords
+                )
+            )
+
+        module_marked = [
+            "rtp_llm/models_py/modules/factory/attention/rocm_impl/test/test_aiter_prefill_op.py",
+            "rtp_llm/models_py/modules/factory/attention/rocm_impl/test/test_fused_qkv_transpose_v3.py",
+            "rtp_llm/models_py/modules/factory/attention/rocm_impl/test/test_aiter_decode_triton_noasm.py",
+            "rtp_llm/models_py/modules/factory/fused_moe/impl/rocm/test/test_generic_moe_allreduce.py",
+            "rtp_llm/models_py/triton_kernels/fla/test/test_flydsl_chunk_gdn_cache_store.py",
+        ]
+        for relative_path in module_marked:
+            tree = ast.parse((PROJECT_ROOT / relative_path).read_text())
+            pytestmark = next(
+                (
+                    node.value
+                    for node in tree.body
+                    if isinstance(node, ast.Assign)
+                    and any(
+                        isinstance(target, ast.Name) and target.id == "pytestmark"
+                        for target in node.targets
+                    )
+                ),
+                None,
+            )
+            self.assertIsNotNone(pytestmark, relative_path)
+            self.assertTrue(
+                any(is_mi308x_marker(node) for node in ast.walk(pytestmark)),
+                relative_path,
+            )
+
+        method_marked = {
+            "rtp_llm/models_py/model_desc/test/qwen3_next_qkvz_ba_fusion_test.py": {
+                "test_in_proj_ba_no_swizzle_when_unaligned",
+                "test_in_proj_ba_keeps_swizzle_when_aligned",
+            },
+            "rtp_llm/utils/test/ckpt_database_test.py": {
+                "test_recycling_enabled_on_real_rocm_build",
+            },
+        }
+        for relative_path, method_names in method_marked.items():
+            tree = ast.parse((PROJECT_ROOT / relative_path).read_text())
+            methods = {
+                node.name: node
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name in method_names
+            }
+            self.assertEqual(methods.keys(), method_names, relative_path)
+            for method_name, method in methods.items():
+                self.assertTrue(
+                    any(is_mi308x_marker(node) for node in method.decorator_list),
+                    f"{relative_path}:{method_name}",
+                )
 
     def test_non_sm100_py_ut_profiles_ignore_dsv4(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:

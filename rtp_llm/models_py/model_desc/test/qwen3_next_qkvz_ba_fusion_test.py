@@ -11,6 +11,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 import torch
 
 
@@ -395,6 +396,7 @@ class TestQwen3NextQkvzBaFusion(unittest.TestCase):
         self.assertEqual(len(ba_calls), 1, "fallback must build in_proj_ba once")
         return hw, ba_calls[0].kwargs.get("hw_kernel_config")
 
+    @pytest.mark.gpu(type="MI308X")
     @unittest.skipUnless(
         torch.version.hip is not None,
         "ROCm-only BA swizzle dispatch",
@@ -409,6 +411,7 @@ class TestQwen3NextQkvzBaFusion(unittest.TestCase):
             "unaligned BA must pass hw_kernel_config=None (NoSwizzle dispatch)",
         )
 
+    @pytest.mark.gpu(type="MI308X")
     @unittest.skipUnless(
         torch.version.hip is not None,
         "ROCm-only BA swizzle dispatch",

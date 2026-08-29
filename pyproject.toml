@@ -342,8 +342,12 @@ description = "Python UT on AMD MI308X (py-ut-amd)"
 gpu_type = "MI308X"
 paths = [
     "rtp_llm/models_py/modules/base/rocm/test/",
+    "rtp_llm/models_py/modules/factory/attention/rocm_impl/test/",
     "rtp_llm/models_py/modules/factory/fused_moe/impl/rocm/test/",
     "rtp_llm/models_py/modules/factory/linear/impl/rocm/test/",
+    "rtp_llm/models_py/model_desc/test/qwen3_next_qkvz_ba_fusion_test.py",
+    "rtp_llm/models_py/triton_kernels/fla/test/test_flydsl_chunk_gdn_cache_store.py",
+    "rtp_llm/utils/test/ckpt_database_test.py",
     "rtp_llm/utils/test/jit_cache_smoke_test.py",
 ]
 markexpr = "MI308X and not smoke and not perf and not manual"

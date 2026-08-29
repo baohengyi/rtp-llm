@@ -5,9 +5,12 @@ import os
 from unittest import TestCase, main, skipUnless
 from unittest.mock import patch
 
+import pytest
 import torch
 import torch.distributed as dist
 from torch import nn
+
+pytestmark = [pytest.mark.gpu(type="MI308X", count=2)]
 
 from rtp_llm.config.model_config import ModelConfig
 from rtp_llm.models_py.distributed import collective_torch
