@@ -7,6 +7,7 @@
 #include "rtp_llm/cpp/utils/TimeUtil.h"
 #include "rtp_llm/cpp/cache/BlockPoolConfigHelper.h"
 #include "rtp_llm/cpp/cache/BatchKVCacheResource.h"
+#include "rtp_llm/cpp/cache/CPSlotMapper.h"
 #include "rtp_llm/cpp/engine_base/stream/CompleteTokenIds.h"
 
 namespace rtp_llm {
@@ -18,9 +19,11 @@ int SingleTypeKVCacheAllocator::getNeedBlocks(const MallocInfo& malloc_info) con
     const bool reuse_enabled    = malloc_info.reuse_cache;
     const int  reuse_blocks_len = reuse_enabled ? malloc_info.batch_kv_cache_resource->curBlocksNum() : 0;
     const int  batch_size       = malloc_info.batch_kv_cache_resource->batchSize();
-    const int  seq_len          = malloc_info.complete_token_ids->seqLength();
+    const int  seq_len          = cpEffectiveSeqLenForAlloc(/*gid=*/0, malloc_info.complete_token_ids->seqLength());
     const int  reserve_step     = malloc_info.complete_token_ids->getReserveStep();
-    const int  common_seq_len   = std::min(malloc_info.complete_token_ids->commonSeqLength(), seq_len);
+    const int  common_seq_len   = cpEffectiveSeqLenForAlloc(
+        /*gid=*/0,
+        std::min(malloc_info.complete_token_ids->commonSeqLength(), malloc_info.complete_token_ids->seqLength()));
 
     const auto need =
         full_kv_cache_group_->getNeedBlocks(common_seq_len, seq_len, reserve_step, reuse_blocks_len, reuse_enabled);
@@ -73,10 +76,15 @@ bool SingleTypeKVCacheAllocator::doInit() {
 MallocResult SingleTypeKVCacheAllocator::initMallocForCommonLen(const MallocInfo& malloc_info) {
     auto& kv_resource = malloc_info.batch_kv_cache_resource;
     int   reuse_len   = 0;
-    int   common_seq_len =
-        std::min(malloc_info.complete_token_ids->commonSeqLength(), malloc_info.complete_token_ids->totalSeqLength());
+    int   common_seq_len = cpEffectiveSeqLenForAlloc(
+        /*gid=*/0,
+        std::min(malloc_info.complete_token_ids->commonSeqLength(),
+                 malloc_info.complete_token_ids->totalSeqLength()));
 
-    const auto& cache_keys         = kv_resource->cacheKeys(0);
+    const auto& full_cache_keys    = kv_resource->cacheKeys(0);
+    auto        cache_keys         = cp_slot_mapper_ ?
+                                         cp_slot_mapper_->localCacheKeys(config_, /*gid=*/0, full_cache_keys) :
+                                         full_cache_keys;
     auto&       block_ids_0        = kv_resource->mutableBlockIds(0, 0);
     int64_t     match_cost_time_us = 0;
 
@@ -94,7 +102,8 @@ MallocResult SingleTypeKVCacheAllocator::initMallocForCommonLen(const MallocInfo
         auto          match_begin_time_us = currentTimeUs();
         auto          match_result        = full_kv_cache_group_->match(match_keys);
         match_cost_time_us                = currentTimeUs() - match_begin_time_us;
-        reuse_len                         = static_cast<int>(match_result.reuse_length);
+        reuse_len = static_cast<int>(match_result.reuse_blocks)
+                    * static_cast<int>(logicalSeqSizePerBlockForCapacity(/*gid=*/0));
         reuse_blocks                      = static_cast<int>(match_result.reuse_blocks);
         kv_resource->cacheResource(0).setDeviceReuseBlockNum(reuse_blocks);
         full_kv_cache_group_->reference(block_ids_0, match_result.block_indices);
@@ -136,7 +145,7 @@ MallocResult SingleTypeKVCacheAllocator::incrMalloc(const MallocInfo& malloc_inf
     auto& kv_resource    = malloc_info.batch_kv_cache_resource;
     int   batch_size     = kv_resource->batchSize();
     int   current_blocks = kv_resource->curBlocksNum();
-    int   seq_len        = malloc_info.incrSeqLen();
+    int   seq_len        = cpEffectiveSeqLenForAlloc(/*gid=*/0, malloc_info.incrSeqLen());
     int   reserve_step   = malloc_info.complete_token_ids->getReserveStep();
 
     auto need_blocks = full_kv_cache_group_->needBlocksNum(seq_len, current_blocks, reserve_step);
@@ -207,8 +216,11 @@ void SingleTypeKVCacheAllocator::insertIntoCache(const InsertInfo& insert_info) 
     batch_size = 1;
 
     for (int batch_id = 0; batch_id < batch_size; ++batch_id) {
-        const auto& cache_keys = kv_resource->cacheKeys(batch_id);
-        const auto& blocks     = kv_resource->blocks(batch_id, 0);
+        const auto& full_cache_keys = kv_resource->cacheKeys(batch_id);
+        auto        cache_keys      = cp_slot_mapper_ ?
+                                           cp_slot_mapper_->localCacheKeys(config_, /*gid=*/0, full_cache_keys) :
+                                           full_cache_keys;
+        const auto& blocks          = kv_resource->blocks(batch_id, 0);
 
         size_t block_num = std::min(size_t(cache_keys.size()), size_t(blocks.size()));
         if (block_num == 0) {
