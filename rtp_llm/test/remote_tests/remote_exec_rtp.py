@@ -489,6 +489,8 @@ def _collect_repo_runtime_files(
         "internal_source/rtp_llm/**/*.pyi",
         "rtp_llm/model_loader/tipc/csrc/**/*",
         "rtp_llm/cpp/cuda_graph/cuda_graph_runner.cc",
+        "rtp_llm/cpp/models/test/BUILD",
+        "rtp_llm/cpp/pybind/BUILD",
         "3rdparty/cub_compat.h",
     ):
         files.extend(

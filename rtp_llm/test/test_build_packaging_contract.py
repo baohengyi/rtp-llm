@@ -362,8 +362,7 @@ class BuildPackagingContractTest(TestCase):
 
     def test_pywrapped_model_integration_test_is_h20_pytest_only(self):
         build_file = PROJECT_ROOT / "rtp_llm/cpp/models/test/BUILD"
-        if not build_file.exists():
-            self.skipTest("source-only Bazel BUILD file is not staged")
+        self.assertTrue(build_file.exists(), "source-only Bazel BUILD file is not staged")
         build_text = build_file.read_text(encoding="utf-8")
         target_block = re.search(
             r'py_test\(\s*name = "pywrapped_model_cache_store_integration_test",'
@@ -414,8 +413,7 @@ class BuildPackagingContractTest(TestCase):
 
     def test_config_pickle_test_is_h20_pytest_only(self):
         build_file = PROJECT_ROOT / "rtp_llm/cpp/pybind/BUILD"
-        if not build_file.exists():
-            self.skipTest("source-only Bazel BUILD file is not staged")
+        self.assertTrue(build_file.exists(), "source-only Bazel BUILD file is not staged")
         build_text = build_file.read_text(encoding="utf-8")
         target_block = re.search(
             r'py_test\(\s*name = "config_pickle_test",.*?\n\)',
@@ -599,6 +597,7 @@ class BuildPackagingContractTest(TestCase):
             "rtp_llm/models_py/modules/factory/fused_moe/impl/rocm/test/",
             "rtp_llm/models_py/modules/factory/linear/impl/rocm/test/",
             "rtp_llm/models_py/model_desc/test/qwen3_next_qkvz_ba_fusion_test.py",
+            "rtp_llm/models_py/distributed/test/moriep_test.py",
             "rtp_llm/models_py/triton_kernels/fla/test/test_flydsl_chunk_gdn_cache_store.py",
             "rtp_llm/utils/test/ckpt_database_test.py",
             "rtp_llm/utils/test/jit_cache_smoke_test.py",
@@ -629,6 +628,7 @@ class BuildPackagingContractTest(TestCase):
             "rtp_llm/models_py/modules/factory/attention/rocm_impl/test/test_fused_qkv_transpose_v3.py",
             "rtp_llm/models_py/modules/factory/attention/rocm_impl/test/test_aiter_decode_triton_noasm.py",
             "rtp_llm/models_py/modules/factory/fused_moe/impl/rocm/test/test_generic_moe_allreduce.py",
+            "rtp_llm/models_py/distributed/test/moriep_test.py",
             "rtp_llm/models_py/triton_kernels/fla/test/test_flydsl_chunk_gdn_cache_store.py",
         ]
         for relative_path in module_marked:
@@ -674,6 +674,29 @@ class BuildPackagingContractTest(TestCase):
                     any(is_mi308x_marker(node) for node in method.decorator_list),
                     f"{relative_path}:{method_name}",
                 )
+
+    def test_removed_legacy_trt_ops_are_not_collected(self):
+        legacy_tests = (
+            "test_trt_nonpadded.py",
+            "test_trt_padded.py",
+            "test_trt_paged_nonpadded.py",
+        )
+        test_dir = (
+            PROJECT_ROOT
+            / "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/trt_tests"
+        )
+        self.assertFalse(any((test_dir / name).exists() for name in legacy_tests))
+
+        current_tests = (
+            PROJECT_ROOT
+            / "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_trtllm_fmha_v2_prefill.py",
+            PROJECT_ROOT
+            / "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_trtllm_fmha_v2_paged_prefill.py",
+        )
+        for test_file in current_tests:
+            text = test_file.read_text(encoding="utf-8")
+            self.assertIn("TRTLLMFMHAv2", text)
+            self.assertNotIn("from rtp_llm.ops.compute_ops import TRTAttnOp", text)
 
     def test_non_sm100_py_ut_profiles_ignore_dsv4(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:

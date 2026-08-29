@@ -909,6 +909,12 @@ def test_collect_session_files_packs_runtime_lib_archive(tmp_path):
     cuda_graph_source = tmp_path / "rtp_llm/cpp/cuda_graph/cuda_graph_runner.cc"
     cuda_graph_source.parent.mkdir(parents=True)
     cuda_graph_source.write_text("// source contract\n", encoding="utf-8")
+    models_test_build = tmp_path / "rtp_llm/cpp/models/test/BUILD"
+    models_test_build.parent.mkdir(parents=True)
+    models_test_build.write_text("# model test targets\n", encoding="utf-8")
+    pybind_build = tmp_path / "rtp_llm/cpp/pybind/BUILD"
+    pybind_build.parent.mkdir(parents=True)
+    pybind_build.write_text("# pybind targets\n", encoding="utf-8")
     cub_compat_header = tmp_path / "3rdparty/cub_compat.h"
     cub_compat_header.parent.mkdir(parents=True)
     cub_compat_header.write_text("// CUB compatibility contract\n", encoding="utf-8")
@@ -930,6 +936,8 @@ def test_collect_session_files_packs_runtime_lib_archive(tmp_path):
     assert "rtp_llm/sample.py" in files
     assert "rtp_llm/ops/librtp_compute_ops/__init__.pyi" in files
     assert "rtp_llm/cpp/cuda_graph/cuda_graph_runner.cc" in files
+    assert "rtp_llm/cpp/models/test/BUILD" in files
+    assert "rtp_llm/cpp/pybind/BUILD" in files
     assert "3rdparty/cub_compat.h" in files
     assert (
         "rtp_llm/models_py/modules/factory/linear/impl/rocm/data/solutions.json"

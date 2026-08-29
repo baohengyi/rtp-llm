@@ -15,6 +15,9 @@ except ImportError:
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
+import pytest
+
+pytestmark = [pytest.mark.gpu(type="MI308X", count=2)]
 
 # 通过 rtp-llm 路径加载 moriep_wrapper 需要整体编译，这里用 importlib 按文件路径加载，能够整体编译后应该去掉这部分
 # from rtp_llm.models_py.distributed.moriep_wrapper import MoriEPWrapper, MoriEPWrapperConfig, init_moriep_wrapper

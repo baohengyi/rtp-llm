@@ -1,7 +1,5 @@
 import unittest
 
-import pytest
-
 from rtp_llm.aios.kmonitor.python_client.kmonitor.kmonitor import KMonitor, MetricTypes
 from rtp_llm.aios.kmonitor.python_client.kmonitor.metrics.metric_factory import (
     MetricFactory,
@@ -11,10 +9,17 @@ from rtp_llm.aios.kmonitor.python_client.kmonitor.report_worker import report_wo
 
 class KmonTest(unittest.TestCase):
     def setUp(self) -> None:
-        pass
+        report_worker.stop()
+        self._init_tags = report_worker.init_tags.copy()
+        with report_worker.metric_lock:
+            report_worker.metrics.clear()
 
     def tearDown(self):
-        pass
+        report_worker.stop()
+        report_worker.init_tags.clear()
+        report_worker.init_tags.update(self._init_tags)
+        with report_worker.metric_lock:
+            report_worker.metrics.clear()
 
     def test_qps_metric(self) -> None:
         metric = MetricFactory.create_metric(MetricTypes.ACC_METRIC, "test", {})
@@ -28,26 +33,6 @@ class KmonTest(unittest.TestCase):
         self.assertDictEqual(points[1].tags, {"key": "v1"})
         self.assertDictEqual(points[2].tags, {"key": "v2"})
         self.assertAlmostEqual(points[1].value * 1.5, points[2].value)
-        report_worker.stop()
-
-    # SKIP REASON (2026-05-01): line `self.assertFalse(report_worker.started)`
-    # below is a cross-test ordering dependency on test_qps_metric having run
-    # first (it ends with `report_worker.stop()`). `report_worker` is a module-
-    # level singleton that auto-starts on import (see report_worker.py:44/51).
-    # Under xdist `-n 4` the two tests can be scheduled on different workers —
-    # verified on sm8x REAPI session: test_qps_metric ran on gw0 (PASS),
-    # test_report ran on gw2 (FAIL: AssertionError: True is not false) because
-    # the fresh fork imported report_worker which immediately called start().
-    # Proper fix is to call `report_worker.stop()` in setUp(); deferring as
-    # this is pre-existing on main.
-    @pytest.mark.skip(
-        reason=(
-            "pre-existing on main: assertFalse(report_worker.started) at line 39 "
-            "depends on test_qps_metric running first (alphabetical), which fails "
-            "under xdist -n 4 when tests land on different workers. Deferred fix; "
-            "see SKIP REASON comment above."
-        )
-    )
     def test_report(self) -> None:
         kmon = KMonitor({"tag_a": "aa"})
         metric_name = "test_metric"
