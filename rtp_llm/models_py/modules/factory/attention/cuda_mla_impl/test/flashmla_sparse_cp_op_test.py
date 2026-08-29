@@ -148,7 +148,7 @@ def _tp2_worker(rank: int, nccl_port: int, result_queue: mp.Queue) -> None:
 
         with patch.object(dist, "init_process_group", _init_pg):
             with patch(
-                "rtp_llm.models_py.distributed.collective_torch.init_symm_mem_communicator",
+                "rtp_llm.models_py.distributed.symm_mem.init_symm_mem_communicator",
                 lambda *_a, **_kw: None,
             ):
                 init_distributed_environment(

@@ -797,18 +797,20 @@ class BuildPackagingContractTest(TestCase):
         pack_tree = parse(
             "rtp_llm/models_py/kernels/cuda/test/pack_ue8m0_kernel_test.py"
         )
-        deep_gemm_class = next(
-            node
+        pack_module_markers = [
+            marker
             for node in pack_tree.body
-            if isinstance(node, ast.ClassDef)
-            and node.name == "TestDeepGemmIntegration"
-        )
-        self.assertTrue(
-            any(
-                is_gpu_marker(node, "SM100_ARM")
-                for node in deep_gemm_class.decorator_list
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "pytestmark"
+                for target in node.targets
             )
-        )
+            and isinstance(node.value, (ast.List, ast.Tuple))
+            for marker in node.value.elts
+        ]
+        self.assertEqual(len(pack_module_markers), 1)
+        self.assertTrue(is_gpu_marker(pack_module_markers[0], "SM100_ARM"))
+        self.assertFalse(is_gpu_marker(pack_module_markers[0], "H20"))
 
         cp_tree = parse(
             "rtp_llm/models_py/modules/factory/attention/cuda_mla_impl/test/flashmla_sparse_cp_op_test.py"
@@ -824,6 +826,20 @@ class BuildPackagingContractTest(TestCase):
                 is_gpu_marker(node, "H20", count=2)
                 for node in cp_test.decorator_list
             )
+        )
+        cp_worker_text = ast.unparse(
+            next(
+                node
+                for node in cp_tree.body
+                if isinstance(node, ast.FunctionDef) and node.name == "_tp2_worker"
+            )
+        )
+        self.assertIn(
+            "rtp_llm.models_py.distributed.symm_mem.init_symm_mem_communicator",
+            cp_worker_text,
+        )
+        self.assertNotIn(
+            "collective_torch.init_symm_mem_communicator", cp_worker_text
         )
 
         strategy_tree = parse(

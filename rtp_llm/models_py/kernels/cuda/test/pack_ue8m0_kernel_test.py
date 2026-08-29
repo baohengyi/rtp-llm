@@ -10,7 +10,7 @@ from unittest import SkipTest, TestCase, main
 import pytest
 import torch
 
-pytestmark = [pytest.mark.gpu(type="H20")]
+pytestmark = [pytest.mark.gpu(type="SM100_ARM")]
 
 
 def _is_sm100() -> bool:
