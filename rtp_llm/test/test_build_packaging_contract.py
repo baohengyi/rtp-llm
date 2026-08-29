@@ -739,6 +739,22 @@ class BuildPackagingContractTest(TestCase):
         ]
         self.assertEqual(len(cuda_version_assignments), 1)
         self.assertIsInstance(cuda_version_assignments[0].value, ast.Call)
+        top_level_indexer_imports = [
+            node
+            for node in indexer_tree.body
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+            and "models_py.modules.hybrid.indexer" in ast.unparse(node)
+        ]
+        self.assertEqual(top_level_indexer_imports, [])
+        lazy_loader = next(
+            node
+            for node in indexer_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_load_indexer_test_symbols"
+        )
+        lazy_loader_text = ast.unparse(lazy_loader)
+        self.assertIn("models_py.modules.hybrid.indexer", lazy_loader_text)
+        self.assertIn("models_py.modules.hybrid.test.indexer_ref", lazy_loader_text)
 
         fp8_tree = parse(
             "rtp_llm/models_py/modules/factory/linear/impl/cuda/test/fp8_linear_test.py"

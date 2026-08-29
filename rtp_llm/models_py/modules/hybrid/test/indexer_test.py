@@ -38,13 +38,16 @@ except ImportError as e:
     pytest.skip(f"CUDA-only: {e}", allow_module_level=True)
 from rtp_llm.utils.model_weight import W
 
-# Only import these modules if CUDA version is >= 12.9
-if CUDA_VERSION_OK:
+
+def _load_indexer_test_symbols():
+    """Load H20-only implementations only when an H20 test actually runs."""
     from rtp_llm.models_py.modules.hybrid.indexer import Indexer
     from rtp_llm.models_py.modules.hybrid.test.indexer_ref import (
         IndexerRef,
         _ref_torch_transform_ragged_impl,
     )
+
+    return Indexer, IndexerRef, _ref_torch_transform_ragged_impl
 
 
 def set_seed(seed: int):
@@ -312,6 +315,7 @@ class IndexerTest(TestCase):
         self, batch_size: int, seq_len: int, is_prefill: bool
     ):
         """Helper method to run full forward test."""
+        Indexer, IndexerRef, _ = _load_indexer_test_symbols()
         config = self._create_test_config()
         weights = self._create_test_weights(config)
 
@@ -414,6 +418,7 @@ class IndexerTest(TestCase):
         self._run_indexer_forward_test(batch_size=2, seq_len=4096, is_prefill=False)
 
     def test_fast_topk_transform_ragged_fused(self):
+        _, _, ref_torch_transform_ragged_impl = _load_indexer_test_symbols()
         from rtp_llm.models_py.kernels.cuda.fast_topk import (
             fast_topk_transform_ragged_fused,
         )
@@ -429,7 +434,7 @@ class IndexerTest(TestCase):
         )
         row_starts = None
 
-        ref = _ref_torch_transform_ragged_impl(
+        ref = ref_torch_transform_ragged_impl(
             score=score,
             seq_len=seq_len,
             topk_indices_offset=topk_indices_offset,
