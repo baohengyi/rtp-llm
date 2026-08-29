@@ -469,7 +469,8 @@ class SiluMulMaskedTest(unittest.TestCase):
                 self.assertLess(diff, 0.001)
                 self._clean_test_data_cache(i)
 
-    @unittest.skip("Skip profile fp8 silu mul masked test")
+    @pytest.mark.manual
+    @pytest.mark.perf
     def test_profile_fp8_silu_mul_masked(self):
         # Generate test data
         masked_m, up_gate_output, test_new_output, test_new_output_scale = (
@@ -528,7 +529,8 @@ class SiluMulMaskedTest(unittest.TestCase):
         )
         self._clean_test_data_cache(0)
 
-    @unittest.skip("Skip profile bf16 silu mul masked test")
+    @pytest.mark.manual
+    @pytest.mark.perf
     def test_profile_bf16_silu_mul_masked(self):
         # Generate test data
         masked_m, up_gate_output, test_new_output = self._generate_test_data(
@@ -582,7 +584,8 @@ class SiluMulMaskedTest(unittest.TestCase):
         )
         self._clean_test_data_cache(0)
 
-    @unittest.skip("Skip plot fp8 silu mul masked latency vs num local experts test")
+    @pytest.mark.manual
+    @pytest.mark.perf
     def test_plot_silu_mul_masked_fp8_latency_vs_num_local_experts(self):
         # Iterate over all possible values of NUM_LOCAL_EXPERTS
         old_latency_list = []
@@ -644,7 +647,8 @@ class SiluMulMaskedTest(unittest.TestCase):
             ),
         )
 
-    @unittest.skip("Skip plot fp8 silu mul masked latency vs expected m test")
+    @pytest.mark.manual
+    @pytest.mark.perf
     def test_plot_silu_mul_masked_fp8_latency_vs_expected_m(self):
         # Iterate over all possible values of EXPECTED_M
         old_latency_list = []
@@ -704,9 +708,8 @@ class SiluMulMaskedTest(unittest.TestCase):
             output_path=os.path.join(self.output_dir, "fp8_vs_expected_m_latency.png"),
         )
 
-    @unittest.skip(
-        "Skip plot fp8 silu mul masked latency vs moe intermediate size test"
-    )
+    @pytest.mark.manual
+    @pytest.mark.perf
     def test_plot_silu_mul_masked_fp8_latency_vs_moe_intermediate_size(self):
         # Iterate over all possible values of MOE_INTERMEDIATE_SIZE
         old_latency_list = []
@@ -768,7 +771,8 @@ class SiluMulMaskedTest(unittest.TestCase):
             ),
         )
 
-    @unittest.skip("Skip plot bf16 silu mul masked latency vs num local experts test")
+    @pytest.mark.manual
+    @pytest.mark.perf
     def test_plot_silu_mul_masked_bf16_latency_vs_num_local_experts(self):
         # Iterate over all possible values of NUM_LOCAL_EXPERTS
         old_latency_list = []
@@ -824,7 +828,8 @@ class SiluMulMaskedTest(unittest.TestCase):
             ),
         )
 
-    @unittest.skip("Skip plot bf16 silu mul masked latency vs expected m test")
+    @pytest.mark.manual
+    @pytest.mark.perf
     def test_plot_silu_mul_masked_bf16_latency_vs_expected_m(self):
         # Iterate over all possible values of EXPECTED_M
         old_latency_list = []
@@ -878,9 +883,8 @@ class SiluMulMaskedTest(unittest.TestCase):
             output_path=os.path.join(self.output_dir, "bf16_vs_expected_m_latency.png"),
         )
 
-    @unittest.skip(
-        "Skip plot bf16 silu mul masked latency vs moe intermediate size test"
-    )
+    @pytest.mark.manual
+    @pytest.mark.perf
     def test_plot_silu_mul_masked_bf16_latency_vs_moe_intermediate_size(self):
         # Iterate over all possible values of MOE_INTERMEDIATE_SIZE
         old_latency_list = []

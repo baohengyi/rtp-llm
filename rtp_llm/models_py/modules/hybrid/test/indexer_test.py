@@ -28,8 +28,6 @@ def check_cuda_version() -> bool:
 
 
 CUDA_VERSION_OK = check_cuda_version()
-# Disable until tilelang/deep_gemm compatibility issues are resolved
-CUDA_VERSION_OK = False
 SKIP_REASON = "CUDA version must be >= 12.9 for this test"
 
 from rtp_llm.config.model_config import ModelConfig

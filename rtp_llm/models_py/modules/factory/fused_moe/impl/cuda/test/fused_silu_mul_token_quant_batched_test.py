@@ -1,32 +1,22 @@
 import itertools
 import random
-from typing import Optional, Tuple
 from unittest import SkipTest, TestCase, main
 
 import pytest
 import torch
-from torch import dtype as _dtype
 
-pytestmark = [
-    pytest.mark.gpu(type="H20"),
-    pytest.mark.skip(
-        reason="TODO: fix q_out mismatch, was commented out in Bazel BUILD at fork point"
-    ),
-]
-
-from rtp_llm.models_py.modules.factory.fused_moe.impl.cuda.executors.util import (
-    moe_kernel_quantize_input,
-)
-from rtp_llm.models_py.triton_kernels.common.activation import (
-    silu_and_mul,
-    silu_mul_fp8_per_token_quant_batched,
-)
+pytestmark = [pytest.mark.gpu(type="H20")]
 
 import rtp_llm.ops  # isort:skip
 
 try:
-    from rtp_llm.ops.compute_ops import per_token_quant_fp8  # isort:skip
-except ImportError as e:
+    from rtp_llm.models_py.modules.factory.fused_moe.impl.cuda.executors.util import (
+        moe_kernel_quantize_input,
+    )
+    from rtp_llm.models_py.triton_kernels.common.activation import (
+        silu_mul_fp8_per_token_quant_batched,
+    )
+except (ImportError, RuntimeError) as e:
     pytest.skip(f"CUDA-only compute_ops unavailable: {e}", allow_module_level=True)
 
 
@@ -38,14 +28,15 @@ class FusedSiluMulPerTokenQuantBatchedTest(TestCase):
     def setUp(self) -> None:
         if not torch.cuda.is_available():
             raise SkipTest("CUDA is not available")
+        random.seed(42)
+        torch.manual_seed(42)
         torch.set_default_device("cuda")
 
-    def ref_silu_mul_quant_no_fused(self, input_x, expert_num_tokens):
+    def ref_silu_mul_quant_no_fused(self, input_x):
         E, T, H2 = input_x.shape
-        input_x = input_x.view(-1, H2)
-
-        output = torch.empty((E * T, H2 // 2), dtype=input_x.dtype)
-        silu_and_mul(output, input_x)
+        values, gates = input_x.float().chunk(2, dim=-1)
+        output = torch.nn.functional.silu(gates) * values
+        output = output.view(E * T, H2 // 2)
         q_x, q_s = moe_kernel_quantize_input(output, None, torch.float8_e4m3fn, True)
         return q_x, q_s
 
@@ -67,7 +58,7 @@ class FusedSiluMulPerTokenQuantBatchedTest(TestCase):
             expert_num_tokens[i] = random.randint(0, max_num_tokens)
         expert_num_tokens[0] = max(1, expert_num_tokens[0])
 
-        ref_q_out, ref_q_scale = self.ref_silu_mul_quant_no_fused(x, expert_num_tokens)
+        ref_q_out, ref_q_scale = self.ref_silu_mul_quant_no_fused(x)
         ref_q_out = ref_q_out.view(num_experts, max_num_tokens, -1)
         ref_q_scale = ref_q_scale.view(num_experts, -1)
 
@@ -75,7 +66,7 @@ class FusedSiluMulPerTokenQuantBatchedTest(TestCase):
         q_out = q_out.view(num_experts, max_num_tokens, -1)
         q_scale = q_scale.view(num_experts, -1)
         for i in range(num_experts):
-            n = expert_num_tokens[i]
+            n = int(expert_num_tokens[i].item())
             if n == 0:
                 continue
             self.assertTrue(

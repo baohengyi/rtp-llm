@@ -602,6 +602,7 @@ class SparseMlaFp8CPOpTest(TestCase):
         torch.cuda.synchronize()
         self.assertEqual(out.shape, (total_q_len, num_heads, kv_lora_rank))
 
+    @pytest.mark.gpu(type="H20", count=2)
     @skipIf(torch.cuda.device_count() < 2, "need 2 CUDA devices")
     def test_cp_tp2_matches_non_cp(self):
         """tp_size=2 real all_gather; merged CP vs single-GPU SparseMlaFp8Op."""

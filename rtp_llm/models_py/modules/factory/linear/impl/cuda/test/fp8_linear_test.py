@@ -792,7 +792,8 @@ class CudaFp8LinearTestBase:
                 self.assertFalse(torch.isnan(fp8_output1).any())
                 self.assertFalse(torch.isinf(fp8_output1).any())
 
-    @unittest.skip("Skip profiling tests")
+    @pytest.mark.manual
+    @pytest.mark.perf
     def test_profile_cuda_fp8_deepgemm_linear(self):
         """Profile CUDA FP8 DeepGEMM linear"""
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -855,11 +856,25 @@ class CudaFp8GEMMLinearTestBase(CudaFp8LinearTestBase):
     cache_owner_cls = CudaFp8DeepGEMMLinear
 
 
-class CudaFp8GEMMLinearTest(CudaFp8GEMMLinearTestBase, unittest.TestCase):
+class _H20WithoutUE8M0Tests:
+    """UE8M0 coverage is inherited by the SM100 and SM100_ARM adapters."""
+
+    test_fp8_input_with_cached_scales = None
+    test_fp8_input_without_cached_scales = None
+    test_fp8_input_cache_miss_m_exceeds_max_len = None
+    test_global_scale_cache_sharing = None
+    test_fp8_input_reproducibility = None
+
+
+class CudaFp8GEMMLinearTest(
+    _H20WithoutUE8M0Tests, CudaFp8GEMMLinearTestBase, unittest.TestCase
+):
     pass
 
 
-class CudaFp8GEMMDispatchTest(CudaFp8LinearTestBase, unittest.TestCase):
+class CudaFp8GEMMDispatchTest(
+    _H20WithoutUE8M0Tests, CudaFp8LinearTestBase, unittest.TestCase
+):
 
     linear_cls = CudaFp8GEMMLinear
     cache_owner_cls = CudaFp8DeepGEMMLinear
@@ -1051,10 +1066,6 @@ class CudaFp8GEMMDispatchTest(CudaFp8LinearTestBase, unittest.TestCase):
             self.assertIsInstance(linear._flashinfer_linear, CudaFp8FlashinferLinear)
         else:
             self.assertIsNone(linear._flashinfer_linear)
-
-
-CudaFp8DeepGEMMLinearTestBase = CudaFp8GEMMLinearTestBase
-CudaFp8DeepGEMMLinearTest = CudaFp8GEMMLinearTest
 
 
 if __name__ == "__main__":

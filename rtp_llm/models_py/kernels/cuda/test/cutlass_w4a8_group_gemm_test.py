@@ -13,35 +13,16 @@ import torch
 try:
     from rtp_kernel.w4a8_group_gemm import (
         block_compare_relative,
+        compute_reorder_stride,
         dequantize_int4b_to_fp8,
         initialize_tensor,
         pack_scale_fp8,
+        reorder_tensor,
         unified_encode_int4b,
         w4a8_group_gemm_ptpc,
     )
 except (ImportError, AssertionError, RuntimeError) as e:
     pytest.skip(f"rtp_kernel.w4a8_group_gemm unavailable: {e}", allow_module_level=True)
-
-# These two symbols (used in test bodies below at lines ~69, 91, 188, etc.) are
-# NOT exported by the currently pinned rtp_kernel wheel
-# (`_build/oss_optional_extras.toml` pins `rtp_kernel-0.1.0`, build date
-# 260317). The original try/except above only guards the 6 symbols that DO
-# exist in the wheel, so the module imports successfully and the test fails at
-# runtime with `NameError: reorder_tensor` / `compute_reorder_stride`. Skip the
-# whole module until the wheel is bumped to a release that re-exports these
-# CUDA-side helpers.
-try:
-    from rtp_kernel.w4a8_group_gemm import (  # noqa: F401
-        compute_reorder_stride,
-        reorder_tensor,
-    )
-except ImportError as e:
-    pytest.skip(
-        f"rtp_kernel.w4a8_group_gemm missing reorder_tensor/compute_reorder_stride "
-        f"(wheel pin out of date): {e}",
-        allow_module_level=True,
-    )
-
 
 def torch_ref(
     a: torch.Tensor, b: torch.Tensor, a_scales: torch.Tensor, output_dtype: torch.dtype

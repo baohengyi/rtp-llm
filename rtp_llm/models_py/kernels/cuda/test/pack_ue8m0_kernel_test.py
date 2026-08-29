@@ -450,6 +450,7 @@ class TestSiluAndMulPostQuantPackedFwd(TestCase):
 # ============================================================================
 
 
+@pytest.mark.gpu(type="SM100_ARM")
 class TestDeepGemmIntegration(TestCase):
     """
     End-to-end tests verifying that pre-packed scales work correctly

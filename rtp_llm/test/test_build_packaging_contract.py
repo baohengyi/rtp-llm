@@ -698,6 +698,194 @@ class BuildPackagingContractTest(TestCase):
             self.assertIn("TRTLLMFMHAv2", text)
             self.assertNotIn("from rtp_llm.ops.compute_ops import TRTAttnOp", text)
 
+    def test_sm9x_unit_cases_are_executed_or_explicitly_routed(self):
+        def parse(relative_path):
+            return ast.parse((PROJECT_ROOT / relative_path).read_text())
+
+        def decorators(node):
+            return {
+                child.attr
+                for decorator in node.decorator_list
+                for child in ast.walk(decorator)
+                if isinstance(child, ast.Attribute)
+            }
+
+        def is_gpu_marker(node, gpu_type, count=None):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "gpu"
+            ):
+                return False
+            kwargs = {
+                keyword.arg: keyword.value.value
+                for keyword in node.keywords
+                if keyword.arg is not None
+                and isinstance(keyword.value, ast.Constant)
+            }
+            return kwargs.get("type") == gpu_type and (
+                count is None or kwargs.get("count") == count
+            )
+
+        indexer_tree = parse("rtp_llm/models_py/modules/hybrid/test/indexer_test.py")
+        cuda_version_assignments = [
+            node
+            for node in indexer_tree.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "CUDA_VERSION_OK"
+                for target in node.targets
+            )
+        ]
+        self.assertEqual(len(cuda_version_assignments), 1)
+        self.assertIsInstance(cuda_version_assignments[0].value, ast.Call)
+
+        fp8_tree = parse(
+            "rtp_llm/models_py/modules/factory/linear/impl/cuda/test/fp8_linear_test.py"
+        )
+        mask_class = next(
+            node
+            for node in fp8_tree.body
+            if isinstance(node, ast.ClassDef)
+            and node.name == "_H20WithoutUE8M0Tests"
+        )
+        masked_methods = {
+            target.id
+            for node in mask_class.body
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Constant)
+            and node.value.value is None
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        self.assertEqual(
+            masked_methods,
+            {
+                "test_fp8_input_with_cached_scales",
+                "test_fp8_input_without_cached_scales",
+                "test_fp8_input_cache_miss_m_exceeds_max_len",
+                "test_global_scale_cache_sharing",
+                "test_fp8_input_reproducibility",
+            },
+        )
+        module_assignments = {
+            target.id
+            for node in fp8_tree.body
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        self.assertNotIn("CudaFp8DeepGEMMLinearTest", module_assignments)
+
+        pack_tree = parse(
+            "rtp_llm/models_py/kernels/cuda/test/pack_ue8m0_kernel_test.py"
+        )
+        deep_gemm_class = next(
+            node
+            for node in pack_tree.body
+            if isinstance(node, ast.ClassDef)
+            and node.name == "TestDeepGemmIntegration"
+        )
+        self.assertTrue(
+            any(
+                is_gpu_marker(node, "SM100_ARM")
+                for node in deep_gemm_class.decorator_list
+            )
+        )
+
+        cp_tree = parse(
+            "rtp_llm/models_py/modules/factory/attention/cuda_mla_impl/test/flashmla_sparse_cp_op_test.py"
+        )
+        cp_test = next(
+            node
+            for node in ast.walk(cp_tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "test_cp_tp2_matches_non_cp"
+        )
+        self.assertTrue(
+            any(
+                is_gpu_marker(node, "H20", count=2)
+                for node in cp_test.decorator_list
+            )
+        )
+
+        strategy_tree = parse(
+            "rtp_llm/models_py/modules/factory/fused_moe/tests/test_cuda_strategies.py"
+        )
+        w4a8_class = next(
+            node
+            for node in strategy_tree.body
+            if isinstance(node, ast.ClassDef)
+            and node.name == "TestCudaW4a8Int4PerChannelNoDPStrategy"
+        )
+        self.assertNotIn("skip", decorators(w4a8_class))
+
+        xqa_tree = parse(
+            "rtp_llm/models_py/kernels/cuda/test/test_xqa_batch_decode.py"
+        )
+        xqa_test = next(
+            node
+            for node in ast.walk(xqa_tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "test_xqa_decode_comprehensive"
+        )
+        self.assertNotIn("skip", decorators(xqa_test))
+        test_cases = next(
+            node.value
+            for node in xqa_test.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "test_cases"
+                for target in node.targets
+            )
+        )
+        self.assertEqual(len(test_cases.elts), 4)
+
+        fused_quant_tree = parse(
+            "rtp_llm/models_py/modules/factory/fused_moe/impl/cuda/test/"
+            "fused_silu_mul_token_quant_batched_test.py"
+        )
+        fused_quant_text = ast.unparse(fused_quant_tree)
+        self.assertNotIn("TODO: fix q_out mismatch", fused_quant_text)
+        self.assertIn("torch.nn.functional.silu(gates)", fused_quant_text)
+
+    def test_sm9x_profile_and_plot_cases_are_manual_perf_tests(self):
+        expected_methods = {
+            "rtp_llm/models_py/modules/factory/linear/impl/cuda/test/fp8_linear_test.py": {
+                "test_profile_cuda_fp8_deepgemm_linear"
+            },
+            "rtp_llm/models_py/triton_kernels/common/test/silu_mul_masked_test.py": {
+                "test_profile_fp8_silu_mul_masked",
+                "test_profile_bf16_silu_mul_masked",
+                "test_plot_silu_mul_masked_fp8_latency_vs_num_local_experts",
+                "test_plot_silu_mul_masked_fp8_latency_vs_expected_m",
+                "test_plot_silu_mul_masked_fp8_latency_vs_moe_intermediate_size",
+                "test_plot_silu_mul_masked_bf16_latency_vs_num_local_experts",
+                "test_plot_silu_mul_masked_bf16_latency_vs_expected_m",
+                "test_plot_silu_mul_masked_bf16_latency_vs_moe_intermediate_size",
+            },
+        }
+        for relative_path, method_names in expected_methods.items():
+            tree = ast.parse((PROJECT_ROOT / relative_path).read_text())
+            methods = {
+                node.name: node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.FunctionDef) and node.name in method_names
+            }
+            self.assertEqual(methods.keys(), method_names)
+            for method_name, method in methods.items():
+                decorator_names = {
+                    child.attr
+                    for decorator in method.decorator_list
+                    for child in ast.walk(decorator)
+                    if isinstance(child, ast.Attribute)
+                }
+                self.assertTrue(
+                    {"manual", "perf"}.issubset(decorator_names),
+                    f"{relative_path}:{method_name}",
+                )
+                self.assertNotIn("skip", decorator_names)
+
     def test_non_sm100_py_ut_profiles_ignore_dsv4(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             pyproject = tomllib.load(f)
