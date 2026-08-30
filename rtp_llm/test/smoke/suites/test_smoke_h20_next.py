@@ -131,6 +131,16 @@ SMOKE_CASES = {
         "markers": ["smoke", "cuda", "H20"],
         "timeout": 600,
     },
+    "next_bf16_mrope_cuda_graph": {
+        "task_info": "data/model/qwen35/qwen35_bf16_tp2.json",
+        "smoke_args": "--warm_up 0 --tp_size 2 --act_type BF16 "
+        "--seq_size_per_block 2048 --enable_cuda_graph 1 "
+        "--enable_cuda_graph_debug_mode 1 --decode_capture_config '1,2,3'",
+        "gpu_type": "H20",
+        "platform": "cuda",
+        "markers": ["smoke", "cuda", "H20"],
+        "timeout": 600,
+    },
     "next_bf16_tp2_dp2": {
         "task_info": "data/model/qwen35/qwen35_bf16_tp2_dp2.json",
         "smoke_args": "--warm_up 0 --tp_size 2 --dp_size 2 --world_size 4 "
@@ -181,6 +191,24 @@ SMOKE_CASES = {
             "BF16 --role_type DECODE --cache_store_rdma_mode 0 --use_local 1 "
             "--tp_size 2 --reserver_runtime_mem_mb 9861 --ssm_state_dtype fp32",
         },
+        "gpu_type": "H20",
+        "platform": "cuda",
+        "markers": ["smoke", "cuda", "H20"],
+        "timeout": 600,
+    },
+    "next_dash_basic": {
+        "task_info": "data/model/qwen3_next/dash_basic.json",
+        "smoke_args": "--load_method scratch --act_type BF16 "
+        "--seq_size_per_block 2048 --tp_size 2",
+        "gpu_type": "H20",
+        "platform": "cuda",
+        "markers": ["smoke", "cuda", "H20"],
+        "timeout": 600,
+    },
+    "next_dash_structural_tag_think": {
+        "task_info": "data/model/qwen3_next/dash_structural_tag_think.json",
+        "smoke_args": "--load_method scratch --act_type BF16 "
+        "--seq_size_per_block 2048 --tp_size 2 --think_mode 1",
         "gpu_type": "H20",
         "platform": "cuda",
         "markers": ["smoke", "cuda", "H20"],

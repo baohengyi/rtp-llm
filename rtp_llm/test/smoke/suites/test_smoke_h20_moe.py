@@ -82,7 +82,7 @@ SMOKE_CASES = {
     },
     "moe_headwise": {
         "task_info": "data/model/qwen3_moe/q_r_30b_py_headwise.json",
-        "smoke_args": "",
+        "smoke_args": "--use_deepep_moe 1 --use_deepep_low_latency 0",
         "envs": [
             "WARM_UP=0",
             "LOAD_PYTHON_MODEL=1",

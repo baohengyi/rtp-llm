@@ -920,10 +920,20 @@ class BuildPackagingContractTest(TestCase):
                 self.assertNotIn("skip", decorator_names)
 
     def test_cpp_ut_default_targets_do_not_register_disabled_cases(self):
+        cpp_suffixes = {".cc", ".cpp", ".cu", ".h", ".hpp"}
+        for source_path in (PROJECT_ROOT / "rtp_llm").rglob("*"):
+            if source_path.suffix in cpp_suffixes:
+                self.assertNotIn(
+                    "DISABLED_",
+                    source_path.read_text(errors="ignore"),
+                    str(source_path.relative_to(PROJECT_ROOT)),
+                )
+
         default_sources = [
             "rtp_llm/cpp/cache/test/KVCacheManagerCPSlotMapperTest.cc",
             "rtp_llm/cpp/cache/test/SharedBlockCacheTest.cc",
             "rtp_llm/cpp/normal_engine/speculative/test/MtpBatchStreamProcessorTest.cc",
+            "rtp_llm/models_py/bindings/cuda/ops/tests/CudaSamplerTest.cc",
         ]
         for relative_path in default_sources:
             source = (PROJECT_ROOT / relative_path).read_text()
@@ -938,6 +948,15 @@ class BuildPackagingContractTest(TestCase):
         ):
             self.assertIn(f"TEST_F(KVCacheManagerCPSlotMapperTest, {test_name})", cp_source)
         self.assertGreaterEqual(cp_source.count("config_.finalizeBlockNums"), 4)
+
+        sampler_source = (PROJECT_ROOT / default_sources[-1]).read_text()
+        self.assertIn("#ifdef RTP_LLM_MANUAL_BENCHMARKS", sampler_source)
+        sampler_build = (
+            PROJECT_ROOT / "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD"
+        ).read_text()
+        self.assertIn('name = "cuda_sampler_manual_benchmark"', sampler_build)
+        self.assertIn('"-DRTP_LLM_MANUAL_BENCHMARKS"', sampler_build)
+        self.assertIn('tags = ["manual"]', sampler_build)
 
     def test_cpp_manual_benchmarks_are_outside_default_targets(self):
         def target_block(relative_path, target_name):

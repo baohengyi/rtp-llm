@@ -7,6 +7,7 @@ import logging
 
 from rtp_llm.device.device_type import DeviceType, get_device_type
 
+from rtp_llm.utils.backend_registry import run_backend_registrations
 from .factory import LinearFactory
 from .linear_base import LinearBase
 from ..platform_ext_loader import load_platform_extension
@@ -30,3 +31,6 @@ except Exception as e:
 extension = load_platform_extension()
 if extension and hasattr(extension, "register_linear"):
     extension.register_linear(device_type=device_type, linear_factory=LinearFactory)
+
+# Out-of-tree backends registered a hook before this module existed.
+run_backend_registrations("linear", factory=LinearFactory)

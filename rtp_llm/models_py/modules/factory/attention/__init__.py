@@ -25,6 +25,8 @@ from rtp_llm.models_py.modules.factory.attention.attn_factory import (
 )
 from rtp_llm.models_py.modules.factory.platform_ext_loader import load_platform_extension
 
+from rtp_llm.utils.backend_registry import run_backend_registrations
+
 device_type = get_device_type()
 if device_type == DeviceType.ROCm:
     from rtp_llm.models_py.modules.factory.attention.rocm_impl.aiter import (
@@ -164,5 +166,15 @@ def _validate_impl_names() -> None:
                     f"the class from the registry."
                 )
 
+# Out-of-tree backends registered a hook before this module existed. Ordering in
+# these lists is priority (earlier wins), so a backend inserts rather than
+# appends when it needs to outrank the device impls selected above.
+run_backend_registrations(
+    "attention",
+    prefill_mha_imps=PREFILL_MHA_IMPS,
+    decode_mha_imps=DECODE_MHA_IMPS,
+    prefill_mla_imps=PREFILL_MLA_IMPS,
+    decode_mla_imps=DECODE_MLA_IMPS,
+)
 
 _validate_impl_names()

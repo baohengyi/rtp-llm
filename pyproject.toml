@@ -420,10 +420,13 @@ forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_sm120_oss]
 description = "OSS smoke RTX 5000 Pro / SM120"
-paths = ["rtp_llm/test/smoke/suites/"]
+paths = [
+    "rtp_llm/test/smoke/suites/",
+    "../internal_source/rtp_llm/test/smoke/suites/test_smoke_sm120_basic_internal.py",
+]
 gpu_type = "RTX_5000_PRO"
 markexpr = "manual and smoke and RTX_5000_PRO"
-expected_count = 6
+expected_count = 7
 forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_rocm_oss]
@@ -464,3 +467,5 @@ description = "Performance tests on H20 / SM9x (perf-test)"
 paths = ["../internal_source/rtp_llm/test/perf_test/suites/"]
 gpu_type = "H20"
 markexpr = "manual and perf and H20"
+expected_count = 3
+forbid_skips = true

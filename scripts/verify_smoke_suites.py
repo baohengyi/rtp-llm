@@ -30,10 +30,11 @@ EXPECTED_OSS_SUITE_COUNTS = {
     "cuda_remote_cache": 9,
     "h20_dense": 8,
     "h20_eagle": 6,
+    "h20_grammar_heavy": 2,
     "h20_kimi_linear": 6,
     "h20_mla": 15,
     "h20_moe": 11,
-    "h20_next": 14,
+    "h20_next": 17,
     "h20_vl": 5,
     "h20_jit_cache": 1,
     "rocm_basic": 3,
@@ -56,11 +57,12 @@ EXPECTED_INTERNAL_SUITE_COUNTS = {
     "ppu_basic": 8,
     "ppu_pd": 8,
     "rocm_embedding_internal": 2,
+    "sm120_basic_internal": 1,
 }
 
 EXPECTED_OSS_PROFILE_COUNTS = {
     "smoke_h20_light_oss": 14,
-    "smoke_h20_full_oss": 52,
+    "smoke_h20_full_oss": 57,
     "smoke_sm8x_light_oss": 9,
     "smoke_sm8x_full_oss": 9,
     "smoke_rocm_oss": 25,
