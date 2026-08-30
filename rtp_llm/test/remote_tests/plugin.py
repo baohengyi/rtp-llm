@@ -1972,6 +1972,8 @@ class RemoteREAPIPlugin:
         #   the worker. Plain "rtp_llm/..." paths flow through unchanged.
         profile_paths_args = ""
         profile_ignore_args = ""
+        profile_isolated_paths: List[str] = []
+        profile_isolated_ignore_args = ""
         if ci_profile:
             try:
                 from rtp_llm.test.ci_profile_plugin import (
@@ -2006,6 +2008,21 @@ class RemoteREAPIPlugin:
                             wp = wp[3:]
                         worker_ignores.append(shlex.quote(f"--ignore={wp}"))
                     profile_ignore_args = " ".join(worker_ignores) + " "
+                isolated_paths = prof.get("isolated_paths") or []
+                if isinstance(isolated_paths, list) and all(
+                    isinstance(path, str) for path in isolated_paths
+                ):
+                    for path in isolated_paths:
+                        worker_path = path
+                        while worker_path.startswith("../"):
+                            worker_path = worker_path[3:]
+                        profile_isolated_paths.append(worker_path)
+                    profile_isolated_ignore_args = " ".join(
+                        shlex.quote(f"--ignore={path}")
+                        for path in profile_isolated_paths
+                    )
+                    if profile_isolated_ignore_args:
+                        profile_isolated_ignore_args += " "
             except Exception:
                 profile_cli_args = f"-v --tb=short --timeout={self.timeout_policy.pytest_timeout_seconds} "
 
@@ -2021,6 +2038,7 @@ class RemoteREAPIPlugin:
             f"--tb=short "
             f"--timeout={self.timeout_policy.pytest_timeout_seconds}"
         ).strip()
+        parallel_common = f"{common} {profile_isolated_ignore_args}".strip()
 
         # Deselect args via file to avoid ARG_MAX overflow (nodeids can be 100+ chars each,
         # 500+ cached tests => 50KB+ that would overflow bash -c argument limit).
@@ -2081,6 +2099,36 @@ class RemoteREAPIPlugin:
             "fi"
         )
 
+        single_gpu_mark = next(
+            (phase_mark for tier, _, phase_mark in phases if tier == 1), ""
+        )
+        isolated_mark_arg = (
+            f"-m {shlex.quote(single_gpu_mark)} " if single_gpu_mark else ""
+        )
+        for index, isolated_path in enumerate(profile_isolated_paths):
+            isolated_output = f"bazel-testlogs/pytest/test_isolated_{index}.xml"
+            lines.append(
+                f'echo "--- Isolated file: {isolated_path} ---"; '
+                f"{_heartbeat_shell(f'isolated_{index}_start')}; "
+                "export GPU_COUNT=1; "
+                "unset WORLD_SIZE; "
+                "export GPU_COUNT_PER_WORKER=1; "
+                "python rtp_llm/test/utils/device_resource.py "
+                "python -m pytest -p no:remote-gpu -p no:rtp-ci-profile "
+                f"-p rtp_remote_nodeid_plugin -p rtp_remote_heartbeat_plugin {common} "
+                f"{shlex.quote(isolated_path)} "
+                f"{isolated_mark_arg}"
+                f"{keyword_arg}"
+                "-n 0 "
+                f"--junitxml={isolated_output}"
+                f"{deselect_file_arg} "
+                "2>&1; ec=$?; "
+                "[ $ec -ne 5 ] && any_ran=1; "
+                "[ $ec -ne 0 ] && [ $ec -ne 5 ] && [ $final_ec -eq 0 ] && final_ec=$ec; "
+                f"{_heartbeat_shell(f'isolated_{index}_done')}; "
+                f'echo ">>>PHASE:isolated_{index}_done $(date +%s)"'
+            )
+
         for tier, n_workers, phase_mark in phases:
             mark_arg = f"-m {shlex.quote(phase_mark)} " if phase_mark else ""
             lines.append(
@@ -2091,11 +2139,11 @@ class RemoteREAPIPlugin:
                 f"export GPU_COUNT_PER_WORKER={tier}; "
                 f"python rtp_llm/test/utils/device_resource.py "
                 f"python -m pytest -p no:remote-gpu -p no:rtp-ci-profile "
-                f"-p rtp_remote_nodeid_plugin -p rtp_remote_heartbeat_plugin {common} "
+                f"-p rtp_remote_nodeid_plugin -p rtp_remote_heartbeat_plugin {parallel_common} "
                 f"{profile_paths_args}"
                 f"{mark_arg}"
                 f"{keyword_arg}"
-                f"-n {n_workers} "
+                f"-n {n_workers} --max-worker-restart=0 "
                 f"--junitxml=bazel-testlogs/pytest/test_{tier}gpu.xml"
                 f"{deselect_file_arg} "
                 f"2>&1; ec=$?; "
@@ -2111,7 +2159,9 @@ class RemoteREAPIPlugin:
                 "python <<'_MERGE_PY_'",
                 "import xml.etree.ElementTree as ET, glob",
                 "s = ET.Element('testsuites')",
-                "for f in sorted(glob.glob('bazel-testlogs/pytest/test_*gpu.xml')):",
+                "files = glob.glob('bazel-testlogs/pytest/test_*gpu.xml')",
+                "files += glob.glob('bazel-testlogs/pytest/test_isolated_*.xml')",
+                "for f in sorted(files):",
                 "    try:",
                 "        r = ET.parse(f).getroot()",
                 "        for c in (list(r) if r.tag == 'testsuites' else [r]): s.append(c)",

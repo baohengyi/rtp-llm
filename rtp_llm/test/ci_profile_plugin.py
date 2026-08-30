@@ -185,6 +185,15 @@ def pytest_configure(config: pytest.Config) -> None:
                 ignored.append(path)
         config.option.ignore = ignored
 
+    isolated_paths = prof.get("isolated_paths")
+    if isolated_paths is not None and (
+        not isinstance(isolated_paths, list)
+        or not all(isinstance(p, str) for p in isolated_paths)
+    ):
+        raise pytest.UsageError(
+            f"--rtp-ci-profile: profile {name!r} 'isolated_paths' must be a list of strings"
+        )
+
 
 @pytest.hookimpl(trylast=True)
 def pytest_collection_finish(session: pytest.Session) -> None:

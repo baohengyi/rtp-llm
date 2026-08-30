@@ -100,7 +100,9 @@
                 "response_batch": [
                     {
                         "response": "\n\nCAP theorem states that a distributed system can only",
-                        "response_alternatives": null,
+                        "response_alternatives": [
+                            "\n\nCAP theorem states that any distributed system can guarantee"
+                        ],
                         "hidden_states": null,
                         "logits": null,
                         "loss": null,
@@ -132,7 +134,9 @@
                     },
                     {
                         "response": "\n\nCAP theorem states that a distributed system can only",
-                        "response_alternatives": null,
+                        "response_alternatives": [
+                            "\n\nCAP theorem states that any distributed system can guarantee"
+                        ],
                         "hidden_states": null,
                         "logits": null,
                         "loss": null,
@@ -164,7 +168,9 @@
                     },
                     {
                         "response": "\n\nCAP theorem states that a distributed system can only",
-                        "response_alternatives": null,
+                        "response_alternatives": [
+                            "\n\nCAP theorem states that any distributed system can guarantee"
+                        ],
                         "hidden_states": null,
                         "logits": null,
                         "loss": null,

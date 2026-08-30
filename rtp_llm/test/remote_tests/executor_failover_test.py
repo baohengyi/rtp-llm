@@ -526,6 +526,54 @@ def test_session_command_forwards_profile_ignore_paths(monkeypatch):
     assert "--ignore=rtp_llm/models_py/modules/dsv4" in shell
 
 
+def test_session_command_runs_profile_isolated_paths_in_fresh_processes(monkeypatch):
+    isolated_path = (
+        "rtp_llm/models_py/modules/factory/attention/cuda_cp_impl/"
+        "test/test_allgather_cp_impl.py"
+    )
+    monkeypatch.setattr(
+        ci_profile_plugin,
+        "_get_pytest_ci_section",
+        lambda root: {"default_pytest_cli": ""},
+    )
+    monkeypatch.setattr(
+        ci_profile_plugin,
+        "_get_profile",
+        lambda root, name: {
+            "markexpr": "H20 and not manual",
+            "isolated_paths": [isolated_path],
+        },
+    )
+    plugin = object.__new__(remote_plugin.RemoteREAPIPlugin)
+    plugin.workers = 4
+    plugin._collect_outputs = False
+    plugin.config = SimpleNamespace(
+        option=SimpleNamespace(markexpr="H20 and not manual", keyword=""),
+        rootpath=Path("."),
+    )
+    plugin.timeout_policy = select_remote_timeout_policy("py_ut_sm9x", per_test=False)
+    runtime = remote_exec_rtp.RemoteRuntimeConfig(
+        ignore_args=[],
+        env_vars={},
+        platform_properties={"gpu": "H20", "gpu_count": "4"},
+        remote_setup_prefix="",
+    )
+
+    shell = plugin._build_session_command("", runtime, ci_profile="py_ut_sm9x")[2]
+    isolated_start = shell.index(f"--- Isolated file: {isolated_path} ---")
+    parallel_start = shell.index("--- Phase: 1-GPU tests")
+    isolated_command = shell[isolated_start:parallel_start]
+    parallel_command = shell[parallel_start:]
+
+    assert "export GPU_COUNT=1" in isolated_command
+    assert "-n 0" in isolated_command
+    assert isolated_path in isolated_command
+    assert "--junitxml=bazel-testlogs/pytest/test_isolated_0.xml" in isolated_command
+    assert f"--ignore={isolated_path}" in parallel_command
+    assert "--max-worker-restart=0" in parallel_command
+    assert "test_isolated_*.xml" in shell
+
+
 def test_executor_pool_resolves_hostname_inside_remote_framework(monkeypatch):
     monkeypatch.setattr(
         endpoint_info,

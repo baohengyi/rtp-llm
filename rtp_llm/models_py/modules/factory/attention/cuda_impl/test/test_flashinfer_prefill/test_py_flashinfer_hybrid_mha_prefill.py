@@ -3,6 +3,7 @@ import unittest
 from typing import List
 from unittest import mock
 
+import pytest
 import torch
 from flashinfer.cascade import merge_state
 from flashinfer.prefill import single_prefill_with_kv_cache
@@ -18,6 +19,9 @@ from rtp_llm.models_py.modules.factory.attention.cuda_impl.test.base_attention_t
 )
 from rtp_llm.ops import AttentionConfigs, FMHAConfig, KvCacheDataType, RopeStyle
 from rtp_llm.ops.compute_ops import LayerKVCache, PyAttentionInputs, get_typemeta
+
+
+pytestmark = pytest.mark.multi_arch_cuda
 
 
 class TestPyFlashinferHybridPrefillAttnOp(BaseAttentionTest):

@@ -1013,6 +1013,54 @@ class BuildPackagingContractTest(TestCase):
         self.assertEqual(profiles["py_ut_sm9x"]["ignore_paths"], dsv4_paths)
         self.assertNotIn("ignore_paths", profiles["py_ut_sm100_arm"])
 
+    def test_sm9x_profile_isolates_legacy_native_test_targets(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        profile = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"][
+            "py_ut_sm9x"
+        ]
+        isolated_paths = profile["isolated_paths"]
+        expected = {
+            "rtp_llm/models_py/bindings/cuda/test/concat_and_cache_mla/test_dpsk_bf16.py",
+            "rtp_llm/models_py/bindings/cuda/test/concat_and_cache_mla/test_dpsk32_fp8.py",
+            "rtp_llm/models_py/bindings/cuda/test/concat_and_cache_mla/test_model1_fp8.py",
+            "rtp_llm/models_py/modules/factory/attention/cuda_cp_impl/test/test_allgather_cp_impl.py",
+            "rtp_llm/models_py/modules/factory/attention/cuda_cp_impl/test/test_allgather_overlap_impl.py",
+            "rtp_llm/models_py/modules/factory/attention/cuda_cp_impl/test/test_alltoall_cp_impl.py",
+            "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_flashinfer_prefill/test_py_flashinfer_hybrid_mha_prefill.py",
+        }
+
+        self.assertEqual(set(isolated_paths), expected)
+        self.assertTrue(all((PROJECT_ROOT / path).is_file() for path in isolated_paths))
+
+    def test_legacy_flashinfer_hybrid_route_stays_multi_arch_and_isolated(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        profiles = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"]
+        hybrid_path = (
+            "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/"
+            "test_flashinfer_prefill/test_py_flashinfer_hybrid_mha_prefill.py"
+        )
+        hybrid_source = (PROJECT_ROOT / hybrid_path).read_text()
+
+        self.assertIn("pytest.mark.multi_arch_cuda", hybrid_source)
+        self.assertIn(hybrid_path, profiles["py_ut_sm8x"]["isolated_paths"])
+        self.assertIn(hybrid_path, profiles["py_ut_sm9x"]["isolated_paths"])
+        self.assertIn("multi_arch_cuda", profiles["py_ut_sm9x"]["markexpr"])
+
+    def test_sparse_mla_cp_keeps_legacy_manual_contract(self):
+        test_path = (
+            PROJECT_ROOT
+            / "rtp_llm/models_py/modules/factory/attention/cuda_mla_impl/test/"
+            "flashmla_sparse_cp_op_test.py"
+        )
+        source = ast.unparse(ast.parse(test_path.read_text()))
+
+        self.assertIn("pytest.mark.gpu(type='H20')", source)
+        self.assertIn("pytest.mark.manual", source)
+
     def test_h20_full_smoke_profile_preserves_remote_jit_cache_contract(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             pyproject = tomllib.load(f)

@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 import torch
 
-pytestmark = [pytest.mark.gpu(type="H20")]
+pytestmark = [pytest.mark.gpu(type="H20"), pytest.mark.manual]
 
 from rtp_llm.models_py.distributed.collective_torch import (
     destroy_distributed_environment,
