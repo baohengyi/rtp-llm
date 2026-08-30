@@ -185,8 +185,7 @@ protected:
     }
 };
 
-#ifdef RTP_LLM_MANUAL_BENCHMARKS
-TEST_F(CudaSamplerTest, benchmarkLatestFlashinferSamplingVsCurrentRtp) {
+TEST_F(CudaSamplerTest, DISABLED_benchmarkLatestFlashinferSamplingVsCurrentRtp) {
     enum class Kind {
         TopK,
         TopP,
@@ -340,7 +339,7 @@ TEST_F(CudaSamplerTest, benchmarkLatestFlashinferSamplingVsCurrentRtp) {
     }
 }
 
-TEST_F(CudaSamplerTest, compareLatestFlashinferSamplingAccuracyVsCurrentRtp) {
+TEST_F(CudaSamplerTest, DISABLED_compareLatestFlashinferSamplingAccuracyVsCurrentRtp) {
     enum class Kind {
         TopK,
         TopP,
@@ -515,8 +514,6 @@ TEST_F(CudaSamplerTest, compareLatestFlashinferSamplingAccuracyVsCurrentRtp) {
         assertSamplingStatsClose(c.name + "_new", new_stats);
     }
 }
-
-#endif
 
 TEST_F(CudaSamplerTest, testFlashinferKernelTopK1) {
     size_t batch_size = 4;

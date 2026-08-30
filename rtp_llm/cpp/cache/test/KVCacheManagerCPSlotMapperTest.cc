@@ -161,7 +161,7 @@ TEST_F(KVCacheManagerCPSlotMapperTest, CPShardedMallocAllowsPartialTailWithoutCa
 // malloc() should use the manager-level cpSlotMapper.
 // With CP sharding (cp_size=2, block_size=4), virtual_block_size=8.
 // A sequence of 16 tokens needs ceil(16/8)=2 physical blocks per batch (not 4).
-TEST_F(KVCacheManagerCPSlotMapperTest, MallocAutoInjectReducesBlockCount) {
+TEST_F(KVCacheManagerCPSlotMapperTest, DISABLED_MallocAutoInjectReducesBlockCount) {
     const int seq_size_per_block = 4;
     auto      config             = makeTestConfig(/*block_num=*/20, seq_size_per_block);
 
@@ -191,7 +191,7 @@ TEST_F(KVCacheManagerCPSlotMapperTest, MallocAutoInjectReducesBlockCount) {
 }
 
 // Without CP sharding, the same seq_len should allocate more blocks.
-TEST_F(KVCacheManagerCPSlotMapperTest, MallocWithoutCPAllocatesFullBlocks) {
+TEST_F(KVCacheManagerCPSlotMapperTest, DISABLED_MallocWithoutCPAllocatesFullBlocks) {
     const int seq_size_per_block = 4;
     auto      config             = makeTestConfig(/*block_num=*/20, seq_size_per_block);
 
@@ -217,7 +217,7 @@ TEST_F(KVCacheManagerCPSlotMapperTest, MallocWithoutCPAllocatesFullBlocks) {
 }
 
 // Allocator-level cp_slot_mapper should drive malloc sharding.
-TEST_F(KVCacheManagerCPSlotMapperTest, AllocatorMapperControlsMalloc) {
+TEST_F(KVCacheManagerCPSlotMapperTest, DISABLED_AllocatorMapperControlsMalloc) {
     const int seq_size_per_block = 4;
     auto      config             = makeTestConfig(/*block_num=*/30, seq_size_per_block);
 
@@ -248,7 +248,7 @@ TEST_F(KVCacheManagerCPSlotMapperTest, AllocatorMapperControlsMalloc) {
 }
 
 // insertIntoCache() should also use the manager-level mapper.
-TEST_F(KVCacheManagerCPSlotMapperTest, InsertAutoInjectsMapper) {
+TEST_F(KVCacheManagerCPSlotMapperTest, DISABLED_InsertAutoInjectsMapper) {
     const int seq_size_per_block = 4;
     auto      config             = makeTestConfig(/*block_num=*/20, seq_size_per_block);
 

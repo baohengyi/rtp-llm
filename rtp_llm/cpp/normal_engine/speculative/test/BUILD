@@ -70,24 +70,6 @@ cc_test(
 )
 
 cc_test(
-    name = "mtp_batch_stream_processor_perf_test",
-    srcs = [
-        "MtpBatchStreamProcessorPerfTest.cc",
-    ],
-    data = [],
-    copts = test_copts,
-    deps = [
-        "@com_google_googletest//:gtest",
-        "@com_google_googletest//:gtest_main",
-    ] + torch_deps() + cuda13_torch_link_deps,
-    env = {
-        "TEST_USING_DEVICE": "CUDA",
-    },
-    exec_properties = {'gpu':'A10'},
-    tags = ["manual"],
-)
-
-cc_test(
     name = "mtp_executor_test",
     srcs = glob([
         "MtpExecutorTest.cc",

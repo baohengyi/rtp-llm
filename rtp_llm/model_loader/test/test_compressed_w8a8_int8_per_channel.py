@@ -9,7 +9,6 @@ import pytest
 import torch
 
 pytestmark = [pytest.mark.gpu(type="H20")]
-
 from rtp_llm.config.quant_config import (
     CompressedW8A8Int8PerChannelQuantConfig,
     Fp8PerChannelCompressedQuantConfig,

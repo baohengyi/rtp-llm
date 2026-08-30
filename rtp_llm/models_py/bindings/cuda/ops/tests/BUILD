@@ -65,20 +65,6 @@ cc_test(
 )
 
 cc_test(
-    name = "cuda_sampler_manual_benchmark",
-    srcs = [
-        "CudaSamplerTest.cc",
-    ],
-    copts = copts() + ["-DRTP_LLM_MANUAL_BENCHMARKS"],
-    deps = test_deps + [
-        "//3rdparty/flashinfer:flashinfer",
-        "//rtp_llm/models_py/bindings/cuda/kernels/sampling:sampling",
-    ],
-    exec_properties = {'gpu':'H20'},
-    tags = ["manual"],
-)
-
-cc_test(
     name = "rejection_sampling_op_test",
     srcs = [
         "CudaRejectionSamplingOpTest.cc",

@@ -155,7 +155,8 @@ SpecLogitsVerifyRunner::LaunchTask makeTask(size_t active_processor_count) {
     return task;
 }
 
-TEST(SpecLogitsVerifyRunnerPerfTest, DeepSeekFlashDecodeB35P3) {
+// Manual perf test. Run explicitly with --gtest_also_run_disabled_tests.
+TEST(SpecLogitsVerifyRunnerPerfTest, DISABLED_DeepSeekFlashDecodeB35P3) {
     constexpr int64_t rows          = kStreamCount * (kProposeStep + 1);
     constexpr int64_t bitmask_words = (kVocabSize + 31) / 32;
     constexpr int64_t packed_bytes  = rows * bitmask_words * static_cast<int64_t>(sizeof(int32_t));
