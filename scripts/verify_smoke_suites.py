@@ -56,6 +56,8 @@ EXPECTED_INTERNAL_SUITE_COUNTS = {
     "h20_dense_internal": 1,
     "ppu_basic": 8,
     "ppu_pd": 8,
+    "ppu_qwen35": 6,
+    "ppu_qwen35_w8a8_manual": 4,
     "rocm_embedding_internal": 2,
     "sm120_basic_internal": 1,
 }
@@ -160,6 +162,28 @@ def _load_cases(path: Path) -> Mapping[str, Any]:
             return tuple(evaluate(item) for item in node.elts)
         if isinstance(node, ast.Set):
             return {evaluate(item) for item in node.elts}
+        if isinstance(node, ast.JoinedStr):
+            parts: List[str] = []
+            for value in node.values:
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    parts.append(value.value)
+                    continue
+                if isinstance(value, ast.FormattedValue):
+                    if value.conversion != -1 or value.format_spec is not None:
+                        raise ValueError(
+                            "manifest f-strings cannot use conversions or format specs"
+                        )
+                    formatted = evaluate(value.value)
+                    if not isinstance(formatted, str):
+                        raise ValueError(
+                            "manifest f-string values must resolve to strings"
+                        )
+                    parts.append(formatted)
+                    continue
+                raise ValueError(
+                    f"unsupported manifest f-string component {type(value).__name__}"
+                )
+            return "".join(parts)
         return ast.literal_eval(node)
 
     for node in ast.iter_child_nodes(tree):
