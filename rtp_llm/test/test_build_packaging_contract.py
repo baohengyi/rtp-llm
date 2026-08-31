@@ -80,9 +80,9 @@ def _load_setup_module():
 
 
 class BuildPackagingContractTest(TestCase):
-    def test_python_native_rocm_extras_match_bazel_kernel_stack(self):
+    def test_python_native_rocm_extras_pin_validated_kernel_stack(self):
         expected_urls = {
-            "aiter": "https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/aiter/aiter-0.1.21.dev80%2Bg987203ba5.d20260825-cp310-cp310-linux_x86_64.whl",
+            "aiter": "https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/RTP/aiter-0.1.14rc1.dev41%2Bgc39217100.d20260519-cp310-cp310-linux_x86_64.whl",
             "triton": "https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/triton/triton-3.7.0%2Bamd.rocm7.2.0.gitd0d77a509-cp310-cp310-linux_x86_64.whl",
             "triton-kernels": "https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/triton/triton_kernels-1.0.0%2Bamd.rocm7.2.0.gitd0d77a509-py3-none-any.whl",
         }
@@ -98,13 +98,13 @@ class BuildPackagingContractTest(TestCase):
         self.assertEqual(
             str(requirements["flydsl"].specifier),
             "==0.3.1",
-            "FlyDSL must match the AITER 0.1.21 stack",
+            "FLA kernels require an explicit FlyDSL dependency",
         )
         for package, expected_url in expected_urls.items():
             self.assertEqual(
                 requirements[package].url,
                 expected_url,
-                f"{package} must match the ROCm Bazel requirements",
+                f"{package} must use the validated Python-native ROCm wheel",
             )
 
     def test_transformers5_uses_compatible_xgrammar_metadata(self):
