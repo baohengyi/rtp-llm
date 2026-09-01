@@ -34,7 +34,7 @@ def init_fmha_group_args(parser, fmha_config):
         "trt, trt_paged, flashinfer, py_flashinfer, py_flashinfer_paged, xqa, "
         "trtllm_gen, trtllm_spec, headwise, headwise_fp8, "
         "aiter_asm, aiter, aiter_triton, aiter_paged, cp_flashinfer, "
-        "flashinfer_mla, sparse_mla.",
+        "flashinfer_mla, sparse_mla, ppu_fa3.",
     )
     fmha_group.add_argument(
         "--prefill_attn_backend",
