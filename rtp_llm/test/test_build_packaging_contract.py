@@ -98,6 +98,17 @@ class BuildPackagingContractTest(TestCase):
             "Starlark rejects duplicate top-level function definitions",
         )
 
+    def test_rpc_writer_cancellation_declares_memory_exporter(self):
+        build_text = (
+            PROJECT_ROOT / "rtp_llm" / "cpp" / "model_rpc" / "test" / "BUILD"
+        ).read_text(encoding="utf-8")
+        start = build_text.index('name = "rpc_writer_cancellation_test"')
+        target = build_text[start : build_text.index("\n)\n", start)]
+        self.assertIn(
+            "@io_opentelemetry_cpp//exporters/memory:in_memory_span_exporter",
+            target,
+        )
+
     def test_python_native_rocm_extras_pin_validated_kernel_stack(self):
         expected_urls = {
             "aiter": "https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/aiter/aiter-0.1.21.dev80%2Bg987203ba5.d20260825-cp310-cp310-linux_x86_64.whl",
