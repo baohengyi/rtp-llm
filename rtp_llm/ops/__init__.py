@@ -7,6 +7,7 @@ import site
 import sys
 import threading
 import traceback
+from enum import IntEnum
 from typing import List, Optional
 
 import torch
@@ -133,17 +134,24 @@ except (OSError, TypeError):
 # extension is unavailable. Defined before the import blocks so they can fall
 # back to it.
 class EmptyClass:
-    def __init__(self, **kwargs):
-        pass
+    def __init__(self, *args, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
 
 # Symbols imported from libth_transformer_config; stubbed with EmptyClass in
 # collection-only mode (RTP_LLM_ALLOW_MISSING_SO=1) when the .so is missing.
 _LIBTH_CONFIG_SYMBOLS = [
     "ArpcConfig", "AttentionConfigs", "GrpcConfig", "BatchDecodeSchedulerConfig",
-    "CacheStoreConfig", "ConcurrencyConfig", "DeviceResourceConfig", "EplbMode",
+    "CacheCapacityPolicyDesc", "CacheCpPolicyDesc", "CacheEvictPolicy",
+    "CacheGroupType", "CacheMemoryPlacement", "CacheMemoryPolicyDesc",
+    "CacheReusePolicy", "CacheReusePolicyDesc", "CacheStoreConfig",
+    "CacheTailPolicyDesc", "ConcurrencyConfig", "CpBlockMappingMode",
+    "CpBlockSliceMode", "CpPrefillSliceLayout", "DashScGrpcConfig",
+    "DeviceResourceConfig", "EplbMode",
     "FfnDisAggregateConfig", "FIFOSchedulerConfig", "FMHAConfig", "HWKernelConfig",
-    "KVCacheConfig", "MiscellaneousConfig", "MlaOpsType", "ModelConfig",
+    "GrammarConfig", "KVCacheConfig", "KVCacheSpecDesc", "KVCacheSpecType",
+    "MiscellaneousConfig", "MlaOpsType", "ModelConfig",
     "ModelSpecificConfig", "MoeConfig", "NcclCommConfig", "PDSepConfig",
     "ParallelismConfig", "ProfilingDebugLoggingConfig", "RopeCache", "RopeConfig",
     "RopeStyle", "TaskType", "VitConfig", "VitSeparation", "check_rope_cache",
@@ -151,8 +159,9 @@ _LIBTH_CONFIG_SYMBOLS = [
     "QuantAlgo", "RoleType", "RuntimeConfig", "SpecialTokens",
     "SpeculativeExecutionConfig", "SpeculativeType", "EPLBConfig", "ActivationType",
     "DataType", "KvCacheDataType", "HybridAttentionConfig", "HybridAttentionType",
-    "LinearAttentionConfig", "MultimodalInput", "MMPreprocessConfig",
-    "EplbConfig", "cpp_get_block_cache_keys",
+    "LinearAttentionConfig", "MultimodalInput", "MultimodalInputCpp",
+    "MMPreprocessConfig", "OpaqueBlockEntryCountMode", "EplbConfig",
+    "cpp_get_block_cache_keys",
 ]
 
 try:
@@ -245,6 +254,70 @@ except BaseException as e:
     )
     for _sym in _LIBTH_CONFIG_SYMBOLS:
         globals()[_sym] = EmptyClass
+
+    class _CollectionRoleType(IntEnum):
+        PDFUSION = 0
+        PREFILL = 1
+        DECODE = 2
+        VIT = 3
+        FRONTEND = 4
+
+    RoleType = _CollectionRoleType
+
+    class _CollectionTaskType(IntEnum):
+        DENSE_EMBEDDING = 0
+        ALL_EMBEDDING = 1
+        SPARSE_EMBEDDING = 2
+        COLBERT_EMBEDDING = 3
+        LANGUAGE_MODEL = 4
+        SEQ_CLASSIFICATION = 5
+        RERANKER = 6
+        LINEAR_SOFTMAX = 7
+        BGE_M3 = 8
+
+    class _CollectionVitSeparation(IntEnum):
+        VIT_SEPARATION_LOCAL = 0
+        VIT_SEPARATION_ROLE = 1
+        VIT_SEPARATION_REMOTE = 2
+
+    class _CollectionMMPreprocessConfig:
+        def __init__(
+            self,
+            width=-1,
+            height=-1,
+            min_pixels=-1,
+            max_pixels=-1,
+            fps=-1,
+            min_frames=-1,
+            max_frames=-1,
+            crop_positions=None,
+            mm_timeout_ms=-1,
+        ):
+            self.width = width
+            self.height = height
+            self.min_pixels = min_pixels
+            self.max_pixels = max_pixels
+            self.fps = fps
+            self.min_frames = min_frames
+            self.max_frames = max_frames
+            self.crop_positions = [] if crop_positions is None else crop_positions
+            self.mm_timeout_ms = mm_timeout_ms
+
+    class _CollectionMultimodalInput:
+        def __init__(self, url, mm_type=0, tensor=None, mm_preprocess_config=None):
+            self.url = url
+            self.mm_type = mm_type
+            self.tensor = tensor
+            self.mm_preprocess_config = (
+                _CollectionMMPreprocessConfig()
+                if mm_preprocess_config is None
+                else mm_preprocess_config
+            )
+
+    TaskType = _CollectionTaskType
+    VitSeparation = _CollectionVitSeparation
+    MMPreprocessConfig = _CollectionMMPreprocessConfig
+    MultimodalInput = _CollectionMultimodalInput
 
 
 def serialize_grammar_tokenizer_info(

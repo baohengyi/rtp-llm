@@ -206,6 +206,8 @@ base-dependencies = [
     "xgrammar==0.2.6rc1",
 
     # Monitoring
+    "opentelemetry-sdk==1.44.0",
+    "opentelemetry-exporter-otlp-proto-http==1.15.0",
     "thrift",
 
     # Video processing
@@ -224,6 +226,7 @@ testpaths = [
     "rtp_llm/test",
     "rtp_llm/utils/test",
     "rtp_llm/config/test",
+    "rtp_llm/dash_sc/test",
     "rtp_llm/distribute/test",
     "rtp_llm/server",
     "rtp_llm/frontend/test",
@@ -233,6 +236,7 @@ testpaths = [
     "rtp_llm/cpp/pybind",
     "rtp_llm/cpp/model_rpc/test",
     "rtp_llm/cpp/cuda_graph/tests",
+    "rtp_llm/telemetry/test",
     "rtp_llm/aios",
 ]
 

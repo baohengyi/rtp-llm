@@ -697,6 +697,11 @@ _CORE_BAZEL_STAGED_OUTPUTS = [
         "//:th_grammar_tokenizer_info",
         ("libth_grammar_tokenizer_info.so",),
     ),
+    (
+        _STAGED_OUTPUT_CORE,
+        "//rtp_llm/cpp/repetition:online_repetition_tracker",
+        ("libonline_repetition_tracker.so",),
+    ),
 ]
 
 _CUDA129_TEST_BAZEL_STAGED_OUTPUTS = [

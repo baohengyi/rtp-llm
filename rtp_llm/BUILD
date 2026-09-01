@@ -108,6 +108,12 @@ py_library(
 )
 
 py_library(
+    name = "telemetry",
+    srcs = [],
+    deps = [],
+)
+
+py_library(
     name = "rtp_llm_lib",
     srcs = [],
     deps = [],

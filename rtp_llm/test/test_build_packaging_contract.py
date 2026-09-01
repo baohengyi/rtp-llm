@@ -196,6 +196,18 @@ class BuildPackagingContractTest(TestCase):
             setup_module._CORE_BAZEL_STAGED_OUTPUTS,
         )
 
+    def test_core_build_stages_native_repetition_tracker(self):
+        setup_module = _load_setup_module()
+
+        self.assertIn(
+            (
+                "core",
+                "//rtp_llm/cpp/repetition:online_repetition_tracker",
+                ("libonline_repetition_tracker.so",),
+            ),
+            setup_module._CORE_BAZEL_STAGED_OUTPUTS,
+        )
+
     def test_stubgen_preloads_native_modules_in_runtime_order(self):
         setup_module = _load_setup_module()
 
