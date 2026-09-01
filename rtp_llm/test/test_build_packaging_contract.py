@@ -129,6 +129,11 @@ class BuildPackagingContractTest(TestCase):
             "==0.3.1",
             "FLA kernels require an explicit FlyDSL dependency",
         )
+        self.assertEqual(
+            str(requirements["amd-mori"].specifier),
+            "==1.2.2",
+            "MoriEP tests must remain runnable after internal_source is stripped",
+        )
         for package, expected_url in expected_urls.items():
             self.assertEqual(
                 requirements[package].url,
@@ -683,6 +688,7 @@ class BuildPackagingContractTest(TestCase):
         profiles = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"]
         for name in (
             "py_ut_sm8x",
+            "py_ut_oss_sm8x",
             "py_ut_sm9x",
             "py_ut_sm100_arm",
             "py_ut_amd",
@@ -693,6 +699,10 @@ class BuildPackagingContractTest(TestCase):
                 1,
                 f"{name} must fail instead of reporting a successful 0/0 run",
             )
+
+        self.assertTrue(profiles["py_ut_oss_sm8x"].get("forbid_skips"))
+        self.assertIn("not open_skip", profiles["py_ut_oss_sm8x"]["markexpr"])
+        self.assertIn("not frontend", profiles["py_ut_oss_sm8x"]["markexpr"])
 
         for name, expected_count in {
             "py_ut_sm8x": 2238,
