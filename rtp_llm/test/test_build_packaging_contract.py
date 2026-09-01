@@ -80,6 +80,24 @@ def _load_setup_module():
 
 
 class BuildPackagingContractTest(TestCase):
+    def test_arch_select_has_unique_top_level_functions(self):
+        source = (PROJECT_ROOT / "arch_config" / "arch_select.bzl").read_text(
+            encoding="utf-8"
+        )
+        functions = [
+            node.name
+            for node in ast.parse(source).body
+            if isinstance(node, ast.FunctionDef)
+        ]
+        duplicates = sorted(
+            name for name in set(functions) if functions.count(name) > 1
+        )
+        self.assertEqual(
+            duplicates,
+            [],
+            "Starlark rejects duplicate top-level function definitions",
+        )
+
     def test_python_native_rocm_extras_pin_validated_kernel_stack(self):
         expected_urls = {
             "aiter": "https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/aiter/aiter-0.1.21.dev80%2Bg987203ba5.d20260825-cp310-cp310-linux_x86_64.whl",

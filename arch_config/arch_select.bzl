@@ -82,7 +82,7 @@ def cuda_register():
         visibility = ["//visibility:public"],
     )
 
-def triton_deps(names):
+def triton_deps(names = []):
     return select({
         "//conditions:default": [],
     })
@@ -136,10 +136,10 @@ def torch_deps():
     ]
 
 # ---------------------------------------------------------------------------
-# Compatibility shims for legacy BUILD files that still call requirement(),
-# internal_deps(), or triton_deps().  Python packages are now managed by
-# pip/pyproject.toml; these functions create empty placeholder targets so
-# Bazel package loading does not break while callers are migrated.
+# Compatibility shim for legacy BUILD files that still call requirement().
+# Python packages are now managed by pip/pyproject.toml; this function creates
+# empty placeholder targets so Bazel package loading does not break while
+# callers are migrated.
 # ---------------------------------------------------------------------------
 
 def requirement(packages):
@@ -156,15 +156,3 @@ def requirement(packages):
             srcs = [],
             visibility = ["//visibility:public"],
         )
-
-def internal_deps():
-    """Return an empty dependency list (legacy compatibility)."""
-    return []
-
-def triton_deps(names = []):
-    """Return an empty dependency list (legacy compatibility)."""
-    return []
-
-def jit_deps():
-    """Return an empty dependency list; Python JIT packages come from pip."""
-    return []
