@@ -201,18 +201,27 @@ def test_collect_remote_files_includes_tipc_jit_sources(tmp_path):
 def test_collect_repo_runtime_files_includes_source_contracts(tmp_path):
     source_contracts = {
         "3rdparty/cub_compat.h",
+        "arch_config/arch_select.bzl",
         "rtp_llm/cpp/cache/test/BUILD",
         "rtp_llm/cpp/cache/test/KVCacheManagerCPSlotMapperTest.cc",
         "rtp_llm/cpp/cache/test/SharedBlockCacheTest.cc",
         "rtp_llm/cpp/cuda_graph/cuda_graph_runner.cc",
         "rtp_llm/cpp/disaggregate/cache_store/test/BUILD",
+        "rtp_llm/cpp/model_rpc/test/BUILD",
         "rtp_llm/cpp/models/logits_processor/test/BUILD",
+        "rtp_llm/cpp/models/logits_processor/test/SpecLogitsVerifyRunnerPerfTest.cc",
         "rtp_llm/cpp/models/test/BUILD",
         "rtp_llm/cpp/models/test/PyWrappedModelCacheStoreIntegrationTest.cc",
         "rtp_llm/cpp/normal_engine/speculative/test/BUILD",
         "rtp_llm/cpp/normal_engine/speculative/test/MtpBatchStreamProcessorTest.cc",
         "rtp_llm/cpp/pybind/BUILD",
+        "rtp_llm/cpp/telemetry/TraceAttributes.h",
         "rtp_llm/cpp/utils/test/BUILD",
+        "rtp_llm/dash_sc/BUILD",
+        "rtp_llm/dash_sc/test/BUILD",
+        "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD",
+        "rtp_llm/models_py/bindings/cuda/ops/tests/CudaSamplerTest.cc",
+        "rtp_llm/utils/test/BUILD",
     }
     assert set(remote_exec_rtp._SOURCE_CONTRACT_FILES) == source_contracts
 

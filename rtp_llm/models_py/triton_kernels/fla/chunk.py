@@ -262,6 +262,7 @@ def chunk_gated_delta_rule_flydsl_with_cache_store(
     When ssm_states is provided, the kernel also writes RTP SSM block cache
     state directly. Without ssm_states it runs the same fused no-store path.
     """
+    _validate_flydsl_chunk_gdn_inputs(q=q, k=k, v=v, beta=beta)
     if not is_flydsl_chunk_gdn_enabled():
         raise RuntimeError(
             "chunk_gated_delta_rule_flydsl_with_cache_store requires USE_FLYDSL=1 "
@@ -297,7 +298,6 @@ def chunk_gated_delta_rule_flydsl_with_cache_store(
     # megakernel itself hard-codes T.bf16 for the in-LDS beta pipeline
     # (flydsl_chunk_gdn_mi308x.py: lds_beta is T.bf16, buffer_load_bf16_or_zero
     # for beta), so we cast to bf16 only when launching the megakernel below.
-    _validate_flydsl_chunk_gdn_inputs(q=q, k=k, v=v, beta=beta)
     _, _, H, V = v.shape
     K = k.shape[-1]
     if ssm_states is not None:

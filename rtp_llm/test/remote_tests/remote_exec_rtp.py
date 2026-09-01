@@ -45,18 +45,27 @@ _REMOTE_INPUT_DIR = Path(".pytest_cache") / "remote_inputs"
 # explicit CAS inputs.
 _SOURCE_CONTRACT_FILES = (
     "3rdparty/cub_compat.h",
+    "arch_config/arch_select.bzl",
     "rtp_llm/cpp/cache/test/BUILD",
     "rtp_llm/cpp/cache/test/KVCacheManagerCPSlotMapperTest.cc",
     "rtp_llm/cpp/cache/test/SharedBlockCacheTest.cc",
     "rtp_llm/cpp/cuda_graph/cuda_graph_runner.cc",
     "rtp_llm/cpp/disaggregate/cache_store/test/BUILD",
+    "rtp_llm/cpp/model_rpc/test/BUILD",
     "rtp_llm/cpp/models/logits_processor/test/BUILD",
+    "rtp_llm/cpp/models/logits_processor/test/SpecLogitsVerifyRunnerPerfTest.cc",
     "rtp_llm/cpp/models/test/BUILD",
     "rtp_llm/cpp/models/test/PyWrappedModelCacheStoreIntegrationTest.cc",
     "rtp_llm/cpp/normal_engine/speculative/test/BUILD",
     "rtp_llm/cpp/normal_engine/speculative/test/MtpBatchStreamProcessorTest.cc",
     "rtp_llm/cpp/pybind/BUILD",
+    "rtp_llm/cpp/telemetry/TraceAttributes.h",
     "rtp_llm/cpp/utils/test/BUILD",
+    "rtp_llm/dash_sc/BUILD",
+    "rtp_llm/dash_sc/test/BUILD",
+    "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD",
+    "rtp_llm/models_py/bindings/cuda/ops/tests/CudaSamplerTest.cc",
+    "rtp_llm/utils/test/BUILD",
 )
 _RUNTIME_LIBS_ARCHIVE = _REMOTE_INPUT_DIR / "rtp_llm_libs.tar"
 _PPU_RUNTIME_DIR = _REMOTE_INPUT_DIR / "ppu_runtime"

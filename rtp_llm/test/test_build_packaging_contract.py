@@ -694,6 +694,17 @@ class BuildPackagingContractTest(TestCase):
                 f"{name} must fail instead of reporting a successful 0/0 run",
             )
 
+        for name, expected_count in {
+            "py_ut_sm8x": 2238,
+            "py_ut_amd": 127,
+            "py_ut_frontend": 62,
+        }.items():
+            self.assertEqual(profiles[name].get("expected_count"), expected_count)
+            self.assertTrue(
+                profiles[name].get("forbid_skips"),
+                f"{name} must reject partial runs with skipped tests",
+            )
+
         internal_root = PROJECT_ROOT.parent
         internal_overlay = internal_root / "internal_source" / "pyproject_internal.toml"
         if (internal_root / ".git").exists() and internal_overlay.exists():

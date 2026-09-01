@@ -488,9 +488,9 @@ class RocmFp8PTPCLinearWithSwizzle(RocmFp8PTPCLinearBase):
             scaleA=input_scales,
             scaleB=self.weight_scales,
             bpreshuffle=True,
+            # AITER 0.1.21's torch custom-op bridge drops trailing defaults.
+            use_gelu=use_gelu,
         )
-        if use_gelu:
-            kwargs["use_gelu"] = True
         output = aiter.hipb_mm(input_fp8, self.weight, solution_index, **kwargs)
         return self._restore_dtype(output, original_dtype)
 

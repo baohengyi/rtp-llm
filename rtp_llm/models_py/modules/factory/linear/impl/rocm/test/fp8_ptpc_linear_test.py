@@ -533,9 +533,8 @@ class RocmFp8PTPCLinearWithSwizzleTest(unittest.TestCase):
                     "scaleA": input_scales.float(),
                     "scaleB": linear.weight_scales,
                     "bpreshuffle": True,
+                    "use_gelu": epilogue == "bias_gelu",
                 }
-                if epilogue == "bias_gelu":
-                    kwargs["use_gelu"] = True
                 default = aiter.hipb_mm(input_q, linear.weight, -1, **kwargs)
                 # Different valid hipBLASLt reduction orders can round a tiny
                 # fraction of BF16 outputs to adjacent representable values.

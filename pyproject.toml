@@ -333,6 +333,8 @@ default_pytest_cli = "-v --tb=short --timeout=300"
 description = "Python UT on SM8x class GPUs (py-ut-sm8x)"
 gpu_type = "A10"
 minimum_count = 1
+expected_count = 2238
+forbid_skips = true
 ignore_paths = ["rtp_llm/test/dsv4", "rtp_llm/models_py/modules/dsv4"]
 isolated_paths = [
     "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_flashinfer_prefill/test_py_flashinfer_hybrid_mha_prefill.py",
@@ -365,6 +367,8 @@ markexpr = "SM100_ARM and not smoke and not perf and not manual"
 description = "Python UT on AMD MI308X (py-ut-amd)"
 gpu_type = "MI308X"
 minimum_count = 1
+expected_count = 127
+forbid_skips = true
 paths = [
     "rtp_llm/models_py/modules/base/rocm/test/",
     "rtp_llm/models_py/modules/factory/attention/rocm_impl/test/",
@@ -382,6 +386,8 @@ markexpr = "MI308X and not smoke and not perf and not manual"
 description = "Frontend Python UT (py-ut-frontend)"
 gpu_type = "A10"
 minimum_count = 1
+expected_count = 62
+forbid_skips = true
 paths = [
     "rtp_llm/frontend/test",
     "rtp_llm/test/frontend_test",
