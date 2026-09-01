@@ -25,9 +25,9 @@ rocm = [
     "triton-kernels @ https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/triton/triton_kernels-1.0.0%2Bamd.rocm7.2.0.gitd0d77a509-py3-none-any.whl",
     "pyrsmi==0.2.0",
     "pyyaml==6.0.2",
-    # Use the wheel validated by the OSS main branch. AITER 0.1.21's
-    # torch-free JIT bindings reject valid aiter_tensor_t arguments.
-    "aiter @ https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/RTP/aiter-0.1.14rc1.dev41%2Bgc39217100.d20260519-cp310-cp310-linux_x86_64.whl",
+    # Keep AITER aligned with requirements_rocm.txt and its FlyDSL 0.3.1
+    # dependency so uv can resolve the Python-native ROCm environment.
+    "aiter @ https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/aiter/aiter-0.1.21.dev80%2Bg987203ba5.d20260825-cp310-cp310-linux_x86_64.whl",
     # FLA kernels import FlyDSL directly, so do not rely on AITER to install it
     # transitively.
     "flydsl==0.3.1",
