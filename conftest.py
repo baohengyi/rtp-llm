@@ -5,6 +5,22 @@ import os as _os
 import re as _re
 import sys as _sys
 
+
+def _xdist_gpu_slot(worker_index, worker_count, slot_count):
+    """Map initial and replacement xdist workers onto logical GPU slots."""
+    if slot_count < 1:
+        raise ValueError("GPU pool does not contain a complete worker slot")
+    if worker_count is None:
+        worker_count = slot_count
+    if worker_count < 1:
+        raise ValueError("xdist worker count must be positive")
+    if worker_count > slot_count:
+        raise ValueError(
+            f"xdist requested {worker_count} workers but only {slot_count} GPU slot(s) exist"
+        )
+    return worker_index % worker_count
+
+
 _xdist_worker = _os.environ.get("PYTEST_XDIST_WORKER")
 if _xdist_worker:
     _os.environ["_RTP_TORCH_BEFORE_SLICE"] = "1" if "torch" in _sys.modules else "0"
@@ -30,6 +46,24 @@ if _xdist_worker:
             f"defaulting to slice 0; GPU pool affinity may be incorrect\n"
         )
 
+    _worker_count_raw = _os.environ.get("PYTEST_XDIST_WORKER_COUNT")
+    try:
+        _worker_count = (
+            int(_worker_count_raw) if _worker_count_raw is not None else None
+        )
+        if _worker_count is not None and _worker_count < 1:
+            raise ValueError("xdist worker count must be positive")
+    except ValueError as _worker_count_error:
+        _sys.stderr.write(f"[conftest_gpu_slice] FATAL: {_worker_count_error}\n")
+        _sys.stderr.flush()
+        _sys.exit(2)
+
+    # xdist replacements continue numbering (gw4 after gw0..gw3). Record the
+    # logical slot even for CPU-only xdist runs so controller accounting uses
+    # the fixed worker pool rather than treating replacements as extra workers.
+    _slot = _wn % _worker_count if _worker_count is not None else _wn
+    _os.environ["_RTP_XDIST_GPU_SLOT"] = str(_slot)
+
     _cvd = _os.environ.get("CUDA_VISIBLE_DEVICES")
     _hvd = _os.environ.get("HIP_VISIBLE_DEVICES")
     # Treat an explicitly empty CUDA_VISIBLE_DEVICES as an empty pool rather
@@ -38,7 +72,21 @@ if _xdist_worker:
     if _pool:
         _all_gpus = [g.strip() for g in _pool.split(",") if g.strip()]
         _gpu_per_worker = int(_os.environ.get("GPU_COUNT_PER_WORKER", "1"))
-        _start = _wn * _gpu_per_worker
+        if _gpu_per_worker < 1:
+            _sys.stderr.write(
+                "[conftest_gpu_slice] FATAL: GPU_COUNT_PER_WORKER must be positive\n"
+            )
+            _sys.stderr.flush()
+            _sys.exit(2)
+        _slot_count = len(_all_gpus) // _gpu_per_worker
+        try:
+            _slot = _xdist_gpu_slot(_wn, _worker_count, _slot_count)
+        except ValueError as _slot_error:
+            _sys.stderr.write(f"[conftest_gpu_slice] FATAL: {_slot_error}\n")
+            _sys.stderr.flush()
+            _sys.exit(2)
+        _os.environ["_RTP_XDIST_GPU_SLOT"] = str(_slot)
+        _start = _slot * _gpu_per_worker
         _my_gpus = _all_gpus[_start : _start + _gpu_per_worker]
         # Fail-fast on pool exhaustion. Silently writing CVD="" hides the
         # misconfiguration: tests would collect 0 items / pass trivially while
@@ -62,7 +110,7 @@ if _xdist_worker:
             f"[conftest_gpu_slice] {_xdist_worker}: CVD={_os.environ.get('CUDA_VISIBLE_DEVICES', 'unset')} "
             f"HVD={_os.environ.get('HIP_VISIBLE_DEVICES', 'unset')} "
             f"torch_before_slice={_os.environ['_RTP_TORCH_BEFORE_SLICE']} "
-            f"(from pool {_pool}, per_worker={_gpu_per_worker})\n"
+            f"(slot={_slot}, from pool {_pool}, per_worker={_gpu_per_worker})\n"
         )
         _sys.stderr.flush()
 
@@ -404,11 +452,11 @@ def pytest_collection_modifyitems(config, items):
 # ============================================================================
 # xdist GPU-disjointness verification (worker -> controller)
 #
-# Each worker reports its CUDA_VISIBLE_DEVICES back to the controller via
-# config.workeroutput. The controller counts how many workers it launched
-# (pytest_configure_node), collects each worker's CVD as its node goes down
-# (pytest_testnodedown), and after the whole session asserts every worker got a
-# distinct GPU slice (pytest_sessionfinish). This replaces the old shared-file
+# Each worker reports its CUDA_VISIBLE_DEVICES and logical slot back to the
+# controller via config.workeroutput. The controller records xdist's fixed
+# workercount (rather than counting replacement gateways), collects each slot's
+# CVD as its node goes down, and after the whole session asserts every logical
+# worker got a distinct GPU slice. This replaces the old shared-file
 # scheme, which was racy and — worse — silently pytest.skip()'d when a clean dir
 # had < 2 records, letting a GPU-overlap misconfig pass CI. A missing report or
 # an overlap now FAILS the run instead of being skipped.
@@ -416,23 +464,44 @@ def pytest_collection_modifyitems(config, items):
 
 
 def pytest_configure_node(node):
-    """Controller-side: count each xdist worker as it is set up."""
+    """Controller-side: record the fixed logical pool, not replacement count."""
     config = node.config
-    config._rtp_expected_gpu_workers = getattr(config, "_rtp_expected_gpu_workers", 0) + 1
+    workerinput = getattr(node, "workerinput", None) or {}
+    worker_count = int(workerinput.get("workercount", 0) or 0)
+    if not worker_count:
+        problems = getattr(config, "_rtp_gpu_isolation_problems", [])
+        problems.append(f"worker {node.gateway.id} did not report xdist workercount")
+        config._rtp_gpu_isolation_problems = problems
+        return
+    previous = getattr(config, "_rtp_expected_gpu_workers", 0)
+    if previous and previous != worker_count:
+        problems = getattr(config, "_rtp_gpu_isolation_problems", [])
+        problems.append(f"xdist worker count changed from {previous} to {worker_count}")
+        config._rtp_gpu_isolation_problems = problems
+    config._rtp_expected_gpu_workers = worker_count
 
 
 def pytest_testnodedown(node, error):
     """Controller-side: record the CVD reported by a worker as it goes down."""
     workeroutput = getattr(node, "workeroutput", None) or {}
-    if "rtp_gpu_cvd" not in workeroutput:
+    if "rtp_gpu_cvd" not in workeroutput or "rtp_gpu_slot" not in workeroutput:
         return
     config = node.config
     records = getattr(config, "_rtp_worker_gpu_records", None)
     if records is None:
         records = {}
         config._rtp_worker_gpu_records = records
-    # gateway.id is the stable worker id ("gw0", "gw1", ...).
-    records[node.gateway.id] = workeroutput["rtp_gpu_cvd"]
+    slot = int(workeroutput["rtp_gpu_slot"])
+    cvd = workeroutput["rtp_gpu_cvd"]
+    previous = records.get(slot)
+    if previous is not None and previous["cvd"] != cvd:
+        problems = getattr(config, "_rtp_gpu_isolation_problems", [])
+        problems.append(
+            f"logical GPU slot {slot} changed from CVD={previous['cvd']!r} "
+            f"to CVD={cvd!r} on replacement {node.gateway.id}"
+        )
+        config._rtp_gpu_isolation_problems = problems
+    records[slot] = {"cvd": cvd, "worker": node.gateway.id}
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -443,34 +512,41 @@ def pytest_sessionfinish(session, exitstatus):
         workeroutput = getattr(config, "workeroutput", None)
         if workeroutput is not None:
             workeroutput["rtp_gpu_cvd"] = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+            workeroutput["rtp_gpu_slot"] = int(
+                os.environ.get("_RTP_XDIST_GPU_SLOT", "0")
+            )
         return
 
     # CONTROLLER: verify all workers got disjoint GPUs. Only runs under xdist,
-    # where pytest_configure_node incremented the expected count.
+    # where pytest_configure_node recorded the expected logical worker count.
     expected = getattr(config, "_rtp_expected_gpu_workers", 0)
-    if expected == 0:
+    initial_problems = list(getattr(config, "_rtp_gpu_isolation_problems", []))
+    if expected == 0 and not initial_problems:
         return  # single-process run: nothing cross-worker to verify.
 
     records = getattr(config, "_rtp_worker_gpu_records", {})
-    problems = []
+    problems = initial_problems
 
     # (1) Missing reports must FAIL (never silently skip).
     if len(records) < expected:
         problems.append(
             f"only {len(records)}/{expected} xdist worker(s) reported a GPU slice "
-            f"(got {sorted(records)}); a worker crashed or never reported."
+            f"(got logical slots {sorted(records)}); a worker and its replacement "
+            f"crashed or never reported."
         )
 
     # (2) Non-empty CVDs must be disjoint across workers.
     cvd_to_workers: dict = {}
-    for wid, cvd in records.items():
+    for slot, record in records.items():
+        cvd = record["cvd"]
         if not cvd:
             continue  # empty CVD => no GPU isolation active for that worker.
-        cvd_to_workers.setdefault(cvd, []).append(wid)
-    for cvd, workers in cvd_to_workers.items():
-        if len(workers) > 1:
+        cvd_to_workers.setdefault(cvd, []).append(slot)
+    for cvd, slots in cvd_to_workers.items():
+        if len(slots) > 1:
             problems.append(
-                f"GPU OVERLAP: workers {sorted(workers)} share CUDA_VISIBLE_DEVICES={cvd!r}"
+                f"GPU OVERLAP: logical slots {sorted(slots)} share "
+                f"CUDA_VISIBLE_DEVICES={cvd!r}"
             )
 
     if problems:

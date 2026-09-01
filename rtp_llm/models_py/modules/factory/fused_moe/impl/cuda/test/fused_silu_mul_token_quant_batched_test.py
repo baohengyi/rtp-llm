@@ -20,6 +20,16 @@ except (ImportError, RuntimeError) as e:
     pytest.skip(f"CUDA-only compute_ops unavailable: {e}", allow_module_level=True)
 
 
+def _ordered_fp8_codes(values: torch.Tensor) -> torch.Tensor:
+    """Map finite E4M3 bit patterns to monotonically increasing integer codes."""
+    raw = values.contiguous().view(torch.uint8)
+    return torch.where(
+        (raw & 0x80).bool(),
+        torch.bitwise_not(raw),
+        raw | 0x80,
+    ).to(torch.int16)
+
+
 class FusedSiluMulPerTokenQuantBatchedTest(TestCase):
     MAX_NUM_TOKENS = [128, 256, 512]
     HIDDEN_SIZES = [128, 768, 1024, 2048, 4096, 8192]
@@ -71,18 +81,23 @@ class FusedSiluMulPerTokenQuantBatchedTest(TestCase):
                 continue
             self.assertTrue(
                 torch.allclose(
-                    ref_q_out[i, :n].float(), q_out[i, :n].float(), atol=1e-2, rtol=1e-2
-                ),
-                f"q_out mismatch at expert {i}",
-            )
-            self.assertTrue(
-                torch.allclose(
                     ref_q_scale[i, :n].float(),
                     q_scale[i, :n].float(),
                     atol=1e-5,
                     rtol=1e-5,
                 ),
                 f"q_scale mismatch at expert {i}",
+            )
+            # PyTorch and Triton may round to opposite neighbors at an exact
+            # E4M3 bin boundary. Accept only that one-ULP ambiguity; larger
+            # differences remain a hard failure.
+            ref_codes = _ordered_fp8_codes(ref_q_out[i, :n])
+            actual_codes = _ordered_fp8_codes(q_out[i, :n])
+            code_distance = torch.abs(actual_codes - ref_codes)
+            self.assertLessEqual(
+                int(code_distance.max().item()),
+                1,
+                f"q_out differs by more than one E4M3 value at expert {i}",
             )
 
     def test_silu_mul_per_token_fp8_quant_batched(self):

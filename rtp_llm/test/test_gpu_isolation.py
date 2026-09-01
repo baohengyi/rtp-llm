@@ -12,9 +12,43 @@ for GPU isolation correctness.
 """
 
 import os
+from types import SimpleNamespace
 
 import pytest
 import torch
+
+from conftest import _xdist_gpu_slot, pytest_configure_node, pytest_testnodedown
+
+
+@pytest.mark.multi_arch_cuda
+def test_xdist_replacement_reuses_logical_gpu_slot():
+    """gw4 replaces gw0 in a four-worker run; it is not a fifth GPU user."""
+    assert _xdist_gpu_slot(worker_index=4, worker_count=4, slot_count=4) == 0
+    assert _xdist_gpu_slot(worker_index=7, worker_count=4, slot_count=4) == 3
+
+
+@pytest.mark.multi_arch_cuda
+def test_xdist_controller_counts_logical_slots_not_replacements():
+    config = SimpleNamespace()
+
+    def node(worker_id, workeroutput=None):
+        return SimpleNamespace(
+            config=config,
+            gateway=SimpleNamespace(id=worker_id),
+            workerinput={"workercount": 4},
+            workeroutput=workeroutput or {},
+        )
+
+    pytest_configure_node(node("gw0"))
+    pytest_configure_node(node("gw4"))
+    assert config._rtp_expected_gpu_workers == 4
+
+    pytest_testnodedown(
+        node("gw4", {"rtp_gpu_cvd": "0", "rtp_gpu_slot": 0}), error=None
+    )
+    assert config._rtp_worker_gpu_records == {
+        0: {"cvd": "0", "worker": "gw4"}
+    }
 
 
 def _cvd_gpus():
