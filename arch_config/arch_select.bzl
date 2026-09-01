@@ -45,9 +45,12 @@ def whl_deps():
         "@rtp_llm//:using_cuda12": ["torch==2.6.0+cu126"],
         "@rtp_llm//:using_rocm": [
             "pyrsmi==0.2.0",
-            # AMD SMI ships with the ROCm runtime. Do not restore the legacy
-            # amd_smi.tar direct reference: bare .tar URLs are not valid PEP 625 sdists.
-            "aiter@https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/aiter/aiter-0.1.17.dev79%2Bg2570b35f9.d20260623-cp310-cp310-linux_x86_64.whl",
+            # Keep the ROCm AITER/FlyDSL pins synchronized with
+            # deps/requirements{,_lock}_rocm.txt. AMD SMI itself is supplied
+            # by the ROCm runtime; its legacy bare .tar URL is not a valid
+            # Python-native wheel dependency.
+            "aiter@https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/aiter/aiter-0.1.21.dev80%2Bg987203ba5.d20260825-cp310-cp310-linux_x86_64.whl",
+            "flydsl==0.3.1",
             "triton@https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/triton/triton-3.7.0%2Bamd.rocm7.2.0.gitd0d77a509-cp310-cp310-linux_x86_64.whl",
             "triton-kernels@https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/triton/triton_kernels-1.0.0%2Bamd.rocm7.2.0.gitd0d77a509-py3-none-any.whl",
         ],

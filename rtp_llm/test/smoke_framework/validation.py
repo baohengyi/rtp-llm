@@ -40,6 +40,7 @@ _KNOWN_MARKERS = {
     "embedding",
     "PD",
     "eval",
+    "dedicated",
     # Platform families
     "cuda",
     "rocm",

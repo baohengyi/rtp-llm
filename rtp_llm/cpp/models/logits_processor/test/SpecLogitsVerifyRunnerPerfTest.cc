@@ -155,6 +155,7 @@ SpecLogitsVerifyRunner::LaunchTask makeTask(size_t active_processor_count) {
     return task;
 }
 
+// Manual perf test. The BUILD target is tagged manual and excluded from default CI.
 TEST(SpecLogitsVerifyRunnerPerfTest, DeepSeekFlashDecodeB35P3) {
     constexpr int64_t rows          = kStreamCount * (kProposeStep + 1);
     constexpr int64_t bitmask_words = (kVocabSize + 31) / 32;

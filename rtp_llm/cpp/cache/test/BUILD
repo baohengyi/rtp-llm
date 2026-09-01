@@ -186,10 +186,11 @@ cc_test(
 cc_test(
     name = "shared_block_cache_perf_test",
     srcs = [
-        "SharedBlockCachePerfTest.cc",
+        "SharedBlockCacheTest.cc",
     ],
+    args = ["--gtest_filter=SharedBlockCachePerfTest.*"],
+    copts = test_copts + ["-DRTP_LLM_MANUAL_BENCHMARKS"],
     data = [],
-    copts = test_copts,
     deps = block_cache_test_deps,
     env = {},
     exec_properties = {'gpu':'H20'},

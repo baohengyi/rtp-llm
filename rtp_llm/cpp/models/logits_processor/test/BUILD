@@ -87,8 +87,8 @@ cc_test(
     exec_properties = {'gpu':'H20'},
 )
 
-# Manual benchmark. The manual tag keeps it out of wildcard cpp-ut discovery;
-# run the target explicitly when collecting performance evidence.
+# Explicit manual benchmark. It remains buildable and runnable without entering
+# the default unit-test graph.
 cc_test(
     name = "spec_logits_verify_runner_perf_test",
     srcs = [

@@ -69,7 +69,11 @@ cc_test(
     srcs = [
         "CudaSamplerTest.cc",
     ],
+    args = [
+        "--gtest_filter=CudaSamplerTest.benchmarkLatestFlashinferSamplingVsCurrentRtp:CudaSamplerTest.compareLatestFlashinferSamplingAccuracyVsCurrentRtp",
+    ],
     copts = copts() + ["-DRTP_LLM_MANUAL_BENCHMARKS"],
+    data = [],
     deps = test_deps + [
         "//3rdparty/flashinfer:flashinfer",
         "//rtp_llm/models_py/bindings/cuda/kernels/sampling:sampling",

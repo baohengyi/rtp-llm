@@ -8,15 +8,14 @@ py_library(
     srcs = glob(["common/*.py"]),
 )
 
-# flydsl_*.py import the ROCm/MI308X-only `flydsl` package, which is not a
-# generally available pip dependency. They are lazy-imported at runtime (see
-# fla/chunk.py) and shipped via setup.py, so they are excluded from the Bazel
-# srcs glob to avoid import-based dep resolution pulling in a nonexistent
-# `@pip_gpu_rocm_torch//flydsl` package and breaking analysis.
+# Aiter and FlyDSL are installed by the Python-native ROCm wheel dependencies.
+# Keep the source files in the Bazel package so AMD tests and packaging see the
+# same module inventory as upstream main.
 py_library(
     name = "fla",
-    srcs = glob(["fla/*.py"], exclude = ["fla/flydsl_*.py"]),
+    srcs = glob(["fla/*.py"]),
     deps = [":common"],
+    visibility = ["//visibility:public"],
 )
 
 py_library(
@@ -55,4 +54,5 @@ py_library(
         ":causal_conv1d",
         ":sparse_mla",
     ],
+    visibility = ["//visibility:public"],
 )

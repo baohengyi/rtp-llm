@@ -33,6 +33,8 @@ classifiers = [
 [project.scripts]
 rtp-llm = "rtp_llm.cli.main:main"
 rtp-llm-server = "rtp_llm.start_server:main"
+rtp-llm-json-format-smoke = "rtp_llm.dash_sc.json_format_e2e_smoke:main"
+rtp-llm-grammar-validation-smoke = "rtp_llm.dash_sc.grammar_validation_smoke:main"
 
 # These pytest plugins intentionally live under rtp_llm.test.*. Keep them in
 # release metadata together with packaged tests so installed wheels expose the
@@ -275,6 +277,7 @@ markers = [
     "slow: slow tests",
     "perf: performance tests",
     "eval: benchmark-style evaluation smoke tests",
+    "dedicated: smoke tests requiring a dedicated worker or checkpoint",
     "multi_arch_cuda: CUDA tests that must run on both SM8x and SM9x profiles",
     "timeout(timeout): per-test timeout override from pytest-timeout",
 
@@ -369,7 +372,11 @@ markexpr = "MI308X and not smoke and not perf and not manual"
 [tool.rtp_llm.pytest_ci.profiles.py_ut_frontend]
 description = "Frontend Python UT (py-ut-frontend)"
 gpu_type = "A10"
-paths = ["rtp_llm/frontend/test", "rtp_llm/test/frontend_test"]
+paths = [
+    "rtp_llm/frontend/test",
+    "rtp_llm/test/frontend_test",
+    "rtp_llm/dash_sc/test/inference/mrcr_smoke_test.py",
+]
 markexpr = "not manual and not rocm and not cpu"
 
 # -------- OSS smoke profiles (drive suite files in rtp_llm/test/smoke/suites/) --------
@@ -384,7 +391,7 @@ forbid_skips = true
 description = "OSS smoke H20 full gate (excludes light cases)"
 paths = ["rtp_llm/test/smoke/suites/"]
 markexpr = "manual and smoke and H20 and not light"
-expected_count = 52
+expected_count = 57
 forbid_skips = true
 remote_env = { REMOTE_JIT_DIR = "/tmp/rtp-llm/.remote_jit_cache" }
 
@@ -420,28 +427,35 @@ forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_sm120_oss]
 description = "OSS smoke RTX 5000 Pro / SM120"
-paths = [
-    "rtp_llm/test/smoke/suites/",
-    "../internal_source/rtp_llm/test/smoke/suites/test_smoke_sm120_basic_internal.py",
-]
+paths = ["rtp_llm/test/smoke/suites/"]
 gpu_type = "RTX_5000_PRO"
 markexpr = "manual and smoke and RTX_5000_PRO"
-expected_count = 7
+expected_count = 6
 forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_rocm_oss]
 description = "OSS smoke ROCm (smoke-rocm-oss)"
 paths = ["rtp_llm/test/smoke/suites/"]
 # Must match smoke_defs_oss.py gpu markers (MI308X_ROCM7), not the hyphenated gpu_type string.
-markexpr = "manual and smoke and MI308X_ROCM7"
+markexpr = "manual and smoke and MI308X_ROCM7 and not dedicated"
 expected_count = 25
 forbid_skips = true
 remote_env = { REMOTE_JIT_DIR = "/tmp/rtp-llm/.remote_jit_cache" }
+
+[tool.rtp_llm.pytest_ci.profiles.smoke_rocm_qwen35_mtp_manual]
+description = "Dedicated ROCm Qwen3.6 MTP PD CUDA Graph smoke"
+paths = ["rtp_llm/test/smoke/suites/test_smoke_rocm_qwen35_mtp.py"]
+gpu_type = "MI308X-ROCM7"
+markexpr = "manual and smoke and MI308X_ROCM7 and dedicated"
+expected_count = 1
+forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_remote_cache_oss]
 description = "OSS smoke remote cache (smoke-remote-cache-oss)"
 paths = ["rtp_llm/test/smoke/suites/"]
 markexpr = "manual and smoke and remote_cache"
+expected_count = 11
+forbid_skips = true
 
 # -------- Internal smoke profiles (drive suite files in internal_source/rtp_llm/test/smoke/suites/) --------
 [tool.rtp_llm.pytest_ci.profiles.smoke_h20_internal]
@@ -460,6 +474,14 @@ paths = ["../internal_source/rtp_llm/test/smoke/suites/"]
 # forms must NOT be confused: underscore here for pytest, hyphen for gpu_type/REAPI.
 markexpr = "manual and smoke and MI308X_ROCM7"
 expected_count = 2
+forbid_skips = true
+
+[tool.rtp_llm.pytest_ci.profiles.smoke_sm120_internal]
+description = "Internal RTX 5000 Pro / SM120 smoke"
+paths = ["../internal_source/rtp_llm/test/smoke/suites/test_smoke_sm120_basic_internal.py"]
+gpu_type = "RTX_5000_PRO"
+markexpr = "manual and smoke and RTX_5000_PRO"
+expected_count = 1
 forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.perf_sm9x]

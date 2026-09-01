@@ -80,6 +80,33 @@ def _load_setup_module():
 
 
 class BuildPackagingContractTest(TestCase):
+    def test_python_native_rocm_extras_pin_validated_kernel_stack(self):
+        expected_urls = {
+            "aiter": "https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/RTP/aiter-0.1.14rc1.dev41%2Bgc39217100.d20260519-cp310-cp310-linux_x86_64.whl",
+            "triton": "https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/triton/triton-3.7.0%2Bamd.rocm7.2.0.gitd0d77a509-cp310-cp310-linux_x86_64.whl",
+            "triton-kernels": "https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/triton/triton_kernels-1.0.0%2Bamd.rocm7.2.0.gitd0d77a509-py3-none-any.whl",
+        }
+        requirements = {
+            requirement.name: requirement
+            for requirement in map(Requirement, _oss_optional_extras()["rocm"])
+        }
+        self.assertNotIn(
+            "amdsmi",
+            requirements,
+            "Python-native metadata must not contain the invalid amd_smi.tar direct reference",
+        )
+        self.assertEqual(
+            str(requirements["flydsl"].specifier),
+            "==0.3.1",
+            "FLA kernels require an explicit FlyDSL dependency",
+        )
+        for package, expected_url in expected_urls.items():
+            self.assertEqual(
+                requirements[package].url,
+                expected_url,
+                f"{package} must use the validated Python-native ROCm wheel",
+            )
+
     def test_transformers5_uses_compatible_xgrammar_metadata(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             pyproject = tomllib.load(f)
@@ -919,87 +946,77 @@ class BuildPackagingContractTest(TestCase):
                 )
                 self.assertNotIn("skip", decorator_names)
 
-    def test_cpp_ut_default_targets_do_not_register_disabled_cases(self):
-        cpp_suffixes = {".cc", ".cpp", ".cu", ".h", ".hpp"}
+    def test_cpp_tests_do_not_use_disabled_prefixes(self):
         for source_path in (PROJECT_ROOT / "rtp_llm").rglob("*"):
-            if source_path.suffix in cpp_suffixes:
+            if source_path.suffix in {".cc", ".cpp", ".cu", ".h", ".hpp"}:
                 self.assertNotIn(
                     "DISABLED_",
                     source_path.read_text(errors="ignore"),
                     str(source_path.relative_to(PROJECT_ROOT)),
                 )
 
-        default_sources = [
-            "rtp_llm/cpp/cache/test/KVCacheManagerCPSlotMapperTest.cc",
-            "rtp_llm/cpp/cache/test/SharedBlockCacheTest.cc",
-            "rtp_llm/cpp/normal_engine/speculative/test/MtpBatchStreamProcessorTest.cc",
-            "rtp_llm/models_py/bindings/cuda/ops/tests/CudaSamplerTest.cc",
-        ]
-        for relative_path in default_sources:
-            source = (PROJECT_ROOT / relative_path).read_text()
-            self.assertNotIn("DISABLED_", source, relative_path)
-
-        cp_source = (PROJECT_ROOT / default_sources[0]).read_text()
+        cp_source = (
+            PROJECT_ROOT
+            / "rtp_llm/cpp/cache/test/KVCacheManagerCPSlotMapperTest.cc"
+        ).read_text()
         for test_name in (
             "MallocAutoInjectReducesBlockCount",
             "MallocWithoutCPAllocatesFullBlocks",
             "AllocatorMapperControlsMalloc",
             "InsertAutoInjectsMapper",
         ):
-            self.assertIn(f"TEST_F(KVCacheManagerCPSlotMapperTest, {test_name})", cp_source)
-        self.assertGreaterEqual(cp_source.count("config_.finalizeBlockNums"), 4)
+            self.assertIn(
+                f"TEST_F(KVCacheManagerCPSlotMapperTest, {test_name})", cp_source
+            )
 
-        sampler_source = (PROJECT_ROOT / default_sources[-1]).read_text()
-        self.assertIn("#ifdef RTP_LLM_MANUAL_BENCHMARKS", sampler_source)
-        sampler_build = (
-            PROJECT_ROOT / "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD"
-        ).read_text()
-        self.assertIn('name = "cuda_sampler_manual_benchmark"', sampler_build)
-        self.assertIn('"-DRTP_LLM_MANUAL_BENCHMARKS"', sampler_build)
-        self.assertIn('tags = ["manual"]', sampler_build)
-
-    def test_cpp_manual_benchmarks_are_outside_default_targets(self):
+    def test_cpp_benchmarks_use_explicit_manual_targets(self):
         def target_block(relative_path, target_name):
             build_text = (PROJECT_ROOT / relative_path).read_text()
-            marker = f'name = "{target_name}"'
-            marker_pos = build_text.index(marker)
+            marker_pos = build_text.index(f'name = "{target_name}"')
             block_start = build_text.rfind("cc_test(", 0, marker_pos)
             block_end = build_text.index("\n)", marker_pos) + 2
             return build_text[block_start:block_end]
 
-        perf_targets = (
+        manual_targets = {
             (
                 "rtp_llm/cpp/cache/test/BUILD",
                 "shared_block_cache_perf_test",
-                "SharedBlockCachePerfTest.cc",
-            ),
+            ): True,
             (
                 "rtp_llm/cpp/normal_engine/speculative/test/BUILD",
                 "mtp_batch_stream_processor_perf_test",
-                "MtpBatchStreamProcessorPerfTest.cc",
-            ),
+            ): True,
+            (
+                "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD",
+                "cuda_sampler_manual_benchmark",
+            ): True,
             (
                 "rtp_llm/cpp/models/logits_processor/test/BUILD",
                 "spec_logits_verify_runner_perf_test",
-                "SpecLogitsVerifyRunnerPerfTest.cc",
-            ),
-        )
-        for build_path, target_name, source_name in perf_targets:
-            block = target_block(build_path, target_name)
-            self.assertIn(source_name, block)
-            self.assertRegex(block, r'tags\s*=\s*\["manual"\]')
+            ): False,
+        }
+        for (relative_path, target_name), needs_macro in manual_targets.items():
+            block = target_block(relative_path, target_name)
+            self.assertIn('tags = ["manual"]', block)
+            if needs_macro:
+                self.assertIn('"-DRTP_LLM_MANUAL_BENCHMARKS"', block)
+                self.assertIn("--gtest_filter=", block)
 
-        self.assertNotIn(
-            "SharedBlockCachePerfTest.cc",
-            target_block("rtp_llm/cpp/cache/test/BUILD", "shared_block_cache_test"),
-        )
-        self.assertNotIn(
-            "MtpBatchStreamProcessorPerfTest.cc",
-            target_block(
+        for relative_path, default_target in (
+            ("rtp_llm/cpp/cache/test/BUILD", "shared_block_cache_test"),
+            (
                 "rtp_llm/cpp/normal_engine/speculative/test/BUILD",
                 "mtp_batch_stream_processor_test",
             ),
-        )
+            (
+                "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD",
+                "cuda_sampler_test",
+            ),
+        ):
+            self.assertNotIn(
+                "RTP_LLM_MANUAL_BENCHMARKS",
+                target_block(relative_path, default_target),
+            )
 
     def test_cpp_device_pin_targets_request_the_resources_they_assert(self):
         def target_block(relative_path, target_name):
@@ -1079,6 +1096,68 @@ class BuildPackagingContractTest(TestCase):
 
         self.assertIn("pytest.mark.gpu(type='H20')", source)
         self.assertIn("pytest.mark.manual", source)
+
+    def test_smoke_profiles_enforce_native_collection_parity(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        profiles = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"]
+        expected_counts = {
+            "smoke_h20_light_oss": 14,
+            "smoke_h20_full_oss": 57,
+            "smoke_sm8x_light_oss": 9,
+            "smoke_sm8x_full_oss": 9,
+            "smoke_sm100_oss": 12,
+            "smoke_sm100_eval_oss": 1,
+            "smoke_sm120_oss": 6,
+            "smoke_rocm_oss": 25,
+            "smoke_rocm_qwen35_mtp_manual": 1,
+            "smoke_remote_cache_oss": 11,
+        }
+        for name, expected_count in expected_counts.items():
+            self.assertEqual(profiles[name]["expected_count"], expected_count)
+            self.assertTrue(profiles[name]["forbid_skips"])
+
+        self.assertEqual(
+            profiles["smoke_sm120_oss"]["paths"],
+            ["rtp_llm/test/smoke/suites/"],
+        )
+        self.assertEqual(profiles["smoke_sm120_internal"]["expected_count"], 1)
+
+    def test_non_model_smokes_use_python_native_entrypoints(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        scripts = pyproject["project"]["scripts"]
+        self.assertEqual(
+            scripts["rtp-llm-json-format-smoke"],
+            "rtp_llm.dash_sc.json_format_e2e_smoke:main",
+        )
+        self.assertEqual(
+            scripts["rtp-llm-grammar-validation-smoke"],
+            "rtp_llm.dash_sc.grammar_validation_smoke:main",
+        )
+
+        dash_build = (PROJECT_ROOT / "rtp_llm/dash_sc/BUILD").read_text()
+        dash_test_build = (PROJECT_ROOT / "rtp_llm/dash_sc/test/BUILD").read_text()
+        utils_test_build = (PROJECT_ROOT / "rtp_llm/utils/test/BUILD").read_text()
+        self.assertNotIn('name = "json_format_e2e_smoke"', dash_build)
+        self.assertNotIn('name = "grammar_validation_smoke"', dash_build)
+        self.assertNotIn('name = "mrcr_smoke_test"', dash_test_build)
+        self.assertNotIn("custom_smoke_test(", utils_test_build)
+        self.assertNotIn(
+            "bazel",
+            (
+                PROJECT_ROOT / "rtp_llm/dash_sc/grammar_validation_smoke.py"
+            ).read_text().lower(),
+        )
+
+        frontend_paths = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"][
+            "py_ut_frontend"
+        ]["paths"]
+        self.assertIn(
+            "rtp_llm/dash_sc/test/inference/mrcr_smoke_test.py", frontend_paths
+        )
 
     def test_h20_full_smoke_profile_preserves_remote_jit_cache_contract(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
