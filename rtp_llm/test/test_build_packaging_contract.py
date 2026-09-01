@@ -703,7 +703,7 @@ class BuildPackagingContractTest(TestCase):
                 ]["profiles"]
             self.assertEqual(internal_profiles["py_ut_gb200"].get("minimum_count"), 1)
             self.assertEqual(internal_profiles["py_ut_ppu"].get("minimum_count"), 1)
-            self.assertEqual(internal_profiles["py_ut_ppu"].get("expected_count"), 21)
+            self.assertEqual(internal_profiles["py_ut_ppu"].get("expected_count"), 23)
 
     def test_rocm_unit_cases_are_routed_by_mi308x_marker(self):
         """ROCm-only cases must be deselected before running on CUDA workers."""
@@ -1168,6 +1168,11 @@ class BuildPackagingContractTest(TestCase):
         self.assertIn('PYTEST_PROFILE: "perf_sm9x"', source)
         self.assertIn('PYTEST_PROFILE: "perf_ppu_internal"', source)
         self.assertIn("--remote-no-test-cache", source)
+        self.assertIn("--remote-concurrency=1", source)
+
+        main_source = (PROJECT_ROOT.parent / ".aoneci" / "main.yaml").read_text()
+        self.assertIn('PYTEST_PROFILE: "perf_ppu_internal"', main_source)
+        self.assertIn("--remote-concurrency=1", main_source)
 
     def test_non_model_smokes_use_python_native_entrypoints(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
