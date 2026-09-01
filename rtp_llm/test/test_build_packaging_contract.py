@@ -1421,4 +1421,5 @@ class BuildPackagingContractTest(TestCase):
         package_data = pyproject["tool"]["setuptools"]["package-data"]["rtp_llm"]
         self.assertIn("test/**/*.proto", package_data)
         self.assertIn("test/**/*.json", package_data)
+        self.assertIn("dash_sc/test/**/*.json", package_data)
         self.assertIn("models_py/**/data/*.json", package_data)

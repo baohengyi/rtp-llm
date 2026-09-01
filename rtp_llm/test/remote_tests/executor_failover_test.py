@@ -228,6 +228,25 @@ def test_collect_repo_runtime_files_includes_source_contracts(tmp_path):
     assert source_contracts.issubset(files)
 
 
+def test_collect_repo_runtime_files_includes_nested_test_data(tmp_path):
+    fixture = (
+        tmp_path
+        / "rtp_llm"
+        / "dash_sc"
+        / "test"
+        / "data"
+        / "mrcr_deepseek_v4_think_leak_cases.json"
+    )
+    fixture.parent.mkdir(parents=True)
+    fixture.write_text("[]\n", encoding="utf-8")
+
+    files = remote_exec_rtp._collect_repo_runtime_files(
+        tmp_path, include_libs=False
+    )
+
+    assert str(fixture.relative_to(tmp_path)) in files
+
+
 def test_collect_remote_files_includes_perf_data(tmp_path):
     repo = tmp_path / "repo"
     rootdir = repo / "github-opensource"
