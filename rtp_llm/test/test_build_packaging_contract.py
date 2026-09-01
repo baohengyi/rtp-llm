@@ -130,9 +130,9 @@ class BuildPackagingContractTest(TestCase):
             "FLA kernels require an explicit FlyDSL dependency",
         )
         self.assertEqual(
-            str(requirements["amd-mori"].specifier),
-            "==1.2.2",
-            "MoriEP tests must remain runnable after internal_source is stripped",
+            requirements["amd-mori"].url,
+            "git+https://github.com/ROCm/mori.git@dafdcfcf1e27b0c981b90903ab198b90d29e6867",
+            "MoriEP must build from the pinned v1.2.2 source on older workers",
         )
         for package, expected_url in expected_urls.items():
             self.assertEqual(
