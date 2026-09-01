@@ -1159,6 +1159,23 @@ class BuildPackagingContractTest(TestCase):
             "rtp_llm/dash_sc/test/inference/mrcr_smoke_test.py", frontend_paths
         )
 
+    def test_smoke_runner_defers_runtime_only_imports_during_collection(self):
+        runner_path = PROJECT_ROOT / "rtp_llm/test/smoke_framework/runner.py"
+        tree = ast.parse(runner_path.read_text(), filename=str(runner_path))
+        runtime_only_modules = {
+            "rtp_llm.test.smoke.case_runner",
+            "rtp_llm.test.smoke.multi_inst_case_runner",
+            "rtp_llm.test.smoke.task_info",
+            "rtp_llm.test.smoke.utils",
+            "rtp_llm.test.smoke.rel_path_config",
+        }
+        eager_imports = {
+            node.module
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom) and node.module is not None
+        }
+        self.assertFalse(runtime_only_modules & eager_imports)
+
     def test_h20_full_smoke_profile_preserves_remote_jit_cache_contract(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             pyproject = tomllib.load(f)

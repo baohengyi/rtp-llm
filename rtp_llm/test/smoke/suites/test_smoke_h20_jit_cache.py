@@ -5,7 +5,6 @@ import unittest
 import pytest
 
 from rtp_llm.test.smoke_framework.manifest import build_smoke_params
-from rtp_llm.utils.test import jit_cache_smoke_test
 
 
 SMOKE_CASES = {
@@ -30,6 +29,8 @@ _test_params = build_smoke_params(
 @pytest.mark.timeout(7200)
 @pytest.mark.parametrize("test_name,test_config", _test_params)
 def test_smoke_h20_jit_cache(test_name: str, test_config: dict, monkeypatch):
+    from rtp_llm.utils.test import jit_cache_smoke_test
+
     monkeypatch.setenv("SMOKE_ARGS", test_config["smoke_args"])
     suite = unittest.TestSuite(
         [jit_cache_smoke_test.JitCacheSmokeTest("test_deepseek_v2_lite")]

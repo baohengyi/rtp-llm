@@ -10,21 +10,13 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List, Mapping, Type, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Type, Union
 
-from rtp_llm.test.smoke.case_runner import CaseRunner
-from rtp_llm.test.smoke import common_def
-from rtp_llm.test.smoke.multi_inst_case_runner import (
-    DpSeperationCaseRunner,
-    FrontAppSeperationCaseRunner,
-    PdSeperationCaseRunner,
-    VitSeperationCaseRunner,
-)
-from rtp_llm.test.smoke.task_info import TaskInfo
-from rtp_llm.test.smoke.utils import resolve_prompt_refs
 from rtp_llm.test.smoke_framework.manifest import _parse_world_size, get_gpu_count
-from rtp_llm.test.smoke.rel_path_config import compute_smoke_rel_path
-from rtp_llm.utils.import_util import has_internal_source
+
+if TYPE_CHECKING:
+    from rtp_llm.test.smoke.case_runner import CaseRunner
+    from rtp_llm.test.smoke.task_info import TaskInfo
 
 
 def check_use_prompt_batch(task_info: TaskInfo) -> bool:
@@ -39,6 +31,14 @@ def get_runner_type(
     envs: Union[List[str], Mapping[str, List[str]]],
 ) -> Type[CaseRunner]:
     """Determine runner class from smoke_args / envs structure (multi-role aware)."""
+    from rtp_llm.test.smoke.case_runner import CaseRunner
+    from rtp_llm.test.smoke.multi_inst_case_runner import (
+        DpSeperationCaseRunner,
+        FrontAppSeperationCaseRunner,
+        PdSeperationCaseRunner,
+        VitSeperationCaseRunner,
+    )
+
     if isinstance(smoke_args, dict):
         if "prefill" in smoke_args:
             if "--role_type DECODE" in smoke_args.get(
@@ -98,6 +98,8 @@ def _configure_optional_internal_env(test_config: Mapping[str, Any]) -> None:
     gpu_type = str(test_config.get("gpu_type", "")).upper()
     if "ROCM" in gpu_type or gpu_type.startswith("MI"):
         return
+    from rtp_llm.utils.import_util import has_internal_source
+
     if not has_internal_source():
         return
     try:
@@ -116,6 +118,11 @@ def run_smoke_test(test_name: str, test_config: Mapping[str, Any]) -> None:
        parent: see PR4 / A5 in the plan).
     3. Restore parent env in `finally` so cross-case state doesn't leak.
     """
+    from rtp_llm.test.smoke import common_def
+    from rtp_llm.test.smoke.rel_path_config import compute_smoke_rel_path
+    from rtp_llm.test.smoke.task_info import TaskInfo
+    from rtp_llm.test.smoke.utils import resolve_prompt_refs
+
     smoke_args = test_config.get("smoke_args", "")
     envs = test_config.get("envs", [])
     task_info_path = test_config["task_info"]
