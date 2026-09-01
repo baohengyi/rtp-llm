@@ -16,7 +16,9 @@ Exit 0 on success, 1 on errors.
 
 from __future__ import annotations
 
+import argparse
 import ast
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Mapping
@@ -45,6 +47,7 @@ EXPECTED_OSS_SUITE_COUNTS = {
     "rocm_embedding": 9,
     "rocm_moe": 2,
     "rocm_pd": 1,
+    "rocm_qwen35_mtp": 1,
     "sm100_dense": 3,
     "sm100_eval": 1,
     "sm100_moe": 9,
@@ -68,6 +71,7 @@ EXPECTED_OSS_PROFILE_COUNTS = {
     "smoke_sm8x_light_oss": 9,
     "smoke_sm8x_full_oss": 9,
     "smoke_rocm_oss": 25,
+    "smoke_rocm_qwen35_mtp_manual": 1,
     "smoke_sm100_oss": 12,
     "smoke_sm100_eval_oss": 1,
     "smoke_sm120_oss": 6,
@@ -95,7 +99,11 @@ def _oss_profile_owners(
         if suite_name == "cuda_remote_cache":
             owners.append("smoke_sm8x_full_oss")
     if "MI308X_ROCM7" in markers:
-        owners.append("smoke_rocm_oss")
+        owners.append(
+            "smoke_rocm_qwen35_mtp_manual"
+            if "dedicated" in markers
+            else "smoke_rocm_oss"
+        )
     if "SM100_ARM" in markers:
         owners.append(
             "smoke_sm100_eval_oss"
@@ -162,6 +170,14 @@ def _load_cases(path: Path) -> Mapping[str, Any]:
             return tuple(evaluate(item) for item in node.elts)
         if isinstance(node, ast.Set):
             return {evaluate(item) for item in node.elts}
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left = evaluate(node.left)
+            right = evaluate(node.right)
+            if isinstance(left, (str, list, tuple)) and type(left) is type(right):
+                return left + right
+            raise ValueError(
+                "manifest + operands must be matching strings, lists, or tuples"
+            )
         if isinstance(node, ast.JoinedStr):
             parts: List[str] = []
             for value in node.values:
@@ -259,10 +275,33 @@ def _validate_dir(
     return errors
 
 
-def main() -> int:
+def _parse_args(argv: List[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--internal-root",
+        default=os.environ.get("RTP_INTERNAL_SOURCE_ROOT"),
+        help=(
+            "Path to the matching internal_source directory. Defaults to the "
+            "repository sibling when present."
+        ),
+    )
+    parser.add_argument(
+        "--oss-only",
+        action="store_true",
+        help="Validate only OSS manifests; combined validation remains the default.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: List[str] | None = None) -> int:
+    args = _parse_args(argv)
     gho = REPO_ROOT
     repo = gho.parent
-    internal = repo / "internal_source"
+    internal = (
+        Path(args.internal_root).expanduser().resolve()
+        if args.internal_root
+        else repo / "internal_source"
+    )
 
     sys.path.insert(0, str(gho / "rtp_llm" / "test" / "smoke_framework"))
 
@@ -290,21 +329,26 @@ def main() -> int:
 
     # Internal suites (only if internal_source is present)
     internal_suites = internal / "rtp_llm" / "test" / "smoke" / "suites"
-    if internal_suites.is_dir():
-        internal_data_root = str(internal / "rtp_llm" / "test" / "smoke")
-        internal_errors = _validate_dir(
-            internal_suites,
-            internal_data_root,
-            EXPECTED_INTERNAL_SUITE_COUNTS,
-        )
-        if internal_errors:
-            print(
-                f"=== internal smoke suites: {len(internal_errors)} error(s) ===",
-                file=sys.stderr,
+    if not args.oss_only:
+        if internal_suites.is_dir():
+            internal_data_root = str(internal / "rtp_llm" / "test" / "smoke")
+            internal_errors = _validate_dir(
+                internal_suites,
+                internal_data_root,
+                EXPECTED_INTERNAL_SUITE_COUNTS,
             )
-            for e in internal_errors:
-                print(f"  {e}", file=sys.stderr)
-            all_errors.extend(internal_errors)
+            if internal_errors:
+                print(
+                    f"=== internal smoke suites: {len(internal_errors)} error(s) ===",
+                    file=sys.stderr,
+                )
+                for e in internal_errors:
+                    print(f"  {e}", file=sys.stderr)
+                all_errors.extend(internal_errors)
+        elif args.internal_root:
+            all_errors.append(
+                f"missing internal smoke suites dir: {internal_suites}"
+            )
 
     if all_errors:
         print(

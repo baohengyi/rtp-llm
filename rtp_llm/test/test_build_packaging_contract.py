@@ -946,35 +946,76 @@ class BuildPackagingContractTest(TestCase):
                 )
                 self.assertNotIn("skip", decorator_names)
 
-    def test_cpp_disabled_inventory_matches_upstream_main(self):
-        expected = {
-            "DISABLED_MallocAutoInjectReducesBlockCount",
-            "DISABLED_MallocWithoutCPAllocatesFullBlocks",
-            "DISABLED_AllocatorMapperControlsMalloc",
-            "DISABLED_InsertAutoInjectsMapper",
-            "DISABLED_FlatFallbackLargeLru",
-            "DISABLED_PrefixTreeLongSessionChains",
-            "DISABLED_DeepSeekFlashDecodeB35P3",
-            "DISABLED_benchmarkScoreTokenIdsTorchCopyVsMemcpy",
-            "DISABLED_benchmarkLatestFlashinferSamplingVsCurrentRtp",
-            "DISABLED_compareLatestFlashinferSamplingAccuracyVsCurrentRtp",
-        }
-        actual = set()
-        pattern = re.compile(r"TEST(?:_F|_P)?\([^,]+,\s*(DISABLED_[A-Za-z0-9_]+)")
+    def test_cpp_tests_do_not_use_disabled_prefixes(self):
         for source_path in (PROJECT_ROOT / "rtp_llm").rglob("*"):
             if source_path.suffix in {".cc", ".cpp", ".cu", ".h", ".hpp"}:
-                actual.update(pattern.findall(source_path.read_text(errors="ignore")))
-        self.assertEqual(actual, expected)
+                self.assertNotIn(
+                    "DISABLED_",
+                    source_path.read_text(errors="ignore"),
+                    str(source_path.relative_to(PROJECT_ROOT)),
+                )
 
-        removed_manual_targets = {
-            "rtp_llm/cpp/cache/test/BUILD": "shared_block_cache_perf_test",
-            "rtp_llm/cpp/normal_engine/speculative/test/BUILD": "mtp_batch_stream_processor_perf_test",
-            "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD": "cuda_sampler_manual_benchmark",
+        cp_source = (
+            PROJECT_ROOT
+            / "rtp_llm/cpp/cache/test/KVCacheManagerCPSlotMapperTest.cc"
+        ).read_text()
+        for test_name in (
+            "MallocAutoInjectReducesBlockCount",
+            "MallocWithoutCPAllocatesFullBlocks",
+            "AllocatorMapperControlsMalloc",
+            "InsertAutoInjectsMapper",
+        ):
+            self.assertIn(
+                f"TEST_F(KVCacheManagerCPSlotMapperTest, {test_name})", cp_source
+            )
+
+    def test_cpp_benchmarks_use_explicit_manual_targets(self):
+        def target_block(relative_path, target_name):
+            build_text = (PROJECT_ROOT / relative_path).read_text()
+            marker_pos = build_text.index(f'name = "{target_name}"')
+            block_start = build_text.rfind("cc_test(", 0, marker_pos)
+            block_end = build_text.index("\n)", marker_pos) + 2
+            return build_text[block_start:block_end]
+
+        manual_targets = {
+            (
+                "rtp_llm/cpp/cache/test/BUILD",
+                "shared_block_cache_perf_test",
+            ): True,
+            (
+                "rtp_llm/cpp/normal_engine/speculative/test/BUILD",
+                "mtp_batch_stream_processor_perf_test",
+            ): True,
+            (
+                "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD",
+                "cuda_sampler_manual_benchmark",
+            ): True,
+            (
+                "rtp_llm/cpp/models/logits_processor/test/BUILD",
+                "spec_logits_verify_runner_perf_test",
+            ): False,
         }
-        for relative_path, target_name in removed_manual_targets.items():
+        for (relative_path, target_name), needs_macro in manual_targets.items():
+            block = target_block(relative_path, target_name)
+            self.assertIn('tags = ["manual"]', block)
+            if needs_macro:
+                self.assertIn('"-DRTP_LLM_MANUAL_BENCHMARKS"', block)
+                self.assertIn("--gtest_filter=", block)
+
+        for relative_path, default_target in (
+            ("rtp_llm/cpp/cache/test/BUILD", "shared_block_cache_test"),
+            (
+                "rtp_llm/cpp/normal_engine/speculative/test/BUILD",
+                "mtp_batch_stream_processor_test",
+            ),
+            (
+                "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD",
+                "cuda_sampler_test",
+            ),
+        ):
             self.assertNotIn(
-                f'name = "{target_name}"',
-                (PROJECT_ROOT / relative_path).read_text(),
+                "RTP_LLM_MANUAL_BENCHMARKS",
+                target_block(relative_path, default_target),
             )
 
     def test_cpp_device_pin_targets_request_the_resources_they_assert(self):
@@ -1055,6 +1096,68 @@ class BuildPackagingContractTest(TestCase):
 
         self.assertIn("pytest.mark.gpu(type='H20')", source)
         self.assertIn("pytest.mark.manual", source)
+
+    def test_smoke_profiles_enforce_native_collection_parity(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        profiles = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"]
+        expected_counts = {
+            "smoke_h20_light_oss": 14,
+            "smoke_h20_full_oss": 57,
+            "smoke_sm8x_light_oss": 9,
+            "smoke_sm8x_full_oss": 9,
+            "smoke_sm100_oss": 12,
+            "smoke_sm100_eval_oss": 1,
+            "smoke_sm120_oss": 6,
+            "smoke_rocm_oss": 25,
+            "smoke_rocm_qwen35_mtp_manual": 1,
+            "smoke_remote_cache_oss": 11,
+        }
+        for name, expected_count in expected_counts.items():
+            self.assertEqual(profiles[name]["expected_count"], expected_count)
+            self.assertTrue(profiles[name]["forbid_skips"])
+
+        self.assertEqual(
+            profiles["smoke_sm120_oss"]["paths"],
+            ["rtp_llm/test/smoke/suites/"],
+        )
+        self.assertEqual(profiles["smoke_sm120_internal"]["expected_count"], 1)
+
+    def test_non_model_smokes_use_python_native_entrypoints(self):
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        scripts = pyproject["project"]["scripts"]
+        self.assertEqual(
+            scripts["rtp-llm-json-format-smoke"],
+            "rtp_llm.dash_sc.json_format_e2e_smoke:main",
+        )
+        self.assertEqual(
+            scripts["rtp-llm-grammar-validation-smoke"],
+            "rtp_llm.dash_sc.grammar_validation_smoke:main",
+        )
+
+        dash_build = (PROJECT_ROOT / "rtp_llm/dash_sc/BUILD").read_text()
+        dash_test_build = (PROJECT_ROOT / "rtp_llm/dash_sc/test/BUILD").read_text()
+        utils_test_build = (PROJECT_ROOT / "rtp_llm/utils/test/BUILD").read_text()
+        self.assertNotIn('name = "json_format_e2e_smoke"', dash_build)
+        self.assertNotIn('name = "grammar_validation_smoke"', dash_build)
+        self.assertNotIn('name = "mrcr_smoke_test"', dash_test_build)
+        self.assertNotIn("custom_smoke_test(", utils_test_build)
+        self.assertNotIn(
+            "bazel",
+            (
+                PROJECT_ROOT / "rtp_llm/dash_sc/grammar_validation_smoke.py"
+            ).read_text().lower(),
+        )
+
+        frontend_paths = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"][
+            "py_ut_frontend"
+        ]["paths"]
+        self.assertIn(
+            "rtp_llm/dash_sc/test/inference/mrcr_smoke_test.py", frontend_paths
+        )
 
     def test_h20_full_smoke_profile_preserves_remote_jit_cache_contract(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:

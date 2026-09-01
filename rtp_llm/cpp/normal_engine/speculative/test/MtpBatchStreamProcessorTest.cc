@@ -31,6 +31,7 @@ std::vector<T> toVec(const torch::Tensor& t) {
     return std::vector<T>(c.data_ptr<T>(), c.data_ptr<T>() + c.numel());
 }
 
+#ifdef RTP_LLM_MANUAL_BENCHMARKS
 void fillScoreTokenIdsWithMemcpy(torch::Tensor&                    token_ids,
                                  const std::vector<torch::Tensor>& complete_token_ids,
                                  const std::vector<int64_t>&       seq_lens,
@@ -71,6 +72,7 @@ double benchmarkUs(Func&& func, int iterations) {
     auto end = std::chrono::steady_clock::now();
     return std::chrono::duration<double, std::micro>(end - start).count() / iterations;
 }
+#endif
 
 class MtpBatchStreamProcessorTest: public DeviceTestBase {
 public:
@@ -150,7 +152,8 @@ public:
     }
 };
 
-TEST_F(MtpBatchStreamProcessorTest, DISABLED_benchmarkScoreTokenIdsTorchCopyVsMemcpy) {
+#ifdef RTP_LLM_MANUAL_BENCHMARKS
+TEST_F(MtpBatchStreamProcessorTest, benchmarkScoreTokenIdsTorchCopyVsMemcpy) {
     constexpr int64_t stream_count = 64;
     constexpr int64_t score_len    = 4;
     constexpr int64_t max_seq_len  = 65536;
@@ -187,6 +190,7 @@ TEST_F(MtpBatchStreamProcessorTest, DISABLED_benchmarkScoreTokenIdsTorchCopyVsMe
               << " max_seq_len=" << max_seq_len << " iterations=" << iterations << " memcpy_us=" << memcpy_us
               << " torch_copy_us=" << torch_us << " speedup=" << (memcpy_us / torch_us) << std::endl;
 }
+#endif
 
 TEST_F(MtpBatchStreamProcessorTest, testGatherSpecSamplerInputBuildsPositionSpecificHistories) {
     ModelConfig                 model_config;
