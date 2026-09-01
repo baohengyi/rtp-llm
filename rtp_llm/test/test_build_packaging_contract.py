@@ -646,6 +646,36 @@ class BuildPackagingContractTest(TestCase):
         self.assertIn("MI308X", profile["markexpr"])
         self.assertIn("not MI308X", profiles["py_ut_sm8x"]["markexpr"])
 
+    def test_broad_py_ut_profiles_reject_empty_runs(self):
+        """Main-tracking UT profiles need a stable non-zero execution contract."""
+        with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
+            pyproject = tomllib.load(f)
+
+        profiles = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"]
+        for name in (
+            "py_ut_sm8x",
+            "py_ut_sm9x",
+            "py_ut_sm100_arm",
+            "py_ut_amd",
+            "py_ut_frontend",
+        ):
+            self.assertEqual(
+                profiles[name].get("minimum_count"),
+                1,
+                f"{name} must fail instead of reporting a successful 0/0 run",
+            )
+
+        internal_root = PROJECT_ROOT.parent
+        internal_overlay = internal_root / "internal_source" / "pyproject_internal.toml"
+        if (internal_root / ".git").exists() and internal_overlay.exists():
+            with open(internal_overlay, "rb") as f:
+                internal_profiles = tomllib.load(f)["tool"]["rtp_llm"][
+                    "pytest_ci"
+                ]["profiles"]
+            self.assertEqual(internal_profiles["py_ut_gb200"].get("minimum_count"), 1)
+            self.assertEqual(internal_profiles["py_ut_ppu"].get("minimum_count"), 1)
+            self.assertEqual(internal_profiles["py_ut_ppu"].get("expected_count"), 21)
+
     def test_rocm_unit_cases_are_routed_by_mi308x_marker(self):
         """ROCm-only cases must be deselected before running on CUDA workers."""
 
@@ -958,76 +988,35 @@ class BuildPackagingContractTest(TestCase):
                 )
                 self.assertNotIn("skip", decorator_names)
 
-    def test_cpp_tests_do_not_use_disabled_prefixes(self):
+    def test_cpp_disabled_inventory_matches_upstream_main(self):
+        """C++ remains GTest-owned, including its default-disabled inventory."""
+        expected = {
+            "DISABLED_MallocAutoInjectReducesBlockCount",
+            "DISABLED_MallocWithoutCPAllocatesFullBlocks",
+            "DISABLED_AllocatorMapperControlsMalloc",
+            "DISABLED_InsertAutoInjectsMapper",
+            "DISABLED_FlatFallbackLargeLru",
+            "DISABLED_PrefixTreeLongSessionChains",
+            "DISABLED_DeepSeekFlashDecodeB35P3",
+            "DISABLED_benchmarkScoreTokenIdsTorchCopyVsMemcpy",
+            "DISABLED_benchmarkLatestFlashinferSamplingVsCurrentRtp",
+            "DISABLED_compareLatestFlashinferSamplingAccuracyVsCurrentRtp",
+        }
+        actual = set()
+        pattern = re.compile(r"TEST(?:_F|_P)?\([^,]+,\s*(DISABLED_[A-Za-z0-9_]+)")
         for source_path in (PROJECT_ROOT / "rtp_llm").rglob("*"):
             if source_path.suffix in {".cc", ".cpp", ".cu", ".h", ".hpp"}:
-                self.assertNotIn(
-                    "DISABLED_",
-                    source_path.read_text(errors="ignore"),
-                    str(source_path.relative_to(PROJECT_ROOT)),
-                )
+                actual.update(pattern.findall(source_path.read_text(errors="ignore")))
+        self.assertEqual(actual, expected)
 
-        cp_source = (
-            PROJECT_ROOT
-            / "rtp_llm/cpp/cache/test/KVCacheManagerCPSlotMapperTest.cc"
-        ).read_text()
-        for test_name in (
-            "MallocAutoInjectReducesBlockCount",
-            "MallocWithoutCPAllocatesFullBlocks",
-            "AllocatorMapperControlsMalloc",
-            "InsertAutoInjectsMapper",
-        ):
-            self.assertIn(
-                f"TEST_F(KVCacheManagerCPSlotMapperTest, {test_name})", cp_source
-            )
-
-    def test_cpp_benchmarks_use_explicit_manual_targets(self):
-        def target_block(relative_path, target_name):
-            build_text = (PROJECT_ROOT / relative_path).read_text()
-            marker_pos = build_text.index(f'name = "{target_name}"')
-            block_start = build_text.rfind("cc_test(", 0, marker_pos)
-            block_end = build_text.index("\n)", marker_pos) + 2
-            return build_text[block_start:block_end]
-
-        manual_targets = {
-            (
-                "rtp_llm/cpp/cache/test/BUILD",
-                "shared_block_cache_perf_test",
-            ): True,
-            (
-                "rtp_llm/cpp/normal_engine/speculative/test/BUILD",
-                "mtp_batch_stream_processor_perf_test",
-            ): True,
-            (
-                "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD",
-                "cuda_sampler_manual_benchmark",
-            ): True,
-            (
-                "rtp_llm/cpp/models/logits_processor/test/BUILD",
-                "spec_logits_verify_runner_perf_test",
-            ): False,
-        }
-        for (relative_path, target_name), needs_macro in manual_targets.items():
-            block = target_block(relative_path, target_name)
-            self.assertIn('tags = ["manual"]', block)
-            if needs_macro:
-                self.assertIn('"-DRTP_LLM_MANUAL_BENCHMARKS"', block)
-                self.assertIn("--gtest_filter=", block)
-
-        for relative_path, default_target in (
-            ("rtp_llm/cpp/cache/test/BUILD", "shared_block_cache_test"),
-            (
-                "rtp_llm/cpp/normal_engine/speculative/test/BUILD",
-                "mtp_batch_stream_processor_test",
-            ),
-            (
-                "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD",
-                "cuda_sampler_test",
-            ),
+        for build_path in (
+            "rtp_llm/cpp/cache/test/BUILD",
+            "rtp_llm/cpp/normal_engine/speculative/test/BUILD",
+            "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD",
         ):
             self.assertNotIn(
                 "RTP_LLM_MANUAL_BENCHMARKS",
-                target_block(relative_path, default_target),
+                (PROJECT_ROOT / build_path).read_text(),
             )
 
     def test_cpp_device_pin_targets_request_the_resources_they_assert(self):
@@ -1136,6 +1125,21 @@ class BuildPackagingContractTest(TestCase):
         )
         self.assertEqual(profiles["smoke_sm120_internal"]["expected_count"], 1)
 
+    def test_standalone_perf_pipeline_uses_native_pytest(self):
+        """Internal perf CI must not regress to Bazel-owned Python tests."""
+        perf_yaml = PROJECT_ROOT.parent / ".aoneci" / "perf.yaml"
+        if not perf_yaml.exists():
+            return
+
+        source = perf_yaml.read_text()
+        self.assertNotIn("BAZEL_TEST_TARGET", source)
+        self.assertNotIn("basic_test.sh test", source)
+        self.assertNotIn("perf-a100:", source)
+        self.assertNotIn("perf-amd:", source)
+        self.assertIn('PYTEST_PROFILE: "perf_sm9x"', source)
+        self.assertIn('PYTEST_PROFILE: "perf_ppu_internal"', source)
+        self.assertIn("--remote-no-test-cache", source)
+
     def test_non_model_smokes_use_python_native_entrypoints(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             pyproject = tomllib.load(f)
@@ -1215,9 +1219,20 @@ class BuildPackagingContractTest(TestCase):
     def test_jit_cache_smoke_adapters_do_not_reexport_testcase(self):
         """Imported TestCase classes are collected again from every adapter module."""
         suite_dir = PROJECT_ROOT / "rtp_llm" / "test" / "smoke" / "suites"
-        for name in ("test_smoke_h20_jit_cache.py", "test_smoke_rocm_jit_cache.py"):
+        expected_cases = {
+            "test_smoke_h20_jit_cache.py": (
+                "jit_cache_deepseek_v2_lite",
+                "test_deepseek_v2_lite",
+            ),
+            "test_smoke_rocm_jit_cache.py": (
+                "jit_cache_qwen3_rocm",
+                "test_qwen3_rocm",
+            ),
+        }
+        for name, (case_name, unittest_name) in expected_cases.items():
             path = suite_dir / name
-            tree = ast.parse(path.read_text())
+            source = path.read_text()
+            tree = ast.parse(source)
             direct_imports = [
                 alias.name
                 for node in ast.walk(tree)
@@ -1231,6 +1246,19 @@ class BuildPackagingContractTest(TestCase):
                 [],
                 f"{name} exposes JitCacheSmokeTest to pytest collection",
             )
+            smoke_cases = next(
+                ast.literal_eval(node.value)
+                for node in tree.body
+                if isinstance(node, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name) and target.id == "SMOKE_CASES"
+                    for target in node.targets
+                )
+            )
+            self.assertEqual(set(smoke_cases), {case_name})
+            self.assertIn(f'JitCacheSmokeTest("{unittest_name}")', source)
+            self.assertNotIn("pytest.skip(", source)
+            self.assertIn("pytest.fail(", source)
 
     def test_deepgemm_optional_symbol_does_not_block_available_symbols(self):
         wrapper_path = (

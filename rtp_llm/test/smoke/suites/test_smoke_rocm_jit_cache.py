@@ -38,6 +38,6 @@ def test_smoke_rocm_jit_cache(test_name: str, test_config: dict, monkeypatch):
     result = unittest.TestResult()
     suite.run(result)
     if result.skipped:
-        pytest.skip(result.skipped[0][1])
+        pytest.fail(f"JIT cache smoke did not execute: {result.skipped[0][1]}")
     assert not result.errors, result.errors
     assert not result.failures, result.failures

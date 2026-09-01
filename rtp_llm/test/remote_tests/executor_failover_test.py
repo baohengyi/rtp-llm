@@ -418,6 +418,39 @@ def test_remote_session_rejects_non_pyut_profile():
     )
 
 
+def test_ci_profile_count_rejects_zero_without_exact_baseline():
+    config = _FakeProfileConfig(remote_session=True)
+    config._rtp_ci_minimum_count = 1
+    config._rtp_ci_expected_count = None
+
+    with pytest.raises(pytest.UsageError, match="must never pass as 0/0"):
+        ci_profile_plugin.validate_ci_profile_count(
+            config, 0, context="reported"
+        )
+
+    ci_profile_plugin.validate_ci_profile_count(config, 17, context="reported")
+
+
+def test_remote_session_result_enforces_exact_count_and_skip_contract():
+    config = _FakeProfileConfig(remote_session=True)
+    config._rtp_ci_minimum_count = 1
+    config._rtp_ci_expected_count = 21
+    config._rtp_ci_forbid_skips = True
+
+    assert (
+        remote_plugin._validate_session_profile_result(
+            config, "py_ut_ppu", tests=21, skipped=0
+        )
+        == ""
+    )
+    assert "expected 21" in remote_plugin._validate_session_profile_result(
+        config, "py_ut_ppu", tests=20, skipped=0
+    )
+    assert "reported 1 skipped" in remote_plugin._validate_session_profile_result(
+        config, "py_ut_ppu", tests=21, skipped=1
+    )
+
+
 def test_per_test_command_exports_marker_gpu_count(tmp_path):
     rootdir = tmp_path / "repo"
     test_file = rootdir / "test_remote.py"

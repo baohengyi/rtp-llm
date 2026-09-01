@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Tuple
 
 import pytest
 
+from rtp_llm.test.ci_profile_plugin import validate_ci_profile_count
+
 from .endpoint_info import extract_remote_worker_ip
 from .remote_exec_rtp import (
     GPURequest,
@@ -248,6 +250,27 @@ def _count_junit(root: ET.Element) -> Tuple[int, int, int, int, float]:
         if testcase.find("skipped") is not None:
             skipped += 1
     return tests, failures, errors, skipped, total_time
+
+
+def _validate_session_profile_result(
+    config: pytest.Config,
+    ci_profile: Optional[str],
+    *,
+    tests: int,
+    skipped: int,
+) -> str:
+    if not ci_profile:
+        return ""
+    try:
+        validate_ci_profile_count(config, tests, context="reported")
+    except pytest.UsageError as exc:
+        return str(exc)
+    if getattr(config, "_rtp_ci_forbid_skips", False) and skipped:
+        return (
+            f"CI profile {ci_profile!r} reported {skipped} skipped test(s); "
+            "selected cases must execute"
+        )
+    return ""
 
 
 def _serialize_testcase(testcase: ET.Element) -> str:
@@ -1717,10 +1740,13 @@ class RemoteREAPIPlugin:
         merged_xml, merged_tests, replayed_cached = self._merge_session_junit(
             xml_content
         )
+        merged_skipped = 0
         if merged_xml:
             junit_path = self.rootdir / "bazel-testlogs" / "pytest" / "test.xml"
             junit_path.parent.mkdir(parents=True, exist_ok=True)
             junit_path.write_text(merged_xml)
+            merged_root = ET.fromstring(merged_xml)
+            _, _, _, merged_skipped, _ = _count_junit(merged_root)
             log.info(
                 "Wrote remote junitxml to %s (%d bytes, replayed_cached=%d)",
                 junit_path,
@@ -1755,6 +1781,21 @@ class RemoteREAPIPlugin:
                 exit_code = int(stdout.rsplit("EXIT_CODE=", 1)[1].strip().split()[0])
             except (ValueError, IndexError):
                 pass
+
+        profile_error = _validate_session_profile_result(
+            self.config,
+            self.ci_profile,
+            tests=merged_tests,
+            skipped=merged_skipped,
+        )
+        if profile_error:
+            log.error("Remote session profile validation failed: %s", profile_error)
+            if tw:
+                tw.line(profile_error)
+            print(profile_error, file=_sys.stderr)
+            if exit_code == 0:
+                exit_code = int(pytest.ExitCode.USAGE_ERROR)
+
         if exit_code == 5 and merged_tests > 0 and replayed_cached > 0:
             log.info(
                 "Remote pytest returned no-tests-ran, but %d cached tests were replayed; treating as success",

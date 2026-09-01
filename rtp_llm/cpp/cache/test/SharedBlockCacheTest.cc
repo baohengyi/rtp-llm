@@ -469,8 +469,7 @@ TEST(SharedBlockCacheTest, SelectAndEvictForGroupDoesNotPruneWhenTargetAncestorB
     EXPECT_TRUE(cache.contains(4));
 }
 
-#ifdef RTP_LLM_MANUAL_BENCHMARKS
-TEST(SharedBlockCachePerfTest, FlatFallbackLargeLru) {
+TEST(SharedBlockCachePerfTest, DISABLED_FlatFallbackLargeLru) {
     constexpr int kItemCount    = 20000;
     constexpr int kTargetStride = 5;
     constexpr int kEvictCount   = 2000;
@@ -497,7 +496,7 @@ TEST(SharedBlockCachePerfTest, FlatFallbackLargeLru) {
               << " selection_us=" << elapsed.count() << std::endl;
 }
 
-TEST(SharedBlockCachePerfTest, PrefixTreeLongSessionChains) {
+TEST(SharedBlockCachePerfTest, DISABLED_PrefixTreeLongSessionChains) {
     constexpr int kFamilyCount = 16;
     constexpr int kChainDepth  = 512;
 
@@ -528,6 +527,4 @@ TEST(SharedBlockCachePerfTest, PrefixTreeLongSessionChains) {
               << " chains=" << kFamilyCount << " depth=" << kChainDepth
               << " evicted=" << evicted.evicted_keys.size() << " selection_us=" << elapsed.count() << std::endl;
 }
-#endif
-
 }  // namespace rtp_llm::test

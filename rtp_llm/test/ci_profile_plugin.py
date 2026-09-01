@@ -138,6 +138,12 @@ def pytest_configure(config: pytest.Config) -> None:
                 f"--rtp-ci-profile: profile {name!r} expected_count must be a positive integer"
             )
         config._rtp_ci_expected_count = expected_count  # type: ignore[attr-defined]
+    minimum_count = prof.get("minimum_count", 1)
+    if not isinstance(minimum_count, int) or minimum_count < 1:
+        raise pytest.UsageError(
+            f"--rtp-ci-profile: profile {name!r} minimum_count must be a positive integer"
+        )
+    config._rtp_ci_minimum_count = minimum_count  # type: ignore[attr-defined]
     _forbid_skips = bool(prof.get("forbid_skips", False))
     config._rtp_ci_forbid_skips = _forbid_skips  # type: ignore[attr-defined]
     markexpr = prof["markexpr"]
@@ -195,19 +201,45 @@ def pytest_configure(config: pytest.Config) -> None:
         )
 
 
-@pytest.hookimpl(trylast=True)
-def pytest_collection_finish(session: pytest.Session) -> None:
-    """Fail before execution when a full CI profile silently loses cases."""
-    expected = getattr(session.config, "_rtp_ci_expected_count", None)
-    if expected is None or session.config.getoption("--rtp-ci-allow-subset"):
+def validate_ci_profile_count(
+    config: pytest.Config, actual: int, *, context: str = "collected"
+) -> None:
+    """Reject empty or drifted CI profile results.
+
+    Broad Python UT profiles track main and therefore use ``minimum_count`` to
+    reject 0/0 runs. Frozen smoke/perf/platform manifests additionally declare
+    ``expected_count`` for exact parity.
+    """
+    minimum = getattr(config, "_rtp_ci_minimum_count", None)
+    if minimum is None:
         return
-    actual = len(session.items)
-    if actual != expected:
+    if actual < minimum:
         raise pytest.UsageError(
-            f"CI profile {_active_profile_name!r} collected {actual} tests; "
+            f"CI profile {_active_profile_name!r} {context} {actual} tests; "
+            f"expected at least {minimum}. A CI profile must never pass as 0/0."
+        )
+
+    expected = getattr(config, "_rtp_ci_expected_count", None)
+    if (
+        expected is not None
+        and not config.getoption("--rtp-ci-allow-subset")
+        and actual != expected
+    ):
+        raise pytest.UsageError(
+            f"CI profile {_active_profile_name!r} {context} {actual} tests; "
             f"expected {expected}. Update the manifest/profile together, or use "
             "--rtp-ci-allow-subset for an intentional manual subset."
         )
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """Fail before execution when a local/per-test CI profile loses cases."""
+    if session.config.getoption("--remote-session", default=False):
+        # Session controllers intentionally skip local collection. The remote
+        # plugin validates the merged worker JUnit after execution instead.
+        return
+    validate_ci_profile_count(session.config, len(session.items))
 
 
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
