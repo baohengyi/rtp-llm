@@ -454,6 +454,7 @@ gpu_type = "SM100_ARM"
 markexpr = "manual and smoke and SM100_ARM and eval"
 expected_count = 1
 forbid_skips = true
+remote_env = { REMOTE_JIT_DIR = "/tmp/rtp-llm/.remote_jit_cache" }
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_sm120_oss]
 description = "OSS smoke RTX 5000 Pro / SM120"
