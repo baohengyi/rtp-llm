@@ -372,6 +372,8 @@ markexpr = "(H20 or multi_arch_cuda) and not MI308X and not SM100 and not SM100_
 description = "Python UT on SM100 ARM (py-ut-sm100-arm)"
 gpu_type = "SM100_ARM"
 minimum_count = 1
+expected_count = 65
+forbid_skips = true
 markexpr = "SM100_ARM and not smoke and not perf and not manual"
 
 [tool.rtp_llm.pytest_ci.profiles.py_ut_amd]
