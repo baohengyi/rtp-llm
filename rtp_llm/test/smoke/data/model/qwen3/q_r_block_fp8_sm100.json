@@ -64,6 +64,7 @@
                 ],
                 "stream": false,
                 "extra_configs": {
+                    "temperature": 0.0,
                     "top_k": 1,
                     "chat_template_kwargs": {
                         "enable_thinking": false
@@ -192,6 +193,7 @@
                 ],
                 "stream": true,
                 "extra_configs": {
+                    "temperature": 0.0,
                     "top_k": 1,
                     "chat_template_kwargs": {
                         "enable_thinking": false
