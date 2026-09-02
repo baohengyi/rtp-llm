@@ -869,6 +869,13 @@ class RemoteREAPIPlugin:
                 time.sleep(wait)
         return last_result
 
+    def _execute_queued_with_retry(self, **kwargs) -> ExecutionResult:
+        """Start a per-test execution budget after the local queue wait."""
+        kwargs["global_deadline_epoch"] = (
+            time.time() + self.timeout_policy.session_budget_seconds
+        )
+        return self._execute_with_retry(**kwargs)
+
     @pytest.hookimpl(tryfirst=True)
     def pytest_ignore_collect(self, collection_path, config):
         """In session mode, skip local collection entirely.
@@ -970,7 +977,7 @@ class RemoteREAPIPlugin:
                 env_vars.update(make_output_collection_env())
                 output_files = make_output_files_decl()
             future = self._pool.submit(
-                self._execute_with_retry,
+                self._execute_queued_with_retry,
                 command=cmd,
                 input_root_digest=self._input_root,
                 env_vars=env_vars,
@@ -979,8 +986,6 @@ class RemoteREAPIPlugin:
                 action_timeout_seconds=self.timeout_policy.action_timeout_seconds,
                 rpc_timeout_seconds=self.timeout_policy.rpc_timeout_seconds,
                 queued_timeout_seconds=self.timeout_policy.queued_timeout_seconds,
-                global_deadline_epoch=time.time()
-                + self.timeout_policy.session_budget_seconds,
                 min_retry_remaining_seconds=self.timeout_policy.min_retry_remaining_seconds,
                 output_files=output_files,
                 no_cache=self.no_cache,

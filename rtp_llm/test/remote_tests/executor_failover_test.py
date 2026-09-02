@@ -699,6 +699,41 @@ def test_timeout_policy_maps_ci_profiles():
     ) == (6600, 6300, 6120, 1800, 1200)
 
 
+def test_per_test_deadline_starts_after_local_queue_wait(monkeypatch):
+    plugin = object.__new__(remote_plugin.RemoteREAPIPlugin)
+    plugin.timeout_policy = select_remote_timeout_policy(
+        "smoke_sm100_oss", per_test=True
+    )
+    captured = {}
+    now = [100.0]
+    blocker_started = threading.Event()
+    release_blocker = threading.Event()
+
+    def _block_worker():
+        blocker_started.set()
+        assert release_blocker.wait(timeout=5)
+
+    def _capture_execute(**kwargs):
+        captured.update(kwargs)
+        return ExecutionResult(exit_code=0)
+
+    monkeypatch.setattr(remote_plugin.time, "time", lambda: now[0])
+    plugin._execute_with_retry = _capture_execute
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        blocker = pool.submit(_block_worker)
+        assert blocker_started.wait(timeout=5)
+        queued = pool.submit(plugin._execute_queued_with_retry, command=["true"])
+        now[0] = 250.0
+        release_blocker.set()
+        blocker.result(timeout=5)
+        assert queued.result(timeout=5).exit_code == 0
+
+    assert captured["global_deadline_epoch"] == (
+        250.0 + plugin.timeout_policy.session_budget_seconds
+    )
+
+
 def _done_operation(exit_code=0):
     op = remote_execution_pb2.Operation(name="operations/done", done=True)
     resp = remote_execution_pb2.ExecuteResponse(
