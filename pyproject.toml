@@ -402,7 +402,7 @@ markexpr = "MI308X and not smoke and not perf and not manual"
 description = "Frontend Python UT (py-ut-frontend)"
 gpu_type = "A10"
 minimum_count = 1
-expected_count = 62
+expected_count = 63
 forbid_skips = true
 paths = [
     "rtp_llm/frontend/test",

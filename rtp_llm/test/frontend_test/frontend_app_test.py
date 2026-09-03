@@ -13,7 +13,7 @@ from rtp_llm.ops import RoleType
 from rtp_llm.start_frontend_server import start_frontend_server
 from rtp_llm.test.utils.port_util import PortsContext
 
-pytestmark = [pytest.mark.gpu(type="A10"), pytest.mark.manual]
+pytestmark = [pytest.mark.gpu(type="A10")]
 
 
 class FrontendAppTest(unittest.TestCase):
