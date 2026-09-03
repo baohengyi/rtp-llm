@@ -236,6 +236,9 @@ class IndexerTest(TestCase):
             attn_inputs.sequence_lengths = torch.tensor(
                 [], dtype=torch.int32, device=torch.device("cpu")
             )
+            attn_inputs.prefix_lengths = torch.zeros(
+                batch_size, dtype=torch.int32, device=torch.device("cpu")
+            )
 
             # cu_seqlens: [0, seq_len, 2*seq_len, ...]
             cu_seqlens = torch.arange(
@@ -272,8 +275,11 @@ class IndexerTest(TestCase):
                 [seq_len] * batch_size, dtype=torch.int32, device=torch.device("cpu")
             )
             attn_inputs.sequence_lengths = sequence_lengths
-            attn_inputs.input_lengths = torch.tensor(
-                [], dtype=torch.int32, device=torch.device("cpu")
+            attn_inputs.input_lengths = torch.ones(
+                batch_size, dtype=torch.int32, device=torch.device("cpu")
+            )
+            attn_inputs.prefix_lengths = torch.empty(
+                0, dtype=torch.int32, device=torch.device("cpu")
             )
 
             # In decode mode, cu_seqlens is just [0, 1, 2, ..., batch_size]
@@ -304,10 +310,6 @@ class IndexerTest(TestCase):
             attn_inputs.kv_cache_block_id_device = kv_cache_block_id.to(device)
             attn_inputs.kv_cache_kernel_block_id = kv_cache_block_id
             attn_inputs.kv_cache_kernel_block_id_device = kv_cache_block_id.to(device)
-
-        attn_inputs.prefix_lengths = torch.zeros(
-            batch_size, dtype=torch.int32, device=torch.device("cpu")
-        )
 
         return attn_inputs
 
@@ -340,11 +342,6 @@ class IndexerTest(TestCase):
         attn_inputs = self._create_attention_inputs(batch_size, seq_len, is_prefill)
         fmha_params = rtp_llm_ops.prepare_sparse_mla_params(
             attn_inputs, config.attn_config.tokens_per_block
-        )
-        fmha_params.schedule_metadata = deep_gemm.get_paged_mqa_logits_metadata(
-            fmha_params.kvlen_d,
-            config.attn_config.tokens_per_block,
-            deep_gemm.get_num_sms(),
         )
         indexer_ref.prepare(attn_inputs)
 
@@ -383,7 +380,9 @@ class IndexerTest(TestCase):
             hidden_states=hidden_states.view(-1, config.hidden_size),
             q_lora=q_lora.view(-1, config.attn_config.q_lora_rank),
             kv_cache=kv_cache,
-            params=fmha_params,
+            fmha_params=fmha_params,
+            attention_inputs=attn_inputs,
+            use_fast_path=False,
         )
 
         dst_page_table_our = torch.sort(result, dim=-1).values

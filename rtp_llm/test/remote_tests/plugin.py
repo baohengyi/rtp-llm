@@ -2122,7 +2122,26 @@ class RemoteREAPIPlugin:
             "bazel-testlogs/pytest/test_isolated_*.xml"
         )
         lines.append("cat > /tmp/rtp_remote_nodeid_plugin.py << '_NODEID_PLUGIN_PY_'")
+        lines.append("import os")
+        lines.append("from pathlib import Path")
+        lines.append("")
         lines.append("import pytest")
+        lines.append("")
+        lines.append(
+            f"_ISOLATED_PATHS = frozenset({tuple(profile_isolated_paths)!r})"
+        )
+        lines.append("")
+        lines.append("def pytest_ignore_collect(collection_path, config):")
+        lines.append(
+            "    if os.environ.get('RTP_REMOTE_EXCLUDE_ISOLATED') != '1':"
+        )
+        lines.append("        return None")
+        lines.append(
+            "    relative_path = Path(os.path.relpath(str(collection_path), str(config.rootpath))).as_posix()"
+        )
+        lines.append("    while relative_path.startswith('../'):")
+        lines.append("        relative_path = relative_path[3:]")
+        lines.append("    return True if relative_path in _ISOLATED_PATHS else None")
         lines.append("")
         lines.append("@pytest.hookimpl(tryfirst=True, hookwrapper=True)")
         lines.append("def pytest_runtest_makereport(item, call):")
@@ -2198,6 +2217,9 @@ class RemoteREAPIPlugin:
                 f"{_heartbeat_shell(f'isolated_{index}_done')}; "
                 f'echo ">>>PHASE:isolated_{index}_done $(date +%s)"'
             )
+
+        if profile_isolated_paths:
+            lines.append("export RTP_REMOTE_EXCLUDE_ISOLATED=1")
 
         for tier, n_workers, phase_mark in phases:
             mark_arg = f"-m {shlex.quote(phase_mark)} " if phase_mark else ""

@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 import tarfile
 import threading
@@ -629,6 +630,7 @@ def test_session_command_runs_profile_isolated_paths_in_fresh_processes(monkeypa
     )
 
     shell = plugin._build_session_command("", runtime, ci_profile="py_ut_sm9x")[2]
+    inner_script = shlex.split(shell)[-1]
     isolated_start = shell.index(f"--- Isolated file: {isolated_path} ---")
     parallel_start = shell.index("--- Phase: 1-GPU tests")
     isolated_command = shell[isolated_start:parallel_start]
@@ -639,10 +641,28 @@ def test_session_command_runs_profile_isolated_paths_in_fresh_processes(monkeypa
     assert isolated_path in isolated_command
     assert "--junitxml=bazel-testlogs/pytest/test_isolated_0.xml" in isolated_command
     assert f"--ignore={isolated_path}" in parallel_command
+    exclude_isolated = shell.index("export RTP_REMOTE_EXCLUDE_ISOLATED=1")
+    assert isolated_start < exclude_isolated < parallel_start
+    assert "def pytest_ignore_collect(collection_path, config):" in shell
+    assert f"frozenset(({isolated_path!r},))" in inner_script
     assert "--max-worker-restart=0" in parallel_command
     assert "test_isolated_*.xml" in shell
     cleanup = shell.index("rm -f bazel-testlogs/pytest/test.xml")
     assert cleanup < isolated_start
+
+    plugin_source = inner_script.split("'_NODEID_PLUGIN_PY_'\n", 1)[1].split(
+        "\n_NODEID_PLUGIN_PY_", 1
+    )[0]
+    plugin_namespace = {}
+    exec(plugin_source, plugin_namespace)
+    ignore_collect = plugin_namespace["pytest_ignore_collect"]
+    config = SimpleNamespace(rootpath=Path.cwd())
+    isolated_collection = Path.cwd() / isolated_path
+    monkeypatch.setenv("RTP_REMOTE_EXCLUDE_ISOLATED", "1")
+    assert ignore_collect(isolated_collection, config) is True
+    assert ignore_collect(Path.cwd() / "rtp_llm/test/other_test.py", config) is None
+    monkeypatch.delenv("RTP_REMOTE_EXCLUDE_ISOLATED")
+    assert ignore_collect(isolated_collection, config) is None
 
 
 def test_executor_pool_resolves_hostname_inside_remote_framework(monkeypatch):
