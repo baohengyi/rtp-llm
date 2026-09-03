@@ -705,7 +705,7 @@ class BuildPackagingContractTest(TestCase):
         self.assertIn("not frontend", profiles["py_ut_oss_sm8x"]["markexpr"])
 
         for name, expected_count in {
-            "py_ut_sm8x": 2238,
+            "py_ut_sm8x": 2240,
             "py_ut_amd": 127,
             "py_ut_frontend": 62,
         }.items():
