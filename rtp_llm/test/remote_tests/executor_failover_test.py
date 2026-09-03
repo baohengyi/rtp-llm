@@ -960,7 +960,7 @@ def test_remote_setup_eviction_uses_venv_lock():
     assert "restored rtp_llm/libs from runtime libs archive" in command
 
 
-def test_remote_setup_keeps_heartbeat_alive_during_venv_install():
+def test_remote_setup_and_pytest_keep_heartbeat_alive_during_long_work():
     command = remote_exec_rtp.build_remote_setup_command(Path("."))
 
     assert "prepare_venv.py >logs/prepare_venv.out" in command
@@ -971,6 +971,15 @@ def test_remote_setup_keeps_heartbeat_alive_during_venv_install():
     assert subprocess.run(
         ["bash", "-n"], input=command, text=True, capture_output=True, check=False
     ).returncode == 0
+
+    heartbeat_plugin = remote_plugin._heartbeat_plugin_shell()
+    assert (
+        "threading.Thread(target=_heartbeat_loop, daemon=True).start()"
+        in heartbeat_plugin
+    )
+    assert "_heartbeat_stop.wait(60)" in heartbeat_plugin
+    assert "_touch('pytest_active')" in heartbeat_plugin
+    assert "_heartbeat_stop.set()" in heartbeat_plugin
 
 
 def test_remote_setup_exports_profile_env():
