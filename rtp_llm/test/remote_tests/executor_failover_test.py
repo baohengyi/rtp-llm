@@ -1,3 +1,4 @@
+import subprocess
 import tarfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -945,6 +946,19 @@ def test_remote_setup_eviction_uses_venv_lock():
     assert "evict_locked_venvs -mmin +360" in command
     assert "evict_locked_venvs -mmin +60" in command
     assert "restored rtp_llm/libs from runtime libs archive" in command
+
+
+def test_remote_setup_keeps_heartbeat_alive_during_venv_install():
+    command = remote_exec_rtp.build_remote_setup_command(Path("."))
+
+    assert "prepare_venv.py >logs/prepare_venv.out" in command
+    assert "PV_PID=$!" in command
+    assert "pip_install_active" in command
+    assert 'wait "$PV_PID"; PV_RC=$?' in command
+    assert 'OUT=$(cat logs/prepare_venv.out)' in command
+    assert subprocess.run(
+        ["bash", "-n"], input=command, text=True, capture_output=True, check=False
+    ).returncode == 0
 
 
 def test_remote_setup_exports_profile_env():
