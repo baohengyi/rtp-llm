@@ -707,6 +707,7 @@ class BuildPackagingContractTest(TestCase):
         for name, expected_count in {
             "py_ut_sm8x": 2240,
             "py_ut_sm9x": 348,
+            "py_ut_sm100_arm": 113,
             "py_ut_amd": 127,
             "py_ut_frontend": 62,
         }.items():
@@ -715,7 +716,6 @@ class BuildPackagingContractTest(TestCase):
                 profiles[name].get("forbid_skips"),
                 f"{name} must reject partial runs with skipped tests",
             )
-
         internal_root = PROJECT_ROOT.parent
         internal_overlay = internal_root / "internal_source" / "pyproject_internal.toml"
         if (internal_root / ".git").exists() and internal_overlay.exists():
@@ -724,6 +724,10 @@ class BuildPackagingContractTest(TestCase):
                     "pytest_ci"
                 ]["profiles"]
             self.assertEqual(internal_profiles["py_ut_gb200"].get("minimum_count"), 1)
+            self.assertEqual(
+                internal_profiles["py_ut_gb200"].get("expected_count"), 113
+            )
+            self.assertTrue(internal_profiles["py_ut_gb200"].get("forbid_skips"))
             self.assertEqual(internal_profiles["py_ut_ppu"].get("minimum_count"), 1)
             self.assertEqual(internal_profiles["py_ut_ppu"].get("expected_count"), 23)
 
@@ -1111,6 +1115,72 @@ class BuildPackagingContractTest(TestCase):
         self.assertEqual(profiles["py_ut_sm8x"]["ignore_paths"], dsv4_paths)
         self.assertEqual(profiles["py_ut_sm9x"]["ignore_paths"], dsv4_paths)
         self.assertNotIn("ignore_paths", profiles["py_ut_sm100_arm"])
+
+    def test_dsv4_decode_bazel_targets_are_routed_to_sm100_pytest(self):
+        expected_cases = {
+            "decode_attn_metadata_test.py": 14,
+            "decode_metadata_in_place_test.py": 4,
+            "decode_fmha_impl_test.py": 5,
+            "kv_write_decode_test.py": 11,
+            "fp8_kv_quant_decode_test.py": 7,
+            "fp8_sparse_attn_decode_test.py": 3,
+            "indexer_decode_test.py": 4,
+        }
+        test_dir = PROJECT_ROOT / "rtp_llm/models_py/modules/dsv4/decode/test"
+        build_source = (test_dir / "BUILD").read_text()
+        build_targets = re.findall(r"py_test\(\n(.*?)\n\)", build_source, re.DOTALL)
+
+        for filename, expected_count in expected_cases.items():
+            tree = ast.parse((test_dir / filename).read_text())
+            gpu_markers = [
+                marker
+                for node in tree.body
+                if isinstance(node, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name) and target.id == "pytestmark"
+                    for target in node.targets
+                )
+                and isinstance(node.value, (ast.List, ast.Tuple))
+                for marker in node.value.elts
+                if isinstance(marker, ast.Call)
+                and isinstance(marker.func, ast.Attribute)
+                and marker.func.attr == "gpu"
+            ]
+            self.assertEqual(len(gpu_markers), 1, filename)
+            marker_kwargs = {
+                keyword.arg: keyword.value.value
+                for keyword in gpu_markers[0].keywords
+                if keyword.arg is not None
+                and isinstance(keyword.value, ast.Constant)
+            }
+            self.assertEqual(marker_kwargs.get("type"), "SM100_ARM", filename)
+
+            test_count = sum(
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name.startswith("test_")
+                for node in ast.walk(tree)
+            )
+            self.assertEqual(test_count, expected_count, filename)
+            target = next(
+                (block for block in build_targets if f'srcs = ["{filename}"]' in block),
+                None,
+            )
+            self.assertIsNotNone(target, filename)
+            self.assertIn('"SM100_ARM"', target, filename)
+            self.assertIn('"gpu": "SM100_ARM"', target, filename)
+
+            unconditional_skips = [
+                decorator
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                for decorator in node.decorator_list
+                if isinstance(decorator, ast.Call)
+                and isinstance(decorator.func, ast.Attribute)
+                and decorator.func.attr == "skip"
+            ]
+            self.assertEqual(unconditional_skips, [], filename)
+
+        self.assertEqual(sum(expected_cases.values()), 48)
 
     def test_sm9x_profile_isolates_legacy_native_test_targets(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
