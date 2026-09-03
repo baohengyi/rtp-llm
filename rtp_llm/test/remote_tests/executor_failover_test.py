@@ -510,11 +510,18 @@ def test_per_test_command_exports_marker_gpu_count(tmp_path):
     assert "export WORLD_SIZE=1;" in shell
     assert "export GPU_COUNT_PER_WORKER=1;" in shell
     assert "export RTP_REMOTE_FORBID_SKIPS=1;" in shell
+    assert "export RTP_REMOTE_HEARTBEAT_KEEPALIVE=1;" not in shell
     assert "test_remote.py::test_case" in shell
     assert "-k test_case" not in shell
     assert shell.index("export GPU_COUNT=1;") < shell.index(
         "python rtp_llm/test/utils/device_resource.py"
     )
+
+    plugin.timeout_policy = select_remote_timeout_policy("perf_sm9x", per_test=True)
+    perf_shell = plugin._build_command(
+        _FakeRemoteItem(test_file, gpu_type="H20", gpu_count=1), runtime
+    )[2]
+    assert "export RTP_REMOTE_HEARTBEAT_KEEPALIVE=1;" in perf_shell
 
 
 def test_session_command_locks_total_gpu_pool_and_slices_workers():
@@ -979,6 +986,7 @@ def test_remote_setup_and_pytest_keep_heartbeat_alive_during_long_work():
     )
     assert "_heartbeat_stop.wait(60)" in heartbeat_plugin
     assert "_touch('pytest_active')" in heartbeat_plugin
+    assert "RTP_REMOTE_HEARTBEAT_KEEPALIVE" in heartbeat_plugin
     assert "_heartbeat_stop.set()" in heartbeat_plugin
 
 

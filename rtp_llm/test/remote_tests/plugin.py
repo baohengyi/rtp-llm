@@ -118,6 +118,8 @@ def _heartbeat_plugin_shell() -> str:
             "",
             "def pytest_sessionstart(session):",
             "    _touch('session_start')",
+            "    if os.environ.get('RTP_REMOTE_HEARTBEAT_KEEPALIVE') != '1':",
+            "        return",
             "    threading.Thread(target=_heartbeat_loop, daemon=True).start()",
             "",
             "def pytest_collection_modifyitems(session, config, items):",
@@ -784,11 +786,17 @@ class RemoteREAPIPlugin:
             if getattr(self.config, "_rtp_ci_forbid_skips", False)
             else ""
         )
+        heartbeat_keepalive = (
+            "export RTP_REMOTE_HEARTBEAT_KEEPALIVE=1; "
+            if self.timeout_policy.profile_class == "per_test_perf"
+            else ""
+        )
         run_cmd = (
             f"{_heartbeat_plugin_shell()}"
             f"{outputs_prefix}"
             f"{gpu_env_exports}"
             f"{skip_guard}"
+            f"{heartbeat_keepalive}"
             "echo \">>>RTP_REMOTE_HOST_IP $(hostname -I 2>/dev/null | awk '{print $1}')\"; "
             f"{_heartbeat_shell('per_test_pytest_start')}; "
             'echo ">>>PHASE:pytest_start $(date +%s)"; '
