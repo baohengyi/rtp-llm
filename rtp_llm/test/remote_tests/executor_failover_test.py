@@ -656,6 +656,9 @@ def test_timeout_policy_maps_ci_profiles():
     perf = select_remote_timeout_policy("perf-test", per_test=False)
     per_test = select_remote_timeout_policy("ut-sm9x", per_test=True)
     per_test_smoke = select_remote_timeout_policy("smoke-ppu-internal", per_test=True)
+    per_test_eval = select_remote_timeout_policy(
+        "smoke_sm100_eval_oss", per_test=True
+    )
     per_test_perf = select_remote_timeout_policy("perf-sm9x", per_test=True)
 
     assert (
@@ -692,6 +695,14 @@ def test_timeout_policy_maps_ci_profiles():
         per_test_smoke.queued_timeout_seconds,
         per_test_smoke.heartbeat_stall_seconds,
     ) == (3300, 3000, 2880, 600, 180, 2400)
+    assert (
+        per_test_eval.profile_class,
+        per_test_eval.session_budget_seconds,
+        per_test_eval.action_timeout_seconds,
+        per_test_eval.supervisor_timeout_seconds,
+        per_test_eval.pytest_timeout_seconds,
+        per_test_eval.heartbeat_stall_seconds,
+    ) == ("per_test_eval", 9000, 8700, 8580, 6000, 6600)
     assert (
         per_test_perf.session_budget_seconds,
         per_test_perf.action_timeout_seconds,

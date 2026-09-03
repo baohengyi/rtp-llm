@@ -77,6 +77,19 @@ _POLICIES = {
         min_retry_remaining_seconds=360,
         heartbeat_stall_seconds=2400,
     ),
+    "per_test_eval": RemoteTimeoutPolicy(
+        profile_class="per_test_eval",
+        # Eval cases retain their explicit 6000s pytest timeout.  Budget cold
+        # worker setup separately so the supervisor cannot terminate them
+        # before pytest reports a real pass or failure.
+        session_budget_seconds=9000,
+        action_timeout_seconds=8700,
+        supervisor_timeout_seconds=8580,
+        pytest_timeout_seconds=6000,
+        queued_timeout_seconds=300,
+        min_retry_remaining_seconds=1200,
+        heartbeat_stall_seconds=6600,
+    ),
     "per_test_perf": RemoteTimeoutPolicy(
         profile_class="per_test_perf",
         session_budget_seconds=6600,
@@ -105,6 +118,8 @@ def _profile_class(profile: Optional[str], *, per_test: bool) -> str:
     if per_test:
         if normalized.startswith("perf"):
             return "per_test_perf"
+        if normalized.startswith("smoke") and "eval" in normalized:
+            return "per_test_eval"
         if normalized.startswith("smoke"):
             return "per_test_smoke"
         return "per_test_ut"
