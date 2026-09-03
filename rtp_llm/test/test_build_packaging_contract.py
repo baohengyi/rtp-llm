@@ -706,6 +706,7 @@ class BuildPackagingContractTest(TestCase):
 
         for name, expected_count in {
             "py_ut_sm8x": 2240,
+            "py_ut_sm9x": 348,
             "py_ut_amd": 127,
             "py_ut_frontend": 62,
         }.items():
@@ -875,6 +876,17 @@ class BuildPackagingContractTest(TestCase):
         lazy_loader_text = ast.unparse(lazy_loader)
         self.assertIn("models_py.modules.hybrid.indexer", lazy_loader_text)
         self.assertIn("models_py.modules.hybrid.test.indexer_ref", lazy_loader_text)
+
+        indexer_ref_tree = parse(
+            "rtp_llm/models_py/modules/hybrid/test/indexer_ref.py"
+        )
+        tilelang_imports = [
+            node
+            for node in indexer_ref_tree.body
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+            and "tilelang" in ast.unparse(node)
+        ]
+        self.assertEqual(tilelang_imports, [])
 
         fp8_tree = parse(
             "rtp_llm/models_py/modules/factory/linear/impl/cuda/test/fp8_linear_test.py"
