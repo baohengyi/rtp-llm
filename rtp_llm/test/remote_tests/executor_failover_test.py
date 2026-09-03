@@ -663,7 +663,8 @@ def test_timeout_policy_maps_ci_profiles():
         ut.action_timeout_seconds,
         ut.supervisor_timeout_seconds,
         ut.pytest_timeout_seconds,
-    ) == (3000, 1500, 1440, 300)
+        ut.min_retry_remaining_seconds,
+    ) == (3600, 3000, 2880, 300, 900)
     assert (
         smoke.session_budget_seconds,
         smoke.action_timeout_seconds,

@@ -25,12 +25,16 @@ class RemoteTimeoutPolicy:
 _POLICIES = {
     "ut_session": RemoteTimeoutPolicy(
         profile_class="ut_session",
-        session_budget_seconds=3000,
-        action_timeout_seconds=1500,
-        supervisor_timeout_seconds=1440,
+        # A cold CUDA 13 ARM worker spends about 30 minutes installing the
+        # FlashInfer/CUTLASS environment before pytest starts.  Keep the
+        # per-test timeout strict, but give the remote session enough setup
+        # budget to reach collection and execute the real UT suite.
+        session_budget_seconds=3600,
+        action_timeout_seconds=3000,
+        supervisor_timeout_seconds=2880,
         pytest_timeout_seconds=300,
         queued_timeout_seconds=300,
-        min_retry_remaining_seconds=360,
+        min_retry_remaining_seconds=900,
         heartbeat_stall_seconds=600,
     ),
     "smoke_session": RemoteTimeoutPolicy(
