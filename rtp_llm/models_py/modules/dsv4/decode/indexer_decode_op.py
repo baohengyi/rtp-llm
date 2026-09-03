@@ -292,13 +292,16 @@ class IndexerDecodeV4Op:
             kv_padded = kv_indexer.contiguous()
 
         k_flat = kv_padded.view(-1, D)  # [B*T_padded, D]
+        k_scale_ue8m0 = self.scale_fmt == "ue8m0"
         k_fp8, k_scale = sgl_per_token_group_quant_fp8(
             k_flat,
             group_size=self.block_size,
             eps=1e-4,
-            column_major_scales=False,
-            scale_tma_aligned=False,
-            scale_ue8m0=(self.scale_fmt == "ue8m0"),
+            # UE8M0 scales are emitted in the packed TMA layout required by
+            # the quantizer; with one scale per token this is one int32 word.
+            column_major_scales=k_scale_ue8m0,
+            scale_tma_aligned=k_scale_ue8m0,
+            scale_ue8m0=k_scale_ue8m0,
         )
         # k_scale is [B*T_padded, D//group_size] either int32 (ue8m0) or fp32.
         # Pack each token as: [data fp8 (D bytes)] || [scale fp32 per group].
