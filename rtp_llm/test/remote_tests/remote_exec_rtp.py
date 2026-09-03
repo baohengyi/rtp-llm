@@ -926,7 +926,6 @@ _KNOWN_GPU_TYPES = (
 # call sites in rtp_llm/models_py/{kernels,modules}/.../rocm/test/ — they
 # all target the only AMD pool we currently have.
 _GPU_TYPE_TO_REAPI: Dict[str, str] = {
-    "SM100": "SM100_ARM",
     "MI308X": "MI308X-ROCM7",
     "MI308X_ROCM7": "MI308X-ROCM7",
 }

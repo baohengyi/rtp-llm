@@ -690,6 +690,7 @@ class BuildPackagingContractTest(TestCase):
             "py_ut_sm8x",
             "py_ut_oss_sm8x",
             "py_ut_sm9x",
+            "py_ut_sm100",
             "py_ut_sm100_arm",
             "py_ut_amd",
             "py_ut_frontend",
@@ -703,13 +704,22 @@ class BuildPackagingContractTest(TestCase):
         self.assertTrue(profiles["py_ut_oss_sm8x"].get("forbid_skips"))
         self.assertIn("not open_skip", profiles["py_ut_oss_sm8x"]["markexpr"])
         self.assertIn("not frontend", profiles["py_ut_oss_sm8x"]["markexpr"])
+        self.assertEqual(
+            profiles["py_ut_sm100"].get("paths"),
+            [
+                "rtp_llm/models_py/kernels/cuda/test/pack_ue8m0_kernel_test.py",
+                "rtp_llm/models_py/modules/factory/linear/impl/cuda/test/fp8_deepgemm_linear_sm100_test.py",
+            ],
+        )
+        self.assertIn("not SM100_ARM", profiles["py_ut_sm100"]["markexpr"])
 
         for name, expected_count in {
             "py_ut_sm8x": 2240,
             "py_ut_sm9x": 348,
-            "py_ut_sm100_arm": 113,
+            "py_ut_sm100": 3,
+            "py_ut_sm100_arm": 104,
             "py_ut_amd": 127,
-            "py_ut_frontend": 62,
+            "py_ut_frontend": 63,
         }.items():
             self.assertEqual(profiles[name].get("expected_count"), expected_count)
             self.assertTrue(
@@ -725,7 +735,7 @@ class BuildPackagingContractTest(TestCase):
                 ]["profiles"]
             self.assertEqual(internal_profiles["py_ut_gb200"].get("minimum_count"), 1)
             self.assertEqual(
-                internal_profiles["py_ut_gb200"].get("expected_count"), 113
+                internal_profiles["py_ut_gb200"].get("expected_count"), 104
             )
             self.assertTrue(internal_profiles["py_ut_gb200"].get("forbid_skips"))
             self.assertEqual(internal_profiles["py_ut_ppu"].get("minimum_count"), 1)
@@ -944,8 +954,60 @@ class BuildPackagingContractTest(TestCase):
             for marker in node.value.elts
         ]
         self.assertEqual(len(pack_module_markers), 1)
-        self.assertTrue(is_gpu_marker(pack_module_markers[0], "SM100_ARM"))
-        self.assertFalse(is_gpu_marker(pack_module_markers[0], "H20"))
+        self.assertTrue(is_gpu_marker(pack_module_markers[0], "H20"))
+        self.assertFalse(is_gpu_marker(pack_module_markers[0], "SM100_ARM"))
+        deep_gemm_class = next(
+            node
+            for node in pack_tree.body
+            if isinstance(node, ast.ClassDef)
+            and node.name == "TestDeepGemmIntegration"
+        )
+        self.assertTrue(
+            any(
+                is_gpu_marker(marker, "SM100")
+                for marker in deep_gemm_class.decorator_list
+            )
+        )
+        self.assertFalse(
+            any(
+                is_gpu_marker(marker, "SM100_ARM")
+                for marker in deep_gemm_class.decorator_list
+            )
+        )
+        self.assertEqual(
+            sum(
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name.startswith("test_")
+                for node in deep_gemm_class.body
+            ),
+            2,
+        )
+
+        sm100_linear_tree = parse(
+            "rtp_llm/models_py/modules/factory/linear/impl/cuda/test/"
+            "fp8_deepgemm_linear_sm100_test.py"
+        )
+        sm100_linear_markers = [
+            marker
+            for node in sm100_linear_tree.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "pytestmark"
+                for target in node.targets
+            )
+            and isinstance(node.value, (ast.List, ast.Tuple))
+            for marker in node.value.elts
+        ]
+        self.assertEqual(len(sm100_linear_markers), 1)
+        self.assertTrue(is_gpu_marker(sm100_linear_markers[0], "SM100"))
+        self.assertEqual(
+            sum(
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name.startswith("test_")
+                for node in ast.walk(sm100_linear_tree)
+            ),
+            1,
+        )
 
         cp_tree = parse(
             "rtp_llm/models_py/modules/factory/attention/cuda_mla_impl/test/flashmla_sparse_cp_op_test.py"

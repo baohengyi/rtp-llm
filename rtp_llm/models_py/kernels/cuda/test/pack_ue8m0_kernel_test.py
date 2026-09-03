@@ -10,7 +10,7 @@ from unittest import SkipTest, TestCase, main
 import pytest
 import torch
 
-pytestmark = [pytest.mark.gpu(type="SM100_ARM")]
+pytestmark = [pytest.mark.gpu(type="H20")]
 
 
 def _is_sm100() -> bool:
@@ -450,7 +450,7 @@ class TestSiluAndMulPostQuantPackedFwd(TestCase):
 # ============================================================================
 
 
-@pytest.mark.gpu(type="SM100_ARM")
+@pytest.mark.gpu(type="SM100")
 class TestDeepGemmIntegration(TestCase):
     """
     End-to-end tests verifying that pre-packed scales work correctly

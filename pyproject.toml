@@ -375,9 +375,21 @@ markexpr = "(H20 or multi_arch_cuda) and not MI308X and not SM100 and not SM100_
 description = "Python UT on SM100 ARM (py-ut-sm100-arm)"
 gpu_type = "SM100_ARM"
 minimum_count = 1
-expected_count = 113
+expected_count = 104
 forbid_skips = true
 markexpr = "SM100_ARM and not smoke and not perf and not manual"
+
+[tool.rtp_llm.pytest_ci.profiles.py_ut_sm100]
+description = "Python UT on SM100 x86 (py-ut-sm100)"
+gpu_type = "SM100"
+minimum_count = 1
+expected_count = 3
+forbid_skips = true
+paths = [
+    "rtp_llm/models_py/kernels/cuda/test/pack_ue8m0_kernel_test.py",
+    "rtp_llm/models_py/modules/factory/linear/impl/cuda/test/fp8_deepgemm_linear_sm100_test.py",
+]
+markexpr = "SM100 and not SM100_ARM and not smoke and not perf and not manual"
 
 [tool.rtp_llm.pytest_ci.profiles.py_ut_amd]
 description = "Python UT on AMD MI308X (py-ut-amd)"

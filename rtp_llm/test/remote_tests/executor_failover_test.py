@@ -1024,7 +1024,7 @@ def test_remote_setup_exports_profile_env():
     ) in command
 
 
-def test_sm100_markexpr_prefers_arm_pool_alias():
+def test_sm100_markexpr_prefers_explicit_arm_pool():
     gpu_type = remote_exec_rtp.infer_gpu_type_from_markexpr(
         "manual and smoke and (SM100 or SM100_ARM)"
     )
@@ -1037,13 +1037,13 @@ def test_sm100_markexpr_prefers_arm_pool_alias():
     assert runtime.platform_properties["gpu"] == "SM100_ARM"
 
 
-def test_sm100_deprecated_marker_maps_to_arm_reapi_pool():
+def test_sm100_marker_keeps_distinct_reapi_pool():
     runtime = remote_exec_rtp.build_runtime_config(
         Path("."),
         remote_exec_rtp.GPURequest(gpu_type="SM100", gpu_count=4),
     )
 
-    assert runtime.platform_properties["gpu"] == "SM100_ARM"
+    assert runtime.platform_properties["gpu"] == "SM100"
 
 
 def test_resolve_ci_profile_gpu_type(monkeypatch):
