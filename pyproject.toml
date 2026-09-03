@@ -365,6 +365,7 @@ isolated_paths = [
     "rtp_llm/models_py/modules/factory/attention/cuda_cp_impl/test/test_allgather_overlap_impl.py",
     "rtp_llm/models_py/modules/factory/attention/cuda_cp_impl/test/test_alltoall_cp_impl.py",
     "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_flashinfer_prefill/test_py_flashinfer_hybrid_mha_prefill.py",
+    "rtp_llm/models_py/modules/hybrid/test/indexer_test.py",
 ]
 markexpr = "(H20 or multi_arch_cuda) and not MI308X and not SM100 and not SM100_ARM and not smoke and not perf and not manual"
 

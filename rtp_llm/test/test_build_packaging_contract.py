@@ -1116,6 +1116,7 @@ class BuildPackagingContractTest(TestCase):
             "rtp_llm/models_py/modules/factory/attention/cuda_cp_impl/test/test_allgather_overlap_impl.py",
             "rtp_llm/models_py/modules/factory/attention/cuda_cp_impl/test/test_alltoall_cp_impl.py",
             "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_flashinfer_prefill/test_py_flashinfer_hybrid_mha_prefill.py",
+            "rtp_llm/models_py/modules/hybrid/test/indexer_test.py",
         }
 
         self.assertEqual(set(isolated_paths), expected)
