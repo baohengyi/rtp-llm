@@ -641,6 +641,8 @@ def test_session_command_runs_profile_isolated_paths_in_fresh_processes(monkeypa
     assert f"--ignore={isolated_path}" in parallel_command
     assert "--max-worker-restart=0" in parallel_command
     assert "test_isolated_*.xml" in shell
+    cleanup = shell.index("rm -f bazel-testlogs/pytest/test.xml")
+    assert cleanup < isolated_start
 
 
 def test_executor_pool_resolves_hostname_inside_remote_framework(monkeypatch):

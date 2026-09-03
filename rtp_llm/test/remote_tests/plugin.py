@@ -2116,6 +2116,11 @@ class RemoteREAPIPlugin:
             lines.append(outputs_prefix.rstrip("; "))
         lines.append(_heartbeat_plugin_shell())
         lines.append("mkdir -p bazel-testlogs/pytest")
+        lines.append(
+            "rm -f bazel-testlogs/pytest/test.xml "
+            "bazel-testlogs/pytest/test_*gpu.xml "
+            "bazel-testlogs/pytest/test_isolated_*.xml"
+        )
         lines.append("cat > /tmp/rtp_remote_nodeid_plugin.py << '_NODEID_PLUGIN_PY_'")
         lines.append("import pytest")
         lines.append("")
