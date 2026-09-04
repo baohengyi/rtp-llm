@@ -14,6 +14,8 @@ from filelock import FileLock, Timeout
 
 GPU_LOCK_TIMEOUT_ENV = "RTP_GPU_LOCK_TIMEOUT"
 GPU_LOCK_DEFAULT_TIMEOUT = 120
+GPU_MAX_PREEXISTING_MEMORY_MB_ENV = "RTP_GPU_MAX_PREEXISTING_MEMORY_MB"
+GPU_MAX_PREEXISTING_MEMORY_MB_DEFAULT = 1024
 GPU_STATUS_ROOT = "/tmp/rtp_llm/smoke/test/gpu_status"
 GPU_GLOBAL_LOCK_FILE = "/tmp/rtp_llm/smoke/test/gpu_status_lock"
 
@@ -380,6 +382,49 @@ class DeviceResource:
                 return True
         return False
 
+    def _has_excess_preexisting_memory(self, gpu_id: str) -> bool:
+        """Detect remote GPU users hidden by the worker's PID namespace."""
+        if not _remote_session_id():
+            return False
+        limit_mb = int(
+            os.environ.get(
+                GPU_MAX_PREEXISTING_MEMORY_MB_ENV,
+                str(GPU_MAX_PREEXISTING_MEMORY_MB_DEFAULT),
+            )
+        )
+        for smi in _NVIDIA_SMI_PATHS:
+            try:
+                result = subprocess.run(
+                    [
+                        smi,
+                        "--query-gpu=memory.used",
+                        "--format=csv,noheader,nounits",
+                        f"--id={gpu_id}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+            except FileNotFoundError:
+                continue
+            if result.returncode != 0:
+                continue
+            try:
+                used_mb = int(result.stdout.strip().splitlines()[0])
+            except (IndexError, ValueError):
+                return False
+            if used_mb > limit_mb:
+                logging.error(
+                    "GPU %s already uses %s MiB before session start (limit=%s MiB)",
+                    gpu_id,
+                    used_mb,
+                    limit_mb,
+                )
+                return True
+            return False
+        return False
+
     def _check_gpu_usable(self) -> bool:
         """Return False if any locked GPU has zombie CUDA contexts. Never kills processes.
 
@@ -414,6 +459,7 @@ class DeviceResource:
 
     def _lock_gpus(self):
         candidate_groups = self._candidate_gpu_groups()
+        preexisting_memory_seen = False
         with ExitStack() as stack:
             now = time.time()
             for group in candidate_groups:
@@ -437,6 +483,12 @@ class DeviceResource:
                                 "skip GPU %s: non-session CUDA process detected", id
                             )
                             break
+                        if self._has_excess_preexisting_memory(str(id)):
+                            preexisting_memory_seen = True
+                            logging.info(
+                                "skip GPU %s: pre-existing memory exceeds limit", id
+                            )
+                            break
                         gpu_ids.append(str(id))
                         logging.info(f"{get_ip()} lock device {id} done")
                     if len(gpu_ids) == self.required_gpu_count:
@@ -445,6 +497,11 @@ class DeviceResource:
                         self.gpu_locks = stack.pop_all()
                         self.gpu_ids = gpu_ids
                         return True
+        if preexisting_memory_seen:
+            raise GpuLockTimeoutError(
+                "GPU lock unavailable: all candidate groups have pre-existing "
+                "memory allocations"
+            )
         return False
 
     def _candidate_gpu_groups(self) -> List[List[int]]:

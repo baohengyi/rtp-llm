@@ -106,6 +106,9 @@ def build_smoke_params(
             for marker_name in config.get("markers", []):
                 marks.append(getattr(pytest_module.mark, marker_name))
             marks.append(pytest_module.mark.manual)
+            marks.append(
+                pytest_module.mark.timeout(int(config.get("timeout", 600)))
+            )
 
             if suite_name in _REMOTE_CACHE_SUITES or test_name in _REMOTE_CACHE_TESTS:
                 marks.append(pytest_module.mark.remote_cache)

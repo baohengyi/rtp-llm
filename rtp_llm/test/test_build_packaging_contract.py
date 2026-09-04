@@ -1341,6 +1341,14 @@ class BuildPackagingContractTest(TestCase):
         )
         self.assertEqual(profiles["smoke_sm120_internal"]["expected_count"], 1)
 
+        manifest_source = (
+            PROJECT_ROOT / "rtp_llm/test/smoke_framework/manifest.py"
+        ).read_text()
+        self.assertIn(
+            'pytest_module.mark.timeout(int(config.get("timeout", 600)))',
+            " ".join(manifest_source.split()),
+        )
+
     def test_standalone_perf_pipeline_uses_native_pytest(self):
         """Internal perf CI must not regress to Bazel-owned Python tests."""
         perf_yaml = PROJECT_ROOT.parent / ".aoneci" / "perf.yaml"
