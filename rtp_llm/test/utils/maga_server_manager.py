@@ -181,7 +181,9 @@ class MagaServerManager(object):
             current_env[MODEL_TYPE] = model_type
         if model_path is not None:
             current_env[CHECKPOINT_PATH] = model_path
-        current_env[LOG_PATH] = role_log_name
+        bazel_outputs_dir = os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR", os.getcwd())
+        role_log_path = os.path.join(bazel_outputs_dir, role_log_name)
+        current_env[LOG_PATH] = role_log_path
 
         effective_tok = tokenizer_path if tokenizer_path is not None else model_path
         if effective_tok is not None:
@@ -217,7 +219,6 @@ class MagaServerManager(object):
             home_dir = os.environ.get("HOME", os.path.expanduser("~"))
             current_env["DG_JIT_CACHE_DIR"] = os.path.join(home_dir, ".deep_gemm")
 
-        bazel_outputs_dir = os.environ.get("TEST_UNDECLARED_OUTPUTS_DIR", os.getcwd())
         # Use MAGA_SERVER_WORK_DIR if set; otherwise default to CWD (not
         # bazel_outputs_dir which may point to _rtp_test_outputs/ — a
         # subdirectory that does not contain the rtp_llm package).
@@ -228,7 +229,7 @@ class MagaServerManager(object):
         )
         logging.info(f"日志文件:{self._log_file}")
         if log_to_file:
-            os.makedirs(f"{bazel_outputs_dir}/{role_log_name}/", exist_ok=True)
+            os.makedirs(role_log_path, exist_ok=True)
             self._log_file = (
                 f"{bazel_outputs_dir}/{role_log_name}/{self._process_file_name}"
             )
