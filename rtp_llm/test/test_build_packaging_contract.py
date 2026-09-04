@@ -762,8 +762,8 @@ class BuildPackagingContractTest(TestCase):
                 )
 
             expected_arm_versions = {
-                "xgrammar": "==0.2.5",
-                "apache-tvm-ffi": "==0.1.8.post2",
+                "xgrammar": "==0.2.6rc1",
+                "apache-tvm-ffi": "==0.1.10",
                 "cuda-pathfinder": "==1.3.2",
                 "cuda-tile": "==1.4.0",
                 "nvidia-cudnn-frontend": "==1.16.0",
@@ -773,7 +773,7 @@ class BuildPackagingContractTest(TestCase):
                 self.assertEqual(
                     str(arm_requirements[package].specifier),
                     version,
-                    f"{package} must match the validated main-internal GB200 lock",
+                    f"{package} must match the deterministic GB200 dependency lock",
                 )
 
     def test_rocm_unit_cases_are_routed_by_mi308x_marker(self):
