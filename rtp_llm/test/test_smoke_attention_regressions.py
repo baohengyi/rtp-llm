@@ -289,6 +289,25 @@ def test_qwen35_sm100_cuda_graph_cases_match_validated_loader_environment():
         assert "--load_method scratch" not in cases[name]["smoke_args"]
         assert "envs" not in cases[name]
 
+    data_dir = RTP_LLM_DIR / "test/smoke/data/model/qwen35"
+    dp2 = json.loads(
+        (data_dir / "q_r_35b_nvfp4_py_dp2_ll_cg_sm100_arm.json").read_text()
+    )["query_result"]
+    tp2 = json.loads(
+        (data_dir / "q_r_35b_nvfp4_py_tp2_cg_sm100_arm.json").read_text()
+    )["query_result"]
+
+    empty_think = "\n\n<think>\n\n</think>\n\nHello! I'm **Qwen3.5**, the latest large language"
+    reasoning = "\n\n<think>\nOkay, the user asked me to introduce myself. Let me start by recalling my identity"
+    assert dp2[0]["result"]["response"] == empty_think
+    assert {item["response"] for item in dp2[1]["result"]["response_batch"]} == {
+        reasoning
+    }
+    assert tp2[0]["result"]["response"] == empty_think
+    assert {item["response"] for item in tp2[1]["result"]["response_batch"]} == {
+        empty_think
+    }
+
 
 def test_sm100_head_dim_256_cuda_graph_keeps_validated_decode_backends():
     tree = ast.parse(

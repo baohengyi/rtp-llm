@@ -562,6 +562,8 @@ def _collect_repo_runtime_files(
         "rtp_llm/**/test/testdata/**/*",
         "rtp_llm/**/test/data/**/*",
         "rtp_llm/models_py/**/data/**/*",
+        "rtp_llm/models_py/kernels/cuda/fp8_kernel/cutlass_groupgemm/*.json",
+        "internal_source/rtp_llm/models_py/kernels/cuda/fp8_kernel/cutlass_groupgemm/*.json",
     ):
         files.extend(
             str(p.relative_to(rootdir)) for p in rootdir.glob(pattern) if p.is_file()

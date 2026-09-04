@@ -1669,3 +1669,7 @@ class BuildPackagingContractTest(TestCase):
         self.assertIn("test/**/*.json", package_data)
         self.assertIn("dash_sc/test/**/*.json", package_data)
         self.assertIn("models_py/**/data/*.json", package_data)
+        self.assertIn(
+            "models_py/kernels/cuda/fp8_kernel/cutlass_groupgemm/*.json",
+            package_data,
+        )

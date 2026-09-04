@@ -258,6 +258,37 @@ def test_collect_repo_runtime_files_includes_nested_test_data(tmp_path):
     assert str(fixture.relative_to(tmp_path)) in files
 
 
+def test_collect_repo_runtime_files_includes_cutlass_groupgemm_configs(tmp_path):
+    configs = [
+        tmp_path
+        / "rtp_llm"
+        / "models_py"
+        / "kernels"
+        / "cuda"
+        / "fp8_kernel"
+        / "cutlass_groupgemm"
+        / "H20_128_7168.json",
+        tmp_path
+        / "internal_source"
+        / "rtp_llm"
+        / "models_py"
+        / "kernels"
+        / "cuda"
+        / "fp8_kernel"
+        / "cutlass_groupgemm"
+        / "L20X_128_7168.json",
+    ]
+    for config in configs:
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text("{}\n", encoding="utf-8")
+
+    files = remote_exec_rtp._collect_repo_runtime_files(
+        tmp_path, include_libs=False
+    )
+
+    assert {str(config.relative_to(tmp_path)) for config in configs}.issubset(files)
+
+
 def test_collect_remote_files_includes_perf_data(tmp_path):
     repo = tmp_path / "repo"
     rootdir = repo / "github-opensource"

@@ -97,6 +97,7 @@ rtp_llm = [
     "ops/**/*.pyi",
     "openai/renderers/qwen_agent/utils/*.tiktoken",
     "models_py/**/data/*.json",
+    "models_py/kernels/cuda/fp8_kernel/cutlass_groupgemm/*.json",
     "cpp/model_rpc/proto/*.proto",
     "test/**/*.proto",
     "test/**/*.json",
