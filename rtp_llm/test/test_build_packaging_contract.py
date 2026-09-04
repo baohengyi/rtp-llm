@@ -715,7 +715,7 @@ class BuildPackagingContractTest(TestCase):
 
         for name, expected_count in {
             "py_ut_sm8x": 2243,
-            "py_ut_sm9x": 409,
+            "py_ut_sm9x": 416,
             "py_ut_sm100": 3,
             "py_ut_sm100_arm": 104,
             "py_ut_amd": 127,
