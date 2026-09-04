@@ -761,6 +761,21 @@ class BuildPackagingContractTest(TestCase):
                     f"{package} must match the golden-validated GB200 runtime stack",
                 )
 
+            expected_arm_versions = {
+                "xgrammar": "==0.2.5",
+                "apache-tvm-ffi": "==0.1.8.post2",
+                "cuda-pathfinder": "==1.3.2",
+                "cuda-tile": "==1.4.0",
+                "nvidia-cudnn-frontend": "==1.16.0",
+                "nvidia-ml-py": "==13.580.82",
+            }
+            for package, version in expected_arm_versions.items():
+                self.assertEqual(
+                    str(arm_requirements[package].specifier),
+                    version,
+                    f"{package} must match the validated main-internal GB200 lock",
+                )
+
     def test_rocm_unit_cases_are_routed_by_mi308x_marker(self):
         """ROCm-only cases must be deselected before running on CUDA workers."""
 

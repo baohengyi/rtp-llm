@@ -367,7 +367,14 @@ def test_sm100_fp8_case_uses_tracked_main_golden_name():
 
     task_info = cases["fp8_attention_sm100"]["task_info"]
     assert task_info.endswith("q_r_block_fp8_sm100_arm.json")
-    assert (RTP_LLM_DIR / "test/smoke" / task_info).is_file()
+    task_info_path = RTP_LLM_DIR / "test/smoke" / task_info
+    assert task_info_path.is_file()
+
+    task_config = json.loads(task_info_path.read_text())
+    for request in task_config["query_result"]:
+        query = request["query"]
+        assert "temperature" not in query
+        assert query["extra_configs"]["top_k"] == 1
 
 
 def test_qwen3_standalone_goldens_match_python_native_h20_outputs():
