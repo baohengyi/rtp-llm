@@ -980,6 +980,10 @@ def test_remote_setup_and_pytest_keep_heartbeat_alive_during_long_work():
     command = remote_exec_rtp.build_remote_setup_command(Path("."))
 
     assert "prepare_venv.py >logs/prepare_venv.out" in command
+    assert (
+        "env -u LD_LIBRARY_PATH /opt/conda310/bin/python "
+        "internal_source/ci/prepare_venv.py"
+    ) in command
     assert "PV_PID=$!" in command
     assert "pip_install_active" in command
     assert 'wait "$PV_PID"; PV_RC=$?' in command
@@ -1006,7 +1010,8 @@ def test_remote_setup_exports_profile_env():
 
     assert "export RTP_BAZEL_CONFIG=--config=custom;" in command
     assert (
-        "RTP_BAZEL_CONFIG=--config=custom /opt/conda310/bin/python "
+        "env -u LD_LIBRARY_PATH RTP_BAZEL_CONFIG=--config=custom "
+        "/opt/conda310/bin/python "
         "internal_source/ci/prepare_venv.py"
     ) in command
 

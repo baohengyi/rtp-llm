@@ -430,7 +430,9 @@ def build_remote_setup_command(rootdir: Path, *, setup_env: Optional[dict] = Non
         + 'echo ">>>PHASE:pip_install_start $(date +%s)"; '
         "mkdir -p logs; "
         "if [ -f internal_source/ci/prepare_venv.py ]; then "
-        f"  {prepare_env_prefix}/opt/conda310/bin/python internal_source/ci/prepare_venv.py "
+        # Keep the runtime loader path for pytest, but do not expose Conda's
+        # OpenSSL to the system Git process used by uv while fetching MORI.
+        f"  env -u LD_LIBRARY_PATH {prepare_env_prefix}/opt/conda310/bin/python internal_source/ci/prepare_venv.py "
         ">logs/prepare_venv.out 2>logs/prepare_venv.err & PV_PID=$!; "
         "  (while kill -0 \"$PV_PID\" 2>/dev/null; do "
         '    if [ -n "${RTP_REMOTE_HEARTBEAT_FILE:-}" ]; then '
