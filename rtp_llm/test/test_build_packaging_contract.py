@@ -730,9 +730,10 @@ class BuildPackagingContractTest(TestCase):
         internal_overlay = internal_root / "internal_source" / "pyproject_internal.toml"
         if (internal_root / ".git").exists() and internal_overlay.exists():
             with open(internal_overlay, "rb") as f:
-                internal_profiles = tomllib.load(f)["tool"]["rtp_llm"][
-                    "pytest_ci"
-                ]["profiles"]
+                internal_config = tomllib.load(f)
+            internal_profiles = internal_config["tool"]["rtp_llm"]["pytest_ci"][
+                "profiles"
+            ]
             self.assertEqual(internal_profiles["py_ut_gb200"].get("minimum_count"), 1)
             self.assertEqual(
                 internal_profiles["py_ut_gb200"].get("expected_count"), 104
@@ -740,6 +741,25 @@ class BuildPackagingContractTest(TestCase):
             self.assertTrue(internal_profiles["py_ut_gb200"].get("forbid_skips"))
             self.assertEqual(internal_profiles["py_ut_ppu"].get("minimum_count"), 1)
             self.assertEqual(internal_profiles["py_ut_ppu"].get("expected_count"), 23)
+
+            arm_requirements = {
+                requirement.name: requirement
+                for requirement in map(
+                    Requirement,
+                    internal_config["project"]["optional-dependencies"]["cuda12_arm"],
+                )
+            }
+            expected_arm_wheels = {
+                "deep_gemm": "deep_gemm-2.1.1+ee8d9c7.cu129",
+                "rtp_kernel": "rtp_kernel-0.1.0+47e3c4a4.cu129",
+                "flash_mla": "flash_mla-1.0.0+fcaae18.cu129",
+            }
+            for package, wheel_build in expected_arm_wheels.items():
+                self.assertIn(
+                    wheel_build,
+                    arm_requirements[package].url,
+                    f"{package} must match the golden-validated GB200 runtime stack",
+                )
 
     def test_rocm_unit_cases_are_routed_by_mi308x_marker(self):
         """ROCm-only cases must be deselected before running on CUDA workers."""

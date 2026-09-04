@@ -265,7 +265,7 @@ def test_decode_cuda_graph_passes_cache_group_tags_to_capture():
     assert "self.kv_cache.group_tags" in source
 
 
-def test_qwen35_sm100_cuda_graph_cases_use_scratch_loader():
+def test_qwen35_sm100_cuda_graph_cases_use_fast_loader_without_gds():
     tree = ast.parse(
         (RTP_LLM_DIR / "test/smoke/suites/test_smoke_sm100_moe.py").read_text()
     )
@@ -285,8 +285,8 @@ def test_qwen35_sm100_cuda_graph_cases_use_scratch_loader():
         "next_moe_nvfp4_deepep_ll_cudagraph_dp2_sm100",
         "next_moe_nvfp4_cudagraph_tp2_sm100",
     ):
-        assert "--load_method scratch" in cases[name]["smoke_args"]
-        assert "envs" not in cases[name]
+        assert "--load_method scratch" not in cases[name]["smoke_args"]
+        assert cases[name]["envs"] == ["FASTSAFETENSORS_NOGDS=1"]
 
 
 def test_sm100_head_dim_256_cuda_graph_skips_trtllm_gen_decode():
