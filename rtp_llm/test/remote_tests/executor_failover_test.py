@@ -222,6 +222,7 @@ def test_collect_repo_runtime_files_includes_source_contracts(tmp_path):
         "rtp_llm/dash_sc/test/BUILD",
         "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD",
         "rtp_llm/models_py/bindings/cuda/ops/tests/CudaSamplerTest.cc",
+        "rtp_llm/models_py/modules/dsv4/decode/test/BUILD",
         "rtp_llm/utils/test/BUILD",
     }
     assert set(remote_exec_rtp._SOURCE_CONTRACT_FILES) == source_contracts

@@ -65,6 +65,7 @@ _SOURCE_CONTRACT_FILES = (
     "rtp_llm/dash_sc/test/BUILD",
     "rtp_llm/models_py/bindings/cuda/ops/tests/BUILD",
     "rtp_llm/models_py/bindings/cuda/ops/tests/CudaSamplerTest.cc",
+    "rtp_llm/models_py/modules/dsv4/decode/test/BUILD",
     "rtp_llm/utils/test/BUILD",
 )
 _RUNTIME_LIBS_ARCHIVE = _REMOTE_INPUT_DIR / "rtp_llm_libs.tar"

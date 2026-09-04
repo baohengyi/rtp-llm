@@ -49,6 +49,7 @@ class FrontendAppTest(unittest.TestCase):
         self.addCleanup(ports_ctx.__exit__, None, None, None)
         py_env_configs.server_config.start_port = ports[0]
         # Enable fake process mode to avoid loading actual model
+        py_env_configs.model_args.model_type = "fake_model"
         py_env_configs.profiling_debug_logging_config.debug_start_fake_process = 1
 
         # Setup and configure server (same as start_server.py main())

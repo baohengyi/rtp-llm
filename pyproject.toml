@@ -333,7 +333,7 @@ default_pytest_cli = "-v --tb=short --timeout=300"
 description = "Python UT on SM8x class GPUs (py-ut-sm8x)"
 gpu_type = "A10"
 minimum_count = 1
-expected_count = 2240
+expected_count = 2243
 forbid_skips = true
 ignore_paths = ["rtp_llm/test/dsv4", "rtp_llm/models_py/modules/dsv4"]
 isolated_paths = [
