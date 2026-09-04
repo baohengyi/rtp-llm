@@ -465,10 +465,8 @@ class SiluMulMaskedTest(unittest.TestCase):
                 )
         self._clean_test_data_cache(0)
 
-    @unittest.skipUnless(
-        os.environ.get("RUN_KERNEL_BENCHMARK") == "1",
-        "Set RUN_KERNEL_BENCHMARK=1 to run the H20 latency guard",
-    )
+    @pytest.mark.manual
+    @pytest.mark.perf
     def test_silu_mul_masked_fp8_beam_search_skew_performance(self):
         """Manual H20 guard for the 96-expert production beam-search shape.
 
@@ -478,8 +476,7 @@ class SiluMulMaskedTest(unittest.TestCase):
         neither a portable baseline nor a required correctness/CI gate.
         """
         device_name = torch.cuda.get_device_name()
-        if "H20" not in device_name:
-            self.skipTest(f"H20-only latency guard, found {device_name}")
+        self.assertIn("H20", device_name)
         masked_m, up_gate_output, output, output_scale = (
             self._generate_beam_search_skew_data()
         )

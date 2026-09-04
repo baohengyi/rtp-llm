@@ -715,7 +715,7 @@ class BuildPackagingContractTest(TestCase):
 
         for name, expected_count in {
             "py_ut_sm8x": 2240,
-            "py_ut_sm9x": 348,
+            "py_ut_sm9x": 409,
             "py_ut_sm100": 3,
             "py_ut_sm100_arm": 104,
             "py_ut_amd": 127,
@@ -1085,6 +1085,7 @@ class BuildPackagingContractTest(TestCase):
                 "test_profile_cuda_fp8_deepgemm_linear"
             },
             "rtp_llm/models_py/triton_kernels/common/test/silu_mul_masked_test.py": {
+                "test_silu_mul_masked_fp8_beam_search_skew_performance",
                 "test_profile_fp8_silu_mul_masked",
                 "test_profile_bf16_silu_mul_masked",
                 "test_plot_silu_mul_masked_fp8_latency_vs_num_local_experts",

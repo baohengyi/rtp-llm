@@ -144,17 +144,20 @@ class IndexerTest(TestCase):
         torch.set_default_device(device)
         set_seed(42)
 
-    def _create_test_config(self, hidden_size: int = 7168) -> ModelConfig:
+    def _create_test_config(
+        self, hidden_size: int = 7168, max_seq_len: int = 2048
+    ) -> ModelConfig:
         """Create a test configuration for Indexer."""
         config = ModelConfig()
         config.attn_config.head_num = 128
-        config.max_seq_len = 2048
+        config.max_seq_len = max_seq_len
         config.hidden_size = hidden_size
 
         # MLA-specific config
         config.attn_config.q_lora_rank = 1536
         config.attn_config.rope_head_dim = 64
         config.attn_config.tokens_per_block = 64
+        config.attn_config.kernel_tokens_per_block = 64
         config.attn_config.use_mla = True
 
         # Indexer-specific config
@@ -318,7 +321,8 @@ class IndexerTest(TestCase):
     ):
         """Helper method to run full forward test."""
         Indexer, IndexerRef, _ = _load_indexer_test_symbols()
-        config = self._create_test_config()
+        cache_seq_len = seq_len if is_prefill else seq_len + 1
+        config = self._create_test_config(max_seq_len=cache_seq_len)
         weights = self._create_test_weights(config)
 
         indexer = Indexer(
@@ -348,7 +352,7 @@ class IndexerTest(TestCase):
         # Create KV cache
         kv_cache = MockKVCache(
             batch_size=batch_size,
-            max_seq_len=seq_len,
+            max_seq_len=cache_seq_len,
             kv_lora_rank=config.attn_config.kv_lora_rank,
             rope_head_dim=config.attn_config.rope_head_dim,
             tokens_per_block=config.attn_config.tokens_per_block,
@@ -415,6 +419,24 @@ class IndexerTest(TestCase):
 
     def test_forward_decode_mode(self):
         self._run_indexer_forward_test(batch_size=2, seq_len=4096, is_prefill=False)
+
+    def test_sparse_mla_params_preserve_batch_offsets(self):
+        config = self._create_test_config(max_seq_len=64)
+        attn_inputs = self._create_attention_inputs(
+            batch_size=2, seq_len=64, is_prefill=True
+        )
+
+        fmha_params = rtp_llm_ops.prepare_sparse_mla_params(
+            attn_inputs, config.attn_config.tokens_per_block
+        )
+
+        expected = torch.cat(
+            [
+                torch.zeros(64, dtype=torch.int32, device=device),
+                torch.full((64,), 64, dtype=torch.int32, device=device),
+            ]
+        )
+        torch.testing.assert_close(fmha_params.topk_indices_offset, expected)
 
     def test_fast_topk_transform_ragged_fused(self):
         _, _, ref_torch_transform_ragged_impl = _load_indexer_test_symbols()
