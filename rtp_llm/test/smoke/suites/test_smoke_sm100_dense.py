@@ -51,7 +51,6 @@ _test_params = build_smoke_params(
 )
 
 
-@pytest.mark.timeout(7200)
 @pytest.mark.parametrize("test_name,test_config", _test_params)
 def test_smoke_sm100_dense(test_name: str, test_config: dict):
     run_smoke_test(test_name, test_config)

@@ -1348,6 +1348,11 @@ class BuildPackagingContractTest(TestCase):
             'pytest_module.mark.timeout(int(config.get("timeout", 600)))',
             " ".join(manifest_source.split()),
         )
+        for suite_name in ("test_smoke_sm100_dense.py", "test_smoke_sm100_moe.py"):
+            suite_source = (
+                PROJECT_ROOT / "rtp_llm/test/smoke/suites" / suite_name
+            ).read_text()
+            self.assertNotIn("@pytest.mark.timeout(7200)", suite_source)
 
     def test_standalone_perf_pipeline_uses_native_pytest(self):
         """Internal perf CI must not regress to Bazel-owned Python tests."""
