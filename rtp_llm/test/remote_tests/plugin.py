@@ -58,6 +58,10 @@ _GPU_COUNT_TIERS = [1, 2, 3, 4]
 _PHASE_LINE_RE = re.compile(r"^>>>PHASE:\S+\s+\d+\s*$")
 _NODEID_PROPERTY = "nodeid"
 
+_GPU_MEMORY_PREFLIGHT_ENV = "RTP_REMOTE_GPU_MEMORY_PREFLIGHT"
+_GPU_MEMORY_LIMIT_ENV = "RTP_GPU_MAX_PREEXISTING_MEMORY_MB"
+_GPU_MEMORY_LIMIT_DEFAULT_MB = 1024
+
 
 def _get_int_env(name: str, default: int) -> int:
     raw = os.getenv(name)
@@ -75,6 +79,36 @@ def _get_bool_env(name: str, default: bool) -> bool:
     if raw is None or raw == "":
         return default
     return raw.lower() not in ("0", "false", "no", "off")
+
+
+def _gpu_memory_preflight_shell(required_gpus: int) -> str:
+    """Reject an occupied NVIDIA worker before its Python venv is prepared."""
+    if not _get_bool_env(_GPU_MEMORY_PREFLIGHT_ENV, False):
+        return ""
+
+    limit_mb = max(
+        0, _get_int_env(_GPU_MEMORY_LIMIT_ENV, _GPU_MEMORY_LIMIT_DEFAULT_MB)
+    )
+    required_gpus = max(1, required_gpus)
+    return (
+        'rtp_smi=""; '
+        "for rtp_smi_candidate in nvidia-smi /usr/local/cuda/bin/nvidia-smi "
+        "/usr/local/nvidia/bin/nvidia-smi /usr/bin/nvidia-smi; do "
+        'if command -v "$rtp_smi_candidate" >/dev/null 2>&1; then '
+        'rtp_smi="$rtp_smi_candidate"; break; fi; done; '
+        'if [ -n "$rtp_smi" ]; then '
+        'rtp_gpu_memory=$("$rtp_smi" --query-gpu=memory.used '
+        '--format=csv,noheader,nounits 2>/dev/null) || rtp_gpu_memory=""; '
+        'if [ -n "$rtp_gpu_memory" ]; then '
+        "rtp_clean_gpu_count=$(printf '%s\\n' \"$rtp_gpu_memory\" | "
+        f"awk -v limit={limit_mb} '$1 + 0 <= limit {{clean += 1}} "
+        "END {print clean + 0}'); "
+        f'if [ "${{rtp_clean_gpu_count:-0}}" -lt {required_gpus} ]; then '
+        f'echo "GpuLockTimeoutError: GPU memory preflight found '
+        f'${{rtp_clean_gpu_count:-0}} clean GPU(s), need {required_gpus} '
+        f'(limit={limit_mb} MiB)" >&2; exit 1; fi; '
+        "fi; fi; "
+    )
 
 
 def _load_remote_execution_types():
@@ -813,8 +847,9 @@ class RemoteREAPIPlugin:
             f"{outputs_postscript}"
             "exit $ec"
         )
+        preflight = _gpu_memory_preflight_shell(gpu_req.gpu_count)
         return self._supervised_command(
-            f"{runtime.remote_setup_prefix}{run_cmd}", item.nodeid
+            f"{preflight}{runtime.remote_setup_prefix}{run_cmd}", item.nodeid
         )
 
     _GPU_LOCK_RETRY_PATTERNS = (
@@ -2261,4 +2296,7 @@ class RemoteREAPIPlugin:
 
         run_cmd = "\n".join(lines)
         key = f"session_{ci_profile}" if ci_profile else "session"
-        return self._supervised_command(f"{runtime.remote_setup_prefix}{run_cmd}", key)
+        preflight = _gpu_memory_preflight_shell(total_gpus)
+        return self._supervised_command(
+            f"{preflight}{runtime.remote_setup_prefix}{run_cmd}", key
+        )

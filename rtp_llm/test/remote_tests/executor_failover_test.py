@@ -481,7 +481,8 @@ def test_remote_session_result_enforces_exact_count_and_skip_contract():
     )
 
 
-def test_per_test_command_exports_marker_gpu_count(tmp_path):
+def test_per_test_command_exports_marker_gpu_count(tmp_path, monkeypatch):
+    monkeypatch.setenv("RTP_REMOTE_GPU_MEMORY_PREFLIGHT", "1")
     rootdir = tmp_path / "repo"
     test_file = rootdir / "test_remote.py"
     rootdir.mkdir()
@@ -500,7 +501,7 @@ def test_per_test_command_exports_marker_gpu_count(tmp_path):
         ignore_args=[],
         env_vars={},
         platform_properties={"gpu": "H20", "gpu_count": "1"},
-        remote_setup_prefix="",
+        remote_setup_prefix="echo REMOTE_SETUP; ",
     )
     command = plugin._build_command(
         _FakeRemoteItem(test_file, gpu_type="H20", gpu_count=1), runtime
@@ -514,6 +515,9 @@ def test_per_test_command_exports_marker_gpu_count(tmp_path):
     assert "export RTP_REMOTE_HEARTBEAT_KEEPALIVE=1;" not in shell
     assert "test_remote.py::test_case" in shell
     assert "-k test_case" not in shell
+    assert "--query-gpu=memory.used" in shell
+    assert "need 1 (limit=1024 MiB)" in shell
+    assert shell.index("--query-gpu=memory.used") < shell.index("echo REMOTE_SETUP")
     assert shell.index("export GPU_COUNT=1;") < shell.index(
         "python rtp_llm/test/utils/device_resource.py"
     )
@@ -525,7 +529,8 @@ def test_per_test_command_exports_marker_gpu_count(tmp_path):
     assert "export RTP_REMOTE_HEARTBEAT_KEEPALIVE=1;" in perf_shell
 
 
-def test_session_command_locks_total_gpu_pool_and_slices_workers():
+def test_session_command_locks_total_gpu_pool_and_slices_workers(monkeypatch):
+    monkeypatch.setenv("RTP_REMOTE_GPU_MEMORY_PREFLIGHT", "1")
     plugin = object.__new__(remote_plugin.RemoteREAPIPlugin)
     plugin.workers = 4
     plugin._collect_outputs = False
@@ -539,11 +544,13 @@ def test_session_command_locks_total_gpu_pool_and_slices_workers():
         ignore_args=[],
         env_vars={},
         platform_properties={"gpu": "H20", "gpu_count": "4"},
-        remote_setup_prefix="",
+        remote_setup_prefix="echo REMOTE_SETUP; ",
     )
     command = plugin._build_session_command("", runtime, ci_profile=None)
     shell = command[2]
 
+    assert "need 4 (limit=1024 MiB)" in shell
+    assert shell.index("--query-gpu=memory.used") < shell.index("echo REMOTE_SETUP")
     assert (
         "export GPU_COUNT=4; unset WORLD_SIZE; export GPU_COUNT_PER_WORKER=1;"
         in shell
