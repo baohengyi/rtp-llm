@@ -1392,6 +1392,15 @@ class BuildPackagingContractTest(TestCase):
         }
         self.assertFalse(runtime_only_modules & eager_imports)
 
+    def test_smoke_runner_preserves_legacy_declared_env_contract(self):
+        runner_source = (
+            PROJECT_ROOT / "rtp_llm/test/smoke_framework/runner.py"
+        ).read_text()
+
+        self.assertIn('append(f"WORLD_SIZE={ws}")', runner_source)
+        self.assertNotIn("ENABLE_STABLE_SCATTER_ADD", runner_source)
+        self.assertNotIn("DETERMINISTIC_GEMM", runner_source)
+
     def test_h20_full_smoke_profile_preserves_remote_jit_cache_contract(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:
             pyproject = tomllib.load(f)

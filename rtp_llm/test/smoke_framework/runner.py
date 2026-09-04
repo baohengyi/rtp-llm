@@ -69,6 +69,10 @@ def _build_env_args(
     Single-role: returns flat list of "KEY=VAL" strings.
     Multi-role: returns dict {role: [env strings]} — each role's WORLD_SIZE comes
     from its own smoke_args.
+
+    Keep this aligned with the legacy Bazel smoke contract: only case-declared
+    variables and the derived WORLD_SIZE are forwarded to the server process.
+    Numerical-path switches must remain explicit per-case settings.
     """
     if isinstance(smoke_args, dict):
         env_args: Dict[str, List[str]] = {}
@@ -80,15 +84,11 @@ def _build_env_args(
             role_envs.extend(envs_dict.get(role, []))
             ws = _parse_world_size(args_str)
             role_envs.append(f"WORLD_SIZE={ws}")
-            role_envs.append("ENABLE_STABLE_SCATTER_ADD=ON")
-            role_envs.append("DETERMINISTIC_GEMM=1")
             env_args[role] = role_envs
         return env_args
     env_list = list(envs) if isinstance(envs, list) else []
     ws = _parse_world_size(smoke_args)
     env_list.append(f"WORLD_SIZE={ws}")
-    env_list.append("ENABLE_STABLE_SCATTER_ADD=ON")
-    env_list.append("DETERMINISTIC_GEMM=1")
     return env_list
 
 
