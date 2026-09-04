@@ -1421,6 +1421,12 @@ class BuildPackagingContractTest(TestCase):
         self.assertIn('append(f"WORLD_SIZE={ws}")', runner_source)
         self.assertNotIn("ENABLE_STABLE_SCATTER_ADD", runner_source)
         self.assertNotIn("DETERMINISTIC_GEMM", runner_source)
+        self.assertNotIn("USE_GATHER_BATCH_SCHEDULER", runner_source)
+
+        legacy_entry_source = (
+            PROJECT_ROOT / "rtp_llm/test/smoke/entry.py"
+        ).read_text()
+        self.assertNotIn("USE_GATHER_BATCH_SCHEDULER", legacy_entry_source)
 
     def test_h20_full_smoke_profile_preserves_remote_jit_cache_contract(self):
         with open(PROJECT_ROOT / "pyproject.toml", "rb") as f:

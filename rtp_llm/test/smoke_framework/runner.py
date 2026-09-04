@@ -1,7 +1,7 @@
 """Smoke test runner — single canonical implementation used by both OSS and internal entries.
 
 Replaces the byte-for-byte duplicated `run_smoke_test` / `get_runner_type` /
-`_build_env_args` / `check_use_prompt_batch` blocks in `test_smoke_oss.py` and
+`_build_env_args` blocks in `test_smoke_oss.py` and
 `test_smoke_internal.py`. Internal smoke entries reduce to ~30 lines (data + parametrize).
 """
 
@@ -16,14 +16,6 @@ from rtp_llm.test.smoke_framework.manifest import _parse_world_size, get_gpu_cou
 
 if TYPE_CHECKING:
     from rtp_llm.test.smoke.case_runner import CaseRunner
-    from rtp_llm.test.smoke.task_info import TaskInfo
-
-
-def check_use_prompt_batch(task_info: TaskInfo) -> bool:
-    for query_result in task_info.query_result:
-        if query_result.get("query", {}).get("prompt_batch", False):
-            return True
-    return False
 
 
 def get_runner_type(
@@ -212,10 +204,8 @@ def run_smoke_test(test_name: str, test_config: Mapping[str, Any]) -> None:
         if param in test_config:
             runner_params[param] = test_config[param]
 
-    if check_use_prompt_batch(task_info) and isinstance(env_args, list):
-        env_args.append("USE_GATHER_BATCH_SCHEDULER=1")
-        runner_params["batch_infer"] = True
-        logging.info("use gather batch scheduler")
+    # prompt_batch queries are routed to /batch_infer per-query in CaseRunner.
+    # Keep the server environment identical to the legacy Bazel smoke contract.
 
     runner = runner_class(**runner_params)
     try:

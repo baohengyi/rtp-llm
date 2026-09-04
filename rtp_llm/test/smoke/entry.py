@@ -29,12 +29,6 @@ from rtp_llm.test.smoke.utils import resolve_prompt_refs
 from rtp_llm.utils.util import str_to_bool
 
 
-def check_use_prompt_batch(task_info: TaskInfo) -> bool:
-    for query_result in task_info.query_result:
-        if query_result.get("query", {}).get("prompt_batch", False):
-            return True
-    return False
-
 def get_runner_type(
     env_args: Union[List[str], Dict[str, List[str]]]
 ) -> Type[CaseRunner]:
@@ -131,11 +125,8 @@ if __name__ == "__main__":
         "kill_remote": str_to_bool(args.kill_remote),
         "concurrency_test": str_to_bool(args.concurrency_test),
     }
-    # Use batch decode scheduler for stable CI result (pd seperation not supported)
-    if check_use_prompt_batch(task_info) and isinstance(env_args, list):
-        env_args.append("USE_GATHER_BATCH_SCHEDULER=1")
-        runner_params["batch_infer"] = True
-        logging.info("use gather batch scheduler")
+    # prompt_batch queries are routed to /batch_infer per-query in CaseRunner.
+    # Keep the server environment identical to the legacy Bazel smoke contract.
 
     runner = runner_class(**runner_params)
 
