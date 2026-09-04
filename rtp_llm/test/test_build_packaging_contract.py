@@ -340,6 +340,17 @@ class BuildPackagingContractTest(TestCase):
 
         self.assertEqual(args, ["--config=cuda12_9"])
 
+    def test_bazel_no_test_targets_is_failure(self):
+        setup_module = _load_setup_module()
+
+        with self.assertRaisesRegex(SystemExit, "4"):
+            setup_module._require_successful_bazel_test(4)
+
+    def test_bazel_test_success_is_accepted(self):
+        setup_module = _load_setup_module()
+
+        self.assertIsNone(setup_module._require_successful_bazel_test(0))
+
     def test_build_cleanup_removes_only_stale_test_artifacts(self):
         setup_module = _load_setup_module()
 

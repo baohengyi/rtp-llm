@@ -1753,9 +1753,13 @@ class BazelTest(Command):
         print(f"Command: {' '.join(cmd)}")
 
         result = _run_bazel_with_retry(cmd, cwd=project_root)
-        if result.returncode != 0 and result.returncode != 4:
-            # exit code 4 = no test targets matched, not an error
-            raise SystemExit(result.returncode)
+        _require_successful_bazel_test(result.returncode)
+
+
+def _require_successful_bazel_test(returncode: int) -> None:
+    """Reject failures and Bazel's exit-4 no-test result alike."""
+    if returncode != 0:
+        raise SystemExit(returncode)
 
 
 cmdclass = {"build_ext": BuildBazelExtension, "test": BazelTest}
