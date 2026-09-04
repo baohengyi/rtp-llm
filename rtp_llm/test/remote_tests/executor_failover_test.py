@@ -1132,10 +1132,16 @@ def test_build_runtime_config_uses_gpu_type_remote_env(monkeypatch):
                             "custom_remote": {
                                 "gpu_type": "CUSTOM_GPU",
                                 "remote_env": {
-                                    "RTP_BAZEL_CONFIG": "--config=custom"
+                                    "PROFILE_ONLY": "profile-value",
                                 },
                             }
-                        }
+                        },
+                        "gpu_env": {
+                            "CUSTOM_GPU": {
+                                "RTP_BAZEL_CONFIG": "--config=custom",
+                                "SHARED_VALUE": "shared-value",
+                            }
+                        },
                     }
                 }
             }
@@ -1147,6 +1153,8 @@ def test_build_runtime_config_uses_gpu_type_remote_env(monkeypatch):
     )
 
     assert runtime.env_vars["RTP_BAZEL_CONFIG"] == "--config=custom"
+    assert runtime.env_vars["PROFILE_ONLY"] == "profile-value"
+    assert runtime.env_vars["SHARED_VALUE"] == "shared-value"
     assert "export RTP_BAZEL_CONFIG=--config=custom;" in runtime.remote_setup_prefix
 
 

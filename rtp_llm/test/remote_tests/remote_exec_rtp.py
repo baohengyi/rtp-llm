@@ -1008,15 +1008,20 @@ def resolve_ci_profile_remote_env(
 
 
 def resolve_gpu_type_remote_env(rootdir: Path, gpu_type: str) -> Dict[str, str]:
-    """Return remote env configured by profiles that target a GPU type."""
-    profiles = (
+    """Return shared and profile-specific remote env for a GPU type."""
+    pytest_ci = (
         _load_pyproject(rootdir)
         .get("tool", {})
         .get("rtp_llm", {})
         .get("pytest_ci", {})
-        .get("profiles", {})
     )
-    merged: Dict[str, str] = {}
+    gpu_env = pytest_ci.get("gpu_env", {}).get(gpu_type, {})
+    merged: Dict[str, str] = (
+        {str(key): str(value) for key, value in gpu_env.items()}
+        if isinstance(gpu_env, dict)
+        else {}
+    )
+    profiles = pytest_ci.get("profiles", {})
     for profile in profiles.values():
         if not isinstance(profile, dict) or str(profile.get("gpu_type", "")) != gpu_type:
             continue
