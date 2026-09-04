@@ -16,6 +16,7 @@ CUDA_LINEAR_REGISTRY = (
     RTP_LLM_DIR / "models_py/modules/factory/linear/impl/cuda/__init__.py"
 )
 DEVICE_IMPL = RTP_LLM_DIR / "device/device_impl.py"
+MIXED_FP4_WEIGHT = RTP_LLM_DIR / "model_loader/mixed_fp4_quant_weight.py"
 
 
 def _find_class(tree: ast.Module, name: str) -> ast.ClassDef:
@@ -265,7 +266,7 @@ def test_decode_cuda_graph_passes_cache_group_tags_to_capture():
     assert "self.kv_cache.group_tags" in source
 
 
-def test_qwen35_sm100_cuda_graph_cases_use_fast_loader_without_gds():
+def test_qwen35_sm100_cuda_graph_cases_match_validated_loader_environment():
     tree = ast.parse(
         (RTP_LLM_DIR / "test/smoke/suites/test_smoke_sm100_moe.py").read_text()
     )
@@ -286,10 +287,10 @@ def test_qwen35_sm100_cuda_graph_cases_use_fast_loader_without_gds():
         "next_moe_nvfp4_cudagraph_tp2_sm100",
     ):
         assert "--load_method scratch" not in cases[name]["smoke_args"]
-        assert cases[name]["envs"] == ["FASTSAFETENSORS_NOGDS=1"]
+        assert "envs" not in cases[name]
 
 
-def test_sm100_head_dim_256_cuda_graph_skips_trtllm_gen_decode():
+def test_sm100_head_dim_256_cuda_graph_keeps_validated_decode_backends():
     tree = ast.parse(
         (ATTENTION_DIR / "cuda_impl/trtllm_gen.py").read_text()
     )
@@ -297,55 +298,76 @@ def test_sm100_head_dim_256_cuda_graph_skips_trtllm_gen_decode():
         _find_method(_find_class(tree, "FlashInferTRTLLMDecodeOp"), "support")
     )
 
-    assert "not attention_inputs.is_prefill" in support_source
-    assert "attention_inputs.is_cuda_graph" in support_source
-    assert "self.head_dim == 256" in support_source
+    assert "attention_inputs.is_cuda_graph" not in support_source
+    assert "self.head_dim == 256" not in support_source
 
-
-def test_sm100_head_dim_256_cuda_graph_skips_xqa_decode_backends():
-    tree = ast.parse((ATTENTION_DIR / "cuda_impl/xqa.py").read_text())
-    helper = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "_reject_sm100_head_dim_256_cuda_graph"
+    xqa_tree = ast.parse((ATTENTION_DIR / "cuda_impl/xqa.py").read_text())
+    assert all(
+        not (
+            isinstance(node, ast.FunctionDef)
+            and node.name == "_reject_sm100_head_dim_256_cuda_graph"
+        )
+        for node in xqa_tree.body
     )
-    helper_source = ast.unparse(helper)
-
-    assert "torch.cuda.get_device_capability()[0] == 10" in helper_source
-    assert "attn_inputs.is_cuda_graph" in helper_source
-    assert "attn_configs.size_per_head == 256" in helper_source
-
     for class_name in ("XQAImpl", "XQADecodeImpl"):
         support_source = ast.unparse(
-            _find_method(_find_class(tree, class_name), "support")
+            _find_method(_find_class(xqa_tree, class_name), "support")
         )
-        assert "_reject_sm100_head_dim_256_cuda_graph" in support_source
+        assert "_reject_sm100_head_dim_256_cuda_graph" not in support_source
 
-    registry_source = (ATTENTION_DIR / "__init__.py").read_text()
-    assert registry_source.index("DECODE_MHA_IMPS.append(XQAImpl)") < registry_source.index(
-        "DECODE_MHA_IMPS.append(PyFlashinferDecodeImpl)"
+    flashinfer_tree = ast.parse(
+        (ATTENTION_DIR / "cuda_impl/py_flashinfer_mha.py").read_text()
     )
-
-
-def test_sm100_head_dim_256_cuda_graph_uses_flashinfer_cuda_core_decode():
-    tree = ast.parse((ATTENTION_DIR / "cuda_impl/py_flashinfer_mha.py").read_text())
-    helper = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "_use_tensor_core_decode"
-    )
-    helper_source = ast.unparse(helper)
-
-    assert "is_sm_100()" in helper_source
-    assert "attn_inputs.is_cuda_graph" in helper_source
-    assert "attn_configs.size_per_head == 256" in helper_source
-    assert "return False" in helper_source
-
     decode_init = ast.unparse(
-        _find_method(_find_class(tree, "PyFlashinferDecodeAttnOp"), "__init__")
+        _find_method(
+            _find_class(flashinfer_tree, "PyFlashinferDecodeAttnOp"), "__init__"
+        )
     )
-    assert "_use_tensor_core_decode(attn_configs, attn_inputs)" in decode_init
+    assert "determine_use_tensor_core_from_configs(attn_configs)" in decode_init
+    assert "_use_tensor_core_decode" not in decode_init
+
+
+def test_online_modelopt_fp4_moe_weights_keep_validated_checkpoint_layout():
+    tree = ast.parse(MIXED_FP4_WEIGHT.read_text())
+    mixed_fp4 = _find_class(tree, "MixedFp4Weight")
+
+    assert all(
+        not (
+            isinstance(node, ast.FunctionDef)
+            and node.name == "_get_moe_quant_ckpt_infos"
+        )
+        for node in mixed_fp4.body
+    )
+
+    w2_source = ast.unparse(_find_method(mixed_fp4, "_get_moe_w2_quant_weight"))
+    assert "src_weight_info.weights[0].name[:-len(W_SUFFIX)]" in w2_source
+    assert "stack_" in w2_source
+
+    w1_source = ast.unparse(_find_method(mixed_fp4, "_get_moe_w1_quant_weight"))
+    assert "for w in src_weight_info.weights" in w1_source
+    assert "stack_moe_w1" in w1_source
+    assert "stack_moe_w1_s2" in w1_source
+
+
+def test_sm100_fp8_case_uses_tracked_main_golden_name():
+    suite_tree = ast.parse(
+        (RTP_LLM_DIR / "test/smoke/suites/test_smoke_sm100_dense.py").read_text()
+    )
+    cases = ast.literal_eval(
+        next(
+            node.value
+            for node in suite_tree.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "SMOKE_CASES"
+                for target in node.targets
+            )
+        )
+    )
+
+    task_info = cases["fp8_attention_sm100"]["task_info"]
+    assert task_info.endswith("q_r_block_fp8_sm100_arm.json")
+    assert (RTP_LLM_DIR / "test/smoke" / task_info).is_file()
 
 
 def test_qwen3_standalone_goldens_match_python_native_h20_outputs():

@@ -441,14 +441,6 @@ class FlashInferTRTLLMDecodeOp(object):
     def support(self, attention_inputs: PyAttentionInputs):
         if not is_sm_100():
             return False
-        # FlashInfer TRT-LLM Gen faults while loading the head-dim 256 kernel
-        # under CUDA Graph on SM100. Let the dispatcher use XQA for this shape.
-        if (
-            not attention_inputs.is_prefill
-            and attention_inputs.is_cuda_graph
-            and self.head_dim == 256
-        ):
-            return False
         # Note: this max q length is used for mtp decode verification.
         decode_kernel_max_q_len = 11
         if (

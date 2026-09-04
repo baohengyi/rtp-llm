@@ -28,16 +28,6 @@ _g_xqa_workspace_pool: list[torch.Tensor] = []
 _g_xqa_pool_lock = __import__("threading").Lock()
 
 
-def _reject_sm100_head_dim_256_cuda_graph(
-    attn_configs: AttentionConfigs, attn_inputs: PyAttentionInputs
-) -> bool:
-    return (
-        torch.cuda.get_device_capability()[0] == 10
-        and attn_inputs.is_cuda_graph
-        and attn_configs.size_per_head == 256
-    )
-
-
 def get_xqa_workspace_buffer(device: str = "cuda") -> torch.Tensor:
     with _g_xqa_pool_lock:
         if _g_xqa_workspace_pool:
@@ -98,10 +88,6 @@ class XQAImpl(FMHAImplBase):
         # The available XQA cubins do not contain an SM120 binding. Let the
         # dispatcher fall through to the PyFlashinfer implementation instead.
         if torch.cuda.get_device_capability()[0] == 12:
-            return False
-        # Native XQA fails CUDA Graph capture for this SM100 shape. Avoid
-        # retrying another XQA path and use PyFlashinfer decode instead.
-        if _reject_sm100_head_dim_256_cuda_graph(attn_configs, attn_inputs):
             return False
         fmha_impl = XQAAttnOp(attn_configs)
         return fmha_impl.support(attn_inputs)
@@ -194,8 +180,6 @@ class XQADecodeImpl(FMHAImplBase):
         if attn_inputs.is_prefill:
             return False
         if torch.cuda.get_device_capability()[0] == 12:
-            return False
-        if _reject_sm100_head_dim_256_cuda_graph(attn_configs, attn_inputs):
             return False
         if torch.cuda.get_device_capability()[0] not in [9, 10]:
             return False

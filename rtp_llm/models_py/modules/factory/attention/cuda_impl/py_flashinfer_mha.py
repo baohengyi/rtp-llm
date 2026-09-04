@@ -1032,18 +1032,6 @@ def determine_use_tensor_core_from_configs(attn_configs: AttentionConfigs) -> bo
     return attn_configs.head_num // attn_configs.kv_head_num >= 4
 
 
-def _use_tensor_core_decode(
-    attn_configs: AttentionConfigs, attn_inputs: PyAttentionInputs
-) -> bool:
-    if (
-        is_sm_100()
-        and attn_inputs.is_cuda_graph
-        and attn_configs.size_per_head == 256
-    ):
-        return False
-    return determine_use_tensor_core_from_configs(attn_configs)
-
-
 class PyFlashinferDecodeAttnOp(object):
     def __init__(
         self,
@@ -1057,7 +1045,7 @@ class PyFlashinferDecodeAttnOp(object):
         self.head_dim_qk = attn_configs.size_per_head
         self.head_dim_vo = attn_configs.size_per_head
         self.seq_size_per_block = attn_configs.kernel_tokens_per_block
-        self.use_tensor_core = _use_tensor_core_decode(attn_configs, attn_inputs)
+        self.use_tensor_core = determine_use_tensor_core_from_configs(attn_configs)
         self.decode_wrapper = BatchDecodeWithPagedKVCacheWrapper(
             self.g_workspace_buffer,
             "HND",
