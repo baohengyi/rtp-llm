@@ -794,6 +794,30 @@ def test_per_test_deadline_starts_after_local_queue_wait(monkeypatch):
     )
 
 
+def test_per_test_controller_wait_does_not_consume_worker_case_timeout():
+    plugin = object.__new__(remote_plugin.RemoteREAPIPlugin)
+    plugin.timeout_policy = select_remote_timeout_policy(
+        "smoke_sm100_oss", per_test=True
+    )
+    source_timeout = pytest.mark.timeout(600).mark
+
+    class FakeItem:
+        own_markers = [source_timeout]
+
+        def add_marker(self, marker, append=True):
+            if append:
+                self.own_markers.append(marker.mark)
+            else:
+                self.own_markers.insert(0, marker.mark)
+
+    item = FakeItem()
+    plugin._apply_controller_timeout_marker(item)
+
+    assert item.own_markers[0].name == "timeout"
+    assert item.own_markers[0].args == (3600,)
+    assert item.own_markers[1].args == (600,)
+
+
 def _done_operation(exit_code=0):
     op = remote_execution_pb2.Operation(name="operations/done", done=True)
     resp = remote_execution_pb2.ExecuteResponse(

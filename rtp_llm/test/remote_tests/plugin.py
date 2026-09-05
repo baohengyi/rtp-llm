@@ -50,6 +50,7 @@ DEFAULT_CONCURRENCY = 16
 # Bazel build retries and pytest-remote retries on the same policy.
 MAX_RETRIES = reapi_max_retries()
 MAX_REMOTE_TIMEOUT = 7200
+_REMOTE_CONTROLLER_RESULT_MARGIN_SECONDS = 300
 # Session mode runs pytest in phases by gpu(count=N). Keep all counts up to the
 # default 4-worker session so mixed PD topologies such as 1+2 GPUs do not fall
 # back into the 1-GPU phase.
@@ -955,6 +956,9 @@ class RemoteREAPIPlugin:
         if not self._remote_items:
             return
 
+        for item in self._remote_items:
+            self._apply_controller_timeout_marker(item)
+
         self._ensure_uploaded(self._remote_items)
 
         # --- Test cache: load manifest and split cached vs uncached ---
@@ -1051,6 +1055,16 @@ class RemoteREAPIPlugin:
         log.info(
             "Submitted %d remote tests (concurrency=%d)", len(self._futures), workers
         )
+
+    def _apply_controller_timeout_marker(self, item) -> None:
+        # The controller item waits for remote setup, execution and result
+        # download.  Its source timeout marker is re-collected on the worker
+        # and must continue to govern only the real test body there.
+        controller_timeout = (
+            self.timeout_policy.session_budget_seconds
+            + _REMOTE_CONTROLLER_RESULT_MARGIN_SECONDS
+        )
+        item.add_marker(pytest.mark.timeout(controller_timeout), append=False)
 
     def _session_collection_modifyitems(self, config, items) -> None:
         if not items:
