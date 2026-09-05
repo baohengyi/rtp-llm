@@ -1205,16 +1205,18 @@ def test_prepare_uv_git_cache_archive_packs_only_pinned_repo(tmp_path, monkeypat
     mori_checkout.mkdir(parents=True)
     other_db.mkdir(parents=True)
     other_checkout.mkdir(parents=True)
-    (mori_db / "config").write_text(
-        '[remote "origin"]\n\turl = https://github.com/ROCm/mori.git\n',
+    (mori_db / ".git").mkdir()
+    (other_db / ".git").mkdir()
+    (mori_db / ".git/FETCH_HEAD").write_text(
+        "dafdcfcf1e27b0c981b90903ab198b90d29e6867\t\thttps://github.com/ROCm/mori.git\n",
         encoding="utf-8",
     )
-    (mori_db / "objects").write_text("mori objects\n", encoding="utf-8")
+    (mori_db / ".git/HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     (mori_checkout / "pyproject.toml").write_text(
         "[project]\nname = 'amd-mori'\n", encoding="utf-8"
     )
-    (other_db / "config").write_text(
-        '[remote "origin"]\n\turl = https://github.com/example/other.git\n',
+    (other_db / ".git/FETCH_HEAD").write_text(
+        "abcdef0123456789\t\thttps://github.com/example/other.git\n",
         encoding="utf-8",
     )
     (other_checkout / "README").write_text("other\n", encoding="utf-8")
@@ -1227,7 +1229,7 @@ def test_prepare_uv_git_cache_archive_packs_only_pinned_repo(tmp_path, monkeypat
     assert archive_rel == ".pytest_cache/remote_inputs/uv_git_cache.tar"
     with tarfile.open(tmp_path / archive_rel, "r") as tar:
         names = set(tar.getnames())
-    assert "git-v0/db/mori-key/config" in names
+    assert "git-v0/db/mori-key/.git/FETCH_HEAD" in names
     assert "git-v0/checkouts/mori-key/dafdcfc/pyproject.toml" in names
     assert all("other-key" not in name for name in names)
 

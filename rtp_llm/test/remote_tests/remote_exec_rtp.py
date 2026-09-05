@@ -761,12 +761,15 @@ def _prepare_uv_git_cache_archive(rootdir: Path) -> Optional[str]:
     selected: List[Path] = []
     repo_urls = tuple(url.lower().rstrip("/") for url in _UV_GIT_CACHE_REPOS)
     for db_dir in sorted(path for path in db_root.iterdir() if path.is_dir()):
-        config = db_dir / "config"
-        try:
-            config_text = config.read_text(encoding="utf-8", errors="replace").lower()
-        except OSError:
-            continue
-        if not any(url in config_text for url in repo_urls):
+        metadata_text = ""
+        for metadata in (db_dir / ".git/FETCH_HEAD", db_dir / ".git/config"):
+            try:
+                metadata_text += metadata.read_text(
+                    encoding="utf-8", errors="replace"
+                ).lower()
+            except OSError:
+                continue
+        if not any(url in metadata_text for url in repo_urls):
             continue
         checkouts = checkout_root / db_dir.name
         if not checkouts.is_dir():
