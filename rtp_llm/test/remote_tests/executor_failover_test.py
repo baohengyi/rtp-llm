@@ -973,6 +973,8 @@ def test_remote_setup_eviction_uses_venv_lock():
     )
     assert "evict_locked_venvs -mmin +360" in command
     assert "evict_locked_venvs -mmin +60" in command
+    assert 'export UV_CACHE_DIR="/home/admin/.cache/uv"' in command
+    assert "restored pinned uv Git cache" in command
     assert "restored rtp_llm/libs from runtime libs archive" in command
 
 
@@ -1191,6 +1193,43 @@ def test_collect_session_files_requires_staged_runtime_libs(tmp_path):
         assert "Run `python setup.py build_ext --inplace` first" in str(exc)
     else:
         raise AssertionError("collect_session_files should require staged runtime libs")
+
+
+def test_prepare_uv_git_cache_archive_packs_only_pinned_repo(tmp_path, monkeypatch):
+    cache_root = tmp_path / "uv-cache"
+    mori_db = cache_root / "git-v0/db/mori-key"
+    mori_checkout = cache_root / "git-v0/checkouts/mori-key/dafdcfc"
+    other_db = cache_root / "git-v0/db/other-key"
+    other_checkout = cache_root / "git-v0/checkouts/other-key/abcdef0"
+    mori_db.mkdir(parents=True)
+    mori_checkout.mkdir(parents=True)
+    other_db.mkdir(parents=True)
+    other_checkout.mkdir(parents=True)
+    (mori_db / "config").write_text(
+        '[remote "origin"]\n\turl = https://github.com/ROCm/mori.git\n',
+        encoding="utf-8",
+    )
+    (mori_db / "objects").write_text("mori objects\n", encoding="utf-8")
+    (mori_checkout / "pyproject.toml").write_text(
+        "[project]\nname = 'amd-mori'\n", encoding="utf-8"
+    )
+    (other_db / "config").write_text(
+        '[remote "origin"]\n\turl = https://github.com/example/other.git\n',
+        encoding="utf-8",
+    )
+    (other_checkout / "README").write_text("other\n", encoding="utf-8")
+    monkeypatch.setenv("RTP_REMOTE", "1")
+    monkeypatch.setenv("UV_CACHE_DIR", str(cache_root))
+    monkeypatch.setattr(remote_exec_rtp, "_UV_GIT_CACHE_ROOT", cache_root.resolve())
+
+    archive_rel = remote_exec_rtp._prepare_uv_git_cache_archive(tmp_path)
+
+    assert archive_rel == ".pytest_cache/remote_inputs/uv_git_cache.tar"
+    with tarfile.open(tmp_path / archive_rel, "r") as tar:
+        names = set(tar.getnames())
+    assert "git-v0/db/mori-key/config" in names
+    assert "git-v0/checkouts/mori-key/dafdcfc/pyproject.toml" in names
+    assert all("other-key" not in name for name in names)
 
 
 def test_cas_find_missing_retries_transient_unavailable(monkeypatch):

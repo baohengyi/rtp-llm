@@ -69,6 +69,9 @@ _SOURCE_CONTRACT_FILES = (
     "rtp_llm/utils/test/BUILD",
 )
 _RUNTIME_LIBS_ARCHIVE = _REMOTE_INPUT_DIR / "rtp_llm_libs.tar"
+_UV_GIT_CACHE_ARCHIVE = _REMOTE_INPUT_DIR / "uv_git_cache.tar"
+_UV_GIT_CACHE_ROOT = Path("/home/admin/.cache/uv")
+_UV_GIT_CACHE_REPOS = ("https://github.com/ROCm/mori.git",)
 _PPU_RUNTIME_DIR = _REMOTE_INPUT_DIR / "ppu_runtime"
 _CORE_RUNTIME_LIBS = (
     "libth_transformer_config.so",
@@ -426,6 +429,12 @@ def build_remote_setup_command(rootdir: Path, *, setup_env: Optional[dict] = Non
         "    -mmin +60 -exec rm -rf {} + 2>/dev/null; "
         "fi; "
         'echo "[remote_setup] disk after eviction: $(df -h /home/admin 2>/dev/null | tail -1)"; '
+        f"if [ -f {shlex.quote(str(_UV_GIT_CACHE_ARCHIVE))} ]; then "
+        f'  export UV_CACHE_DIR="{_UV_GIT_CACHE_ROOT}"; '
+        '  mkdir -p "$UV_CACHE_DIR"; '
+        f"  tar -xf {shlex.quote(str(_UV_GIT_CACHE_ARCHIVE))} -C \"$UV_CACHE_DIR\"; "
+        '  echo "[remote_setup] restored pinned uv Git cache"; '
+        "fi; "
         + gpu_diag
         + 'echo ">>>PHASE:pip_install_start $(date +%s)"; '
         "mkdir -p logs; "
@@ -720,6 +729,88 @@ def _prepare_runtime_libs_archive(rootdir: Path) -> str:
     return str(archive.relative_to(rootdir))
 
 
+def _prepare_uv_git_cache_archive(rootdir: Path) -> Optional[str]:
+    """Ship pinned Git dependencies already fetched by the CI controller.
+
+    The controller installs the same editable package before dispatching the
+    remote pytest session and has Aone's GitHub proxy available. ROCm workers
+    do not have that proxy, so letting uv clone MORI and its submodules again
+    makes test startup depend on direct GitHub access. Only the cache entries
+    matching explicitly pinned project dependencies are copied.
+    """
+    if os.environ.get("RTP_REMOTE") != "1":
+        return None
+
+    cache_root = Path(
+        os.environ.get("UV_CACHE_DIR", str(Path.home() / ".cache" / "uv"))
+    ).resolve()
+    if cache_root != _UV_GIT_CACHE_ROOT:
+        log.warning(
+            "Session mode: uv Git cache path %s is not portable to worker path %s",
+            cache_root,
+            _UV_GIT_CACHE_ROOT,
+        )
+        return None
+    git_root = cache_root / "git-v0"
+    db_root = git_root / "db"
+    checkout_root = git_root / "checkouts"
+    if not db_root.is_dir() or not checkout_root.is_dir():
+        log.warning("Session mode: uv Git cache is unavailable at %s", git_root)
+        return None
+
+    selected: List[Path] = []
+    repo_urls = tuple(url.lower().rstrip("/") for url in _UV_GIT_CACHE_REPOS)
+    for db_dir in sorted(path for path in db_root.iterdir() if path.is_dir()):
+        config = db_dir / "config"
+        try:
+            config_text = config.read_text(encoding="utf-8", errors="replace").lower()
+        except OSError:
+            continue
+        if not any(url in config_text for url in repo_urls):
+            continue
+        checkouts = checkout_root / db_dir.name
+        if not checkouts.is_dir():
+            continue
+        selected.extend((db_dir, checkouts))
+
+    if not selected:
+        log.warning(
+            "Session mode: no pinned project Git cache found for %s",
+            ", ".join(_UV_GIT_CACHE_REPOS),
+        )
+        return None
+
+    archive = rootdir / _UV_GIT_CACHE_ARCHIVE
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    tmp_archive = archive.with_suffix(".tar.tmp")
+    if tmp_archive.exists():
+        tmp_archive.unlink()
+
+    def normalize(info: tarfile.TarInfo) -> tarfile.TarInfo:
+        info.uid = info.gid = 0
+        info.uname = info.gname = ""
+        info.mtime = 0
+        return info
+
+    with tarfile.open(tmp_archive, "w", dereference=False) as tar:
+        for path in selected:
+            tar.add(
+                path,
+                arcname=str(path.relative_to(cache_root)),
+                recursive=True,
+                filter=normalize,
+            )
+
+    tmp_archive.replace(archive)
+    log.info(
+        "Session mode: packed %d pinned uv Git cache paths into %s (%.1f MB)",
+        len(selected),
+        archive.relative_to(rootdir),
+        archive.stat().st_size / 1024 / 1024,
+    )
+    return str(archive.relative_to(rootdir))
+
+
 def _collect_smoke_files(rootdir: Path) -> List[str]:
     """Smoke test golden data — OSS tree + internal tree, both shipped."""
     files: List[str] = []
@@ -869,6 +960,9 @@ def collect_session_files(rootdir: Path) -> List[str]:
     files.extend(_collect_smoke_files(rootdir))
     files.extend(_collect_session_extra_files(rootdir))
     files.append(_prepare_runtime_libs_archive(rootdir))
+    uv_git_cache_archive = _prepare_uv_git_cache_archive(rootdir)
+    if uv_git_cache_archive:
+        files.append(uv_git_cache_archive)
 
     files = sorted(set(files))
     _check_no_lfs_pointers(rootdir, files)
