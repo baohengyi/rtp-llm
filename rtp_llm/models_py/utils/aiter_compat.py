@@ -1,5 +1,6 @@
 """Compatibility setup for ROCm AITer kernels."""
 
+from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
 from threading import RLock
 from typing import Any, Optional
@@ -44,10 +45,10 @@ def call_aiter_with_bundled_core_abi(
     if not resolved_version.startswith(_JIT_PYBIND_ABI_BROKEN_VERSION_PREFIX):
         return operation(*args, **kwargs)
 
-    if cpp_extension_module is None:
-        from aiter.jit.utils import cpp_extension as cpp_extension_module
     if jit_core_module is None:
         from aiter.jit import core as jit_core_module
+    if cpp_extension_module is None:
+        cpp_extension_module = import_module(jit_core_module._jit_compile.__module__)
 
     with _JIT_BUILD_LOCK:
         original_flags = cpp_extension_module._get_pybind11_abi_build_flags
