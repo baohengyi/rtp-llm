@@ -237,7 +237,8 @@ final class AutoTpmE2EHarness implements AutoCloseable {
             }
         };
         scheduler = new FlexlbBatchScheduler(configService, router,
-                endpointRegistry, dispatcher, reporter, priorityScheduler, null);
+                endpointRegistry, dispatcher, reporter, priorityScheduler, null,
+                cancelChannel);
         schedulerRef.set(scheduler);
 
         for (JavaMockEngineCluster.FastRpcService svc : prefillEngines) {
