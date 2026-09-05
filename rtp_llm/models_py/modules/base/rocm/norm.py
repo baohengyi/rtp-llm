@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from aiter import layernorm2d_fwd as layernorm2d_fwd
 from aiter import layernorm2d_fwd_with_add as layernorm2d_fwd_with_add
-from aiter import rms_norm, rmsnorm, rmsnorm2d_fwd_opus, rmsnorm2d_fwd_with_add_opus
+from aiter import rms_norm, rmsnorm2d_fwd_opus, rmsnorm2d_fwd_with_add_opus
 from aiter import rmsnorm2d_fwd_with_add as fused_add_rmsnorm
 from torch import nn
 
@@ -14,7 +14,6 @@ from rtp_llm.models_py.modules.base.common.norm import (
     BaseNorm,
     BaseResNorm,
 )
-from rtp_llm.models_py.utils.aiter_compat import call_aiter_with_bundled_core_abi
 from rtp_llm.ops.compute_ops import rtp_llm_ops
 
 # Fast-path guard for VisionBert-style AddBiasResLayerNorm. The aiter
@@ -65,26 +64,14 @@ class RMSNorm(BaseNorm):
         super().__init__(weight, eps)
 
     def forward(self, hidden_states: torch.Tensor):
-        if _requires_opus_rmsnorm(hidden_states):
-            return rmsnorm2d_fwd_opus(
-                hidden_states, self.weight.data, self.variance_epsilon
-            )
         if (
             hidden_states.dim() == 2
             and hidden_states.element_size() == 2
             and hidden_states.shape[-1] <= 8192
         ):
-            output = torch.empty_like(hidden_states)
-            # AITER 0.1.21's torch custom-op bridge drops trailing defaults.
-            call_aiter_with_bundled_core_abi(
-                rmsnorm,
-                output,
-                hidden_states,
-                self.weight.data,
-                self.variance_epsilon,
-                False,
+            return rmsnorm2d_fwd_opus(
+                hidden_states, self.weight.data, self.variance_epsilon
             )
-            return output
         return rms_norm(hidden_states, self.weight.data, self.variance_epsilon)
 
 

@@ -44,9 +44,11 @@ class AiterCompatTest(TestCase):
             self.assertEqual(os.environ["AITER_USE_CK_MOE_SORTING"], "1")
 
         cpp_extension, original_flags = self._cpp_extension_with_torch_abi()
+        jit_core = SimpleNamespace(AITER_REBUILD=False)
 
         def operation(value):
             self.assertEqual(cpp_extension._get_pybind11_abi_build_flags(), [])
+            self.assertTrue(jit_core.AITER_REBUILD)
             return value
 
         result = _JIT_MODULE.call_aiter_with_bundled_core_abi(
@@ -54,8 +56,10 @@ class AiterCompatTest(TestCase):
             7,
             aiter_version="0.1.21.dev80+g987203ba5.d20260825",
             cpp_extension_module=cpp_extension,
+            jit_core_module=jit_core,
         )
         self.assertEqual(result, 7)
+        self.assertFalse(jit_core.AITER_REBUILD)
         self.assertIs(cpp_extension._get_pybind11_abi_build_flags, original_flags)
 
     def test_gfx950_keeps_opus_default(self):
