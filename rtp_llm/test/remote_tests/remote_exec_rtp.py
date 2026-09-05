@@ -489,6 +489,7 @@ def _collect_base_files(rootdir: Path) -> List[str]:
         "conftest.py",
         "internal_source/ci/prepare_venv.py",
         "internal_source/ci/ci_pip_install.sh",
+        "internal_source/ci/prepare_rocm_native_deps.sh",
     ):
         if (rootdir / name).exists():
             files.append(name)

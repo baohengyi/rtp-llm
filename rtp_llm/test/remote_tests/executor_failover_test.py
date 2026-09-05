@@ -1018,6 +1018,31 @@ def test_remote_setup_exports_profile_env():
     ) in command
 
 
+def test_remote_setup_collects_internal_rocm_native_dependency_script(tmp_path):
+    internal_source = tmp_path / "internal_source"
+    ci_dir = internal_source / "ci"
+    ci_dir.mkdir(parents=True)
+    (tmp_path / "pyproject.toml").write_text("", encoding="utf-8")
+    (internal_source / "pyproject_internal.toml").write_text(
+        "[tool.rtp_llm.pytest_ci.remote_setup]\n"
+        "prefix = 'source internal_source/ci/prepare_rocm_native_deps.sh; '\n",
+        encoding="utf-8",
+    )
+    (ci_dir / "prepare_rocm_native_deps.sh").write_text(
+        "return 0\n", encoding="utf-8"
+    )
+
+    remote_exec_rtp._load_pyproject.cache_clear()
+    try:
+        command = remote_exec_rtp.build_remote_setup_command(tmp_path)
+        files = remote_exec_rtp._collect_base_files(tmp_path)
+    finally:
+        remote_exec_rtp._load_pyproject.cache_clear()
+
+    assert "source internal_source/ci/prepare_rocm_native_deps.sh" in command
+    assert "internal_source/ci/prepare_rocm_native_deps.sh" in files
+
+
 def test_sm100_markexpr_prefers_explicit_arm_pool():
     gpu_type = remote_exec_rtp.infer_gpu_type_from_markexpr(
         "manual and smoke and (SM100 or SM100_ARM)"
@@ -1469,6 +1494,21 @@ def test_classifies_remote_setup_network_failure_as_infra():
     )
 
     assert category == "worker_setup_network"
+
+
+def test_does_not_classify_remote_setup_build_failure_as_network_infra():
+    category = RemoteExecutor._classify_execute_response_infra(
+        exit_code=1,
+        status_code=0,
+        status_message="",
+        stdout_raw=b">>>PHASE:pip_install_failed 123 rc=1",
+        stderr_raw=(
+            b"[prepare_venv] uv pip install --compile-bytecode -e .[dev]\n"
+            b"RuntimeError: Missing system packages: pciutils-devel\n"
+        ),
+    )
+
+    assert category is None
 
 
 def test_classifies_remote_gpu_xid_as_infra():

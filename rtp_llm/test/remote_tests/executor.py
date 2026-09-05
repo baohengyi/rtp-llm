@@ -690,14 +690,19 @@ class RemoteExecutor:
         ):
             return "infra_stall"
 
-        if exit_code != 0 and (
-            b">>>PHASE:pip_install_failed" in combined_output
-            or (
-                b"[prepare_venv]" in combined_output
-                and (
-                    b"Failed to fetch:" in combined_output
-                    or b"Request failed after" in combined_output
-                    or b"operation timed out" in combined_output
+        if (
+            exit_code != 0
+            and b">>>PHASE:pip_install_failed" in combined_output
+            and any(
+                marker in combined_output
+                for marker in (
+                    b"Failed to fetch:",
+                    b"Request failed after",
+                    b"operation timed out",
+                    b"Could not resolve host",
+                    b"Temporary failure in name resolution",
+                    b"Connection timed out",
+                    b"Connection reset by peer",
                 )
             )
         ):
