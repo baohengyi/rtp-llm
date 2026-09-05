@@ -14,7 +14,6 @@ from rtp_llm.models_py.modules.base.common.norm import (
     BaseNorm,
     BaseResNorm,
 )
-from rtp_llm.models_py.utils.aiter_compat import call_aiter_with_bundled_core_abi
 from rtp_llm.ops.compute_ops import rtp_llm_ops
 
 # Fast-path guard for VisionBert-style AddBiasResLayerNorm. The aiter
@@ -76,8 +75,7 @@ class RMSNorm(BaseNorm):
         ):
             output = torch.empty_like(hidden_states)
             # AITER 0.1.21's torch custom-op bridge drops trailing defaults.
-            call_aiter_with_bundled_core_abi(
-                rmsnorm,
+            rmsnorm(
                 output,
                 hidden_states,
                 self.weight.data,

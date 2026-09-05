@@ -16,7 +16,6 @@ from aiter.ops.gemm_op_a8w8 import gemm_a8w8_bpreshuffle_cktile
 
 from rtp_llm.models_py.kernels.rocm.fp8_kernel import rocm_per_token_quant_fp8
 from rtp_llm.models_py.modules.factory.linear import LinearBase
-from rtp_llm.models_py.utils.aiter_compat import call_aiter_with_bundled_core_abi
 from rtp_llm.ops import HWKernelConfig
 
 logger = logging.getLogger(__name__)
@@ -86,7 +85,7 @@ class RocmFp8PTPCLinearBase(LinearBase):
     @staticmethod
     @lru_cache(maxsize=1)
     def init_hipblas() -> None:
-        call_aiter_with_bundled_core_abi(aiter.hipb_create_extension)
+        aiter.hipb_create_extension()
 
     @staticmethod
     def _as_hipb_weight_view(weight: torch.Tensor) -> torch.Tensor:
@@ -492,9 +491,7 @@ class RocmFp8PTPCLinearWithSwizzle(RocmFp8PTPCLinearBase):
             # AITER 0.1.21's torch custom-op bridge drops trailing defaults.
             use_gelu=use_gelu,
         )
-        output = call_aiter_with_bundled_core_abi(
-            aiter.hipb_mm, input_fp8, self.weight, solution_index, **kwargs
-        )
+        output = aiter.hipb_mm(input_fp8, self.weight, solution_index, **kwargs)
         return self._restore_dtype(output, original_dtype)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
