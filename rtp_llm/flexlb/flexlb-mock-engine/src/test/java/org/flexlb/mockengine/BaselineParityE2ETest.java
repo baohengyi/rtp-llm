@@ -63,12 +63,15 @@ class BaselineParityE2ETest {
                     while (System.currentTimeMillis() - lastSubmitMs < 2) {
                         Thread.onSpinWait();
                     }
-                    lastSubmitMs = System.currentTimeMillis();
                     long requestId = rid++;
                     submissionOrder.add(requestId);
                     priorityByRid.put(requestId, priority);
                     submitNanos.put(requestId, System.nanoTime());
                     futures.add(h.scheduler.submit(h.context(requestId, priority)));
+                    // Anchor after submit so the next item cannot share this
+                    // BatchItem's enqueuedAtMs even if submit itself crosses a
+                    // millisecond boundary.
+                    lastSubmitMs = System.currentTimeMillis();
                 }
             }
             int total = PER_PRIORITY * PRIORITIES.length;
