@@ -285,6 +285,7 @@ markers = [
     "eval: benchmark-style evaluation smoke tests",
     "dedicated: smoke tests requiring a dedicated worker or checkpoint",
     "multi_arch_cuda: CUDA tests that must run on both SM8x and SM9x profiles",
+    "frontend: tests owned by the dedicated frontend CI profile",
     "timeout(timeout): per-test timeout override from pytest-timeout",
 
     # Feature markers
@@ -334,18 +335,19 @@ default_pytest_cli = "-v --tb=short --timeout=300"
 description = "Python UT on SM8x class GPUs (py-ut-sm8x)"
 gpu_type = "A10"
 minimum_count = 1
-expected_count = 2246
+expected_count = 2183
 forbid_skips = true
 ignore_paths = ["rtp_llm/test/dsv4", "rtp_llm/models_py/modules/dsv4"]
 isolated_paths = [
     "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_flashinfer_prefill/test_py_flashinfer_hybrid_mha_prefill.py",
 ]
-markexpr = "not H20 and not MI308X and not SM100 and not SM100_ARM and not smoke and not perf and not manual"
+markexpr = "not H20 and not MI308X and not SM100 and not SM100_ARM and not smoke and not perf and not manual and not frontend"
 
 [tool.rtp_llm.pytest_ci.profiles.py_ut_oss_sm8x]
 description = "Open-source-only Python UT on SM8x after internal_source is stripped"
 gpu_type = "A10"
 minimum_count = 1
+expected_count = 2183
 forbid_skips = true
 ignore_paths = ["rtp_llm/test/dsv4", "rtp_llm/models_py/modules/dsv4"]
 isolated_paths = [

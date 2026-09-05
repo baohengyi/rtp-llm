@@ -715,6 +715,18 @@ class BuildPackagingContractTest(TestCase):
         self.assertTrue(profiles["py_ut_oss_sm8x"].get("forbid_skips"))
         self.assertIn("not open_skip", profiles["py_ut_oss_sm8x"]["markexpr"])
         self.assertIn("not frontend", profiles["py_ut_oss_sm8x"]["markexpr"])
+        self.assertIn("not frontend", profiles["py_ut_sm8x"]["markexpr"])
+        self.assertIn(
+            "frontend: tests owned by the dedicated frontend CI profile",
+            pyproject["tool"]["pytest"]["ini_options"]["markers"],
+        )
+        conftest_source = (PROJECT_ROOT / "conftest.py").read_text()
+        self.assertIn('"rtp_llm/frontend/test/"', conftest_source)
+        self.assertIn('"rtp_llm/test/frontend_test/"', conftest_source)
+        self.assertIn(
+            '"rtp_llm/dash_sc/test/inference/mrcr_smoke_test.py"',
+            conftest_source,
+        )
         self.assertEqual(
             profiles["py_ut_sm100"].get("paths"),
             [
@@ -725,7 +737,8 @@ class BuildPackagingContractTest(TestCase):
         self.assertIn("not SM100_ARM", profiles["py_ut_sm100"]["markexpr"])
 
         for name, expected_count in {
-            "py_ut_sm8x": 2246,
+            "py_ut_sm8x": 2183,
+            "py_ut_oss_sm8x": 2183,
             "py_ut_sm9x": 416,
             "py_ut_sm100": 3,
             "py_ut_sm100_arm": 104,

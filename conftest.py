@@ -394,6 +394,23 @@ def pytest_configure(config):
 # ============================================================================
 
 
+_FRONTEND_TEST_DIRS = (
+    "rtp_llm/frontend/test/",
+    "rtp_llm/test/frontend_test/",
+)
+_FRONTEND_TEST_FILES = {
+    "rtp_llm/dash_sc/test/inference/mrcr_smoke_test.py",
+}
+
+
+def _is_frontend_test_path(path: object) -> bool:
+    item_path = str(path).replace("\\", "/")
+    return any(
+        item_path.startswith(test_dir) or f"/{test_dir}" in item_path
+        for test_dir in _FRONTEND_TEST_DIRS
+    ) or any(item_path.endswith(test_file) for test_file in _FRONTEND_TEST_FILES)
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
     """
@@ -410,6 +427,8 @@ def pytest_collection_modifyitems(config, items):
     }
     for item in items:
         item_path = str(item.path).replace("\\", "/")
+        if _is_frontend_test_path(item_path):
+            item.add_marker(pytest.mark.frontend)
         if any(item_path.endswith(path) for path in legacy_h20_tests) and not (
             item.get_closest_marker("multi_arch_cuda")
         ):
