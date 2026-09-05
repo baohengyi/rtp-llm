@@ -72,6 +72,7 @@ _RUNTIME_LIBS_ARCHIVE = _REMOTE_INPUT_DIR / "rtp_llm_libs.tar"
 _UV_GIT_CACHE_ARCHIVE = _REMOTE_INPUT_DIR / "uv_git_cache.tar"
 _UV_GIT_CACHE_ROOT = Path("/home/admin/.cache/uv")
 _UV_GIT_CACHE_REPOS = ("https://github.com/ROCm/mori.git",)
+_UV_GIT_CACHE_PROJECTS = ("amd-mori",)
 _PPU_RUNTIME_DIR = _REMOTE_INPUT_DIR / "ppu_runtime"
 _CORE_RUNTIME_LIBS = (
     "libth_transformer_config.so",
@@ -760,6 +761,8 @@ def _prepare_uv_git_cache_archive(rootdir: Path) -> Optional[str]:
 
     selected: List[Path] = []
     repo_urls = tuple(url.lower().rstrip("/") for url in _UV_GIT_CACHE_REPOS)
+    project_names = set(_UV_GIT_CACHE_PROJECTS)
+    tomllib = _load_toml_module()
     for db_dir in sorted(path for path in db_root.iterdir() if path.is_dir()):
         metadata_text = ""
         for metadata in (
@@ -774,10 +777,22 @@ def _prepare_uv_git_cache_archive(rootdir: Path) -> Optional[str]:
                 ).lower()
             except OSError:
                 continue
-        if not any(url in metadata_text for url in repo_urls):
-            continue
         checkouts = checkout_root / db_dir.name
         if not checkouts.is_dir():
+            continue
+        matches_repo_url = any(url in metadata_text for url in repo_urls)
+        matches_project = False
+        for pyproject in checkouts.glob("*/pyproject.toml"):
+            try:
+                with pyproject.open("rb") as f:
+                    name = tomllib.load(f).get("project", {}).get("name", "")
+            except (OSError, ValueError):
+                continue
+            normalized_name = str(name).lower().replace("_", "-")
+            if normalized_name in project_names:
+                matches_project = True
+                break
+        if not matches_repo_url and not matches_project:
             continue
         selected.extend((db_dir, checkouts))
 

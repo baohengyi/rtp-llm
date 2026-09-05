@@ -1244,7 +1244,7 @@ def test_prepare_uv_git_cache_archive_supports_bare_repo_layout(
     mori_checkout.mkdir(parents=True)
     (mori_db / "FETCH_HEAD").write_text(
         "dafdcfcf1e27b0c981b90903ab198b90d29e6867\t\t"
-        "https://github.com/ROCm/mori.git\n",
+        "https://aone-github-proxy.example/ROCm/mori.git\n",
         encoding="utf-8",
     )
     (mori_checkout / "pyproject.toml").write_text(
