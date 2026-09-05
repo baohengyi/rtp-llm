@@ -40,7 +40,10 @@ class AiterCompatTest(TestCase):
             _get_pybind11_abi_build_flags=lambda: ["torch-abi"]
         )
         def operation(value):
-            self.assertEqual(cpp_extension._get_pybind11_abi_build_flags(), [])
+            self.assertEqual(
+                cpp_extension._get_pybind11_abi_build_flags(),
+                list(_JIT_MODULE._BUNDLED_CORE_PYBIND_ABI_FLAGS),
+            )
             return value
 
         result = _JIT_MODULE.call_aiter_with_bundled_core_abi(
@@ -82,7 +85,10 @@ class AiterCompatTest(TestCase):
                 aiter_version="0.1.21.dev80+g987203ba5.d20260825",
             )
 
-        self.assertEqual(result, [])
+        self.assertEqual(
+            result,
+            list(_JIT_MODULE._BUNDLED_CORE_PYBIND_ABI_FLAGS),
+        )
         self.assertEqual(
             runtime_cpp_extension._get_pybind11_abi_build_flags(),
             ["runtime-torch-abi"],
