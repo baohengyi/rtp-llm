@@ -265,9 +265,15 @@ class JitCacheSmokeTest(unittest.TestCase):
 
     def _log_candidates(self) -> list[Path]:
         work_dir = Path(os.environ.get("MAGA_SERVER_WORK_DIR", ""))
-        candidates = [Path(self.server.log_file_path)] if self.server else []
+        candidates: list[Path] = []
+        if self.server and self.server.log_file_path:
+            process_log = Path(self.server.log_file_path)
+            candidates.append(process_log)
+            # The server reconfigures Python logging to LOG_PATH/main_<rank>.log;
+            # the launcher process log alone does not contain JIT restore events.
+            candidates.extend(sorted(process_log.parent.glob("*.log")))
         candidates += sorted(work_dir.glob("*_logs/*.log")) if work_dir.name else []
-        return candidates
+        return list(dict.fromkeys(candidates))
 
     def _dump_server_logs(self) -> None:
         for path in self._log_candidates():
