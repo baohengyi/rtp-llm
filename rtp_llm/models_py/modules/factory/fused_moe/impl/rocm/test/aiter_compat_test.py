@@ -1,7 +1,8 @@
 import importlib.util
 import os
+import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest import TestCase, main
 from unittest.mock import patch
 
@@ -51,6 +52,40 @@ class AiterCompatTest(TestCase):
         self.assertEqual(result, 7)
         self.assertEqual(
             cpp_extension._get_pybind11_abi_build_flags(), ["torch-abi"]
+        )
+
+        runtime_cpp_extension = SimpleNamespace(
+            _get_pybind11_abi_build_flags=lambda: ["runtime-torch-abi"]
+        )
+        runtime_compile = lambda: None
+        runtime_compile.__module__ = "cpp_extension"
+        aiter_package = ModuleType("aiter")
+        aiter_package.__path__ = []
+        jit_package = ModuleType("aiter.jit")
+        jit_package.__path__ = []
+        aiter_core = ModuleType("aiter.jit.core")
+        aiter_core._jit_compile = runtime_compile
+        jit_package.core = aiter_core
+        aiter_package.jit = jit_package
+
+        with patch.dict(
+            sys.modules,
+            {
+                "aiter": aiter_package,
+                "aiter.jit": jit_package,
+                "aiter.jit.core": aiter_core,
+                "cpp_extension": runtime_cpp_extension,
+            },
+        ):
+            result = _JIT_MODULE.call_aiter_with_bundled_core_abi(
+                lambda: runtime_cpp_extension._get_pybind11_abi_build_flags(),
+                aiter_version="0.1.21.dev80+g987203ba5.d20260825",
+            )
+
+        self.assertEqual(result, [])
+        self.assertEqual(
+            runtime_cpp_extension._get_pybind11_abi_build_flags(),
+            ["runtime-torch-abi"],
         )
 
     def test_gfx950_keeps_opus_default(self):
