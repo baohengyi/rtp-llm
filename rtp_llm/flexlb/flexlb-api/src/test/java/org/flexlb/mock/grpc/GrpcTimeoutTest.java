@@ -1,6 +1,8 @@
 package org.flexlb.mock.grpc;
 
+import org.flexlb.balance.endpoint.DecodeEndpoint;
 import org.flexlb.balance.scheduler.RequestLifecycleState;
+import org.flexlb.balance.scheduler.priority.EngineCancelChannel;
 import org.flexlb.config.FlexlbConfig;
 import org.flexlb.dao.loadbalance.Response;
 import org.flexlb.dao.loadbalance.StrategyErrorType;
@@ -25,18 +27,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>Flow:
  * 1. Configure mock prefill with enqueueDelayMs=3000 (3s) and master deadline=500ms
  * 2. Submit request → dispatched → gRPC batchEnqueue times out at 500ms
- * 3. Verify: request transitions to TIMED_OUT, inflight is cleaned up,
+ * 3. The reconciliation fence returns TOMBSTONED, proving the late enqueue cannot land
+ * 4. Verify: request transitions to TIMED_OUT, inflight is cleaned up,
  *    mock prefill received EnqueueBatch (but couldn't respond in time)
- * 4. Recover: change behavior to delay=0, submit new request → succeeds
+ * 5. Recover: change behavior to delay=0, submit new request → succeeds
  *
  * <p>Key mechanism:
  * <ul>
  *   <li>gRPC client sets {@code withDeadlineAfter(deadlineMs)} on the blocking stub</li>
  *   <li>When the deadline fires, the blocking call throws {@code StatusRuntimeException}
  *       with status DEADLINE_EXCEEDED</li>
- *   <li>{@link org.flexlb.balance.scheduler.DefaultBatchDispatcher} catches this in its
- *       {@code catch (Throwable)} block and calls {@code onTimeout()}</li>
- *   <li>The scheduler records a TIMED_OUT tombstone and returns BATCH_SLO_EXPIRED</li>
+ *   <li>{@link org.flexlb.balance.scheduler.DefaultBatchDispatcher} treats the lost ACK
+ *       as uncertain and invokes the scheduler's request-id reconciliation fence</li>
+ *   <li>A TOMBSTONED fence result records TIMED_OUT and returns BATCH_SLO_EXPIRED</li>
  * </ul>
  *
  * <p>Note: The mock's {@code enqueueBatch} records the request <em>before</em> sleeping,
@@ -64,6 +67,22 @@ class GrpcTimeoutTest extends FlexLBMockTestBase {
         cfg.setFlexlbBatchEnqueueDeadlineMs(500);  // 500ms deadline — will time out
         cfg.setFlexlbInflightTtlMs(300_000L);
         return cfg;
+    }
+
+    @Override
+    protected EngineCancelChannel createEngineCancelChannel() {
+        return new EngineCancelChannel() {
+            @Override
+            public boolean isSupported(DecodeEndpoint endpoint) {
+                return true;
+            }
+
+            @Override
+            public CompletableFuture<CancelOutcome> cancel(
+                    CancelTarget target, long requestId, long timeoutMs) {
+                return CompletableFuture.completedFuture(CancelOutcome.tombstoned());
+            }
+        };
     }
 
     @Test

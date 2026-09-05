@@ -7,6 +7,8 @@ import org.flexlb.balance.endpoint.PrefillEndpoint;
 import org.flexlb.balance.scheduler.DefaultBatchDispatcher;
 import org.flexlb.balance.scheduler.FlexlbBatchScheduler;
 import org.flexlb.balance.scheduler.Router;
+import org.flexlb.balance.scheduler.priority.EngineCancelChannel;
+import org.flexlb.balance.scheduler.priority.UnsupportedEngineCancelChannel;
 import org.flexlb.cache.core.EngineLocalView;
 import org.flexlb.cache.core.GlobalCacheIndex;
 import org.flexlb.config.ConfigService;
@@ -192,7 +194,8 @@ public abstract class FlexLBMockTestBase {
         // 11. Create real scheduler
         scheduler = new FlexlbBatchScheduler(
                 configService, router,
-                endpointRegistry, dispatcher, reporter, null, null);
+                endpointRegistry, dispatcher, reporter, null, null,
+                createEngineCancelChannel());
 
         // 12. Register prefill endpoint with the real scheduler as BatchDecisionHandler
         endpointRegistry.ensureEndpoint(RoleType.PREFILL, prefillIpPort, prefillWs);
@@ -262,6 +265,10 @@ public abstract class FlexLBMockTestBase {
 
     protected EngineWorkerStatus createEngineWorkerStatus() {
         return mock(EngineWorkerStatus.class);
+    }
+
+    protected EngineCancelChannel createEngineCancelChannel() {
+        return new UnsupportedEngineCancelChannel();
     }
 
     protected Router createRouter() {
