@@ -762,7 +762,12 @@ def _prepare_uv_git_cache_archive(rootdir: Path) -> Optional[str]:
     repo_urls = tuple(url.lower().rstrip("/") for url in _UV_GIT_CACHE_REPOS)
     for db_dir in sorted(path for path in db_root.iterdir() if path.is_dir()):
         metadata_text = ""
-        for metadata in (db_dir / ".git/FETCH_HEAD", db_dir / ".git/config"):
+        for metadata in (
+            db_dir / "FETCH_HEAD",
+            db_dir / "config",
+            db_dir / ".git/FETCH_HEAD",
+            db_dir / ".git/config",
+        ):
             try:
                 metadata_text += metadata.read_text(
                     encoding="utf-8", errors="replace"

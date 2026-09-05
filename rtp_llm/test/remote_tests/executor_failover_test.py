@@ -1234,6 +1234,35 @@ def test_prepare_uv_git_cache_archive_packs_only_pinned_repo(tmp_path, monkeypat
     assert all("other-key" not in name for name in names)
 
 
+def test_prepare_uv_git_cache_archive_supports_bare_repo_layout(
+    tmp_path, monkeypatch
+):
+    cache_root = tmp_path / "uv-cache"
+    mori_db = cache_root / "git-v0/db/mori-key"
+    mori_checkout = cache_root / "git-v0/checkouts/mori-key/dafdcfc"
+    mori_db.mkdir(parents=True)
+    mori_checkout.mkdir(parents=True)
+    (mori_db / "FETCH_HEAD").write_text(
+        "dafdcfcf1e27b0c981b90903ab198b90d29e6867\t\t"
+        "https://github.com/ROCm/mori.git\n",
+        encoding="utf-8",
+    )
+    (mori_checkout / "pyproject.toml").write_text(
+        "[project]\nname = 'amd-mori'\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("RTP_REMOTE", "1")
+    monkeypatch.setenv("UV_CACHE_DIR", str(cache_root))
+    monkeypatch.setattr(remote_exec_rtp, "_UV_GIT_CACHE_ROOT", cache_root.resolve())
+
+    archive_rel = remote_exec_rtp._prepare_uv_git_cache_archive(tmp_path)
+
+    assert archive_rel == ".pytest_cache/remote_inputs/uv_git_cache.tar"
+    with tarfile.open(tmp_path / archive_rel, "r") as tar:
+        names = set(tar.getnames())
+    assert "git-v0/db/mori-key/FETCH_HEAD" in names
+    assert "git-v0/checkouts/mori-key/dafdcfc/pyproject.toml" in names
+
+
 def test_cas_find_missing_retries_transient_unavailable(monkeypatch):
     class _TransientRpcError(grpc.RpcError):
         def code(self):
