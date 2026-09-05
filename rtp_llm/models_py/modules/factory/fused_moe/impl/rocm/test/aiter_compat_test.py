@@ -47,7 +47,14 @@ class AiterCompatTest(TestCase):
         jit_core = SimpleNamespace(AITER_REBUILD=False)
 
         def operation(value):
-            self.assertEqual(cpp_extension._get_pybind11_abi_build_flags(), [])
+            self.assertEqual(
+                cpp_extension._get_pybind11_abi_build_flags(),
+                [
+                    '-DPYBIND11_COMPILER_TYPE=\\"_system\\"',
+                    '-DPYBIND11_STDLIB=\\"_libstdcpp\\"',
+                    '-DPYBIND11_BUILD_ABI=\\"_gxx_abi_1xxx_use_cxx11_abi_1\\"',
+                ],
+            )
             self.assertTrue(jit_core.AITER_REBUILD)
             return value
 

@@ -6,6 +6,12 @@ from typing import Any, Optional
 
 
 _JIT_PYBIND_ABI_BROKEN_VERSION_PREFIX = "0.1.21.dev80+g987203ba5"
+# ABI triplet embedded in that wheel's module_aiter_core.so.
+_BUNDLED_CORE_PYBIND_ABI_FLAGS = (
+    '-DPYBIND11_COMPILER_TYPE=\\"_system\\"',
+    '-DPYBIND11_STDLIB=\\"_libstdcpp\\"',
+    '-DPYBIND11_BUILD_ABI=\\"_gxx_abi_1xxx_use_cxx11_abi_1\\"',
+)
 _JIT_BUILD_LOCK = RLock()
 
 
@@ -26,11 +32,11 @@ def call_aiter_with_bundled_core_abi(
 ) -> Any:
     """Rebuild affected ops with the bundled core module's pybind ABI.
 
-    The affected wheel builds ``module_aiter_core`` with pybind11's default ABI
-    namespace, while some bundled op modules use PyTorch's pybind11 ABI
+    The affected wheel builds ``module_aiter_core`` with one pybind11 ABI
+    namespace, while its JIT op builder substitutes the runtime PyTorch ABI
     constants. Force those ops through AITer's built-in one-time rebuild path
-    without the constants so they recognize the ``aiter_tensor_t`` instances
-    created by the bundled core module.
+    with the exact ABI triplet embedded in the bundled core module so they
+    recognize its ``aiter_tensor_t`` instances.
     """
     resolved_version = (
         aiter_version if aiter_version is not None else _installed_aiter_version()
@@ -46,7 +52,9 @@ def call_aiter_with_bundled_core_abi(
     with _JIT_BUILD_LOCK:
         original_flags = cpp_extension_module._get_pybind11_abi_build_flags
         original_rebuild = jit_core_module.AITER_REBUILD
-        cpp_extension_module._get_pybind11_abi_build_flags = lambda: []
+        cpp_extension_module._get_pybind11_abi_build_flags = lambda: list(
+            _BUNDLED_CORE_PYBIND_ABI_FLAGS
+        )
         jit_core_module.AITER_REBUILD = True
         try:
             return operation(*args, **kwargs)
