@@ -13,8 +13,9 @@ import java.util.concurrent.CompletableFuture;
  * request is removed and a CANCELLED completion surfaces in the next
  * WorkerStatus finished list, exactly like a real engine would report.
  * Mirrors the engine contract: a live request and its accepted-cancel
- * tombstone return ACCEPTED; a request not known by the specifically addressed
- * Prefill returns NOT_FOUND; Decode rejects this RPC as unsupported.
+ * tombstone return ACCEPTED; a never-seen request installs an absent fence and
+ * returns TOMBSTONED; a naturally completed request returns NOT_FOUND; Decode
+ * rejects this RPC as unsupported.
  *
  * <p><b>Wiring:</b> this class is NOT a Spring component. Production contexts
  * keep {@code UnsupportedEngineCancelChannel}; tests inject this channel
@@ -49,8 +50,11 @@ public final class MockEngineCancelChannel implements EngineCancelChannel {
             // Deliberately inspect only the addressed Prefill. Scanning other
             // workers would hide an incorrect Prefill route in tests.
             JavaMockEngineCluster.CancelResult result = service.cancelRequest(requestId);
-            return CompletableFuture.completedFuture(
-                    result.found() ? CancelOutcome.accepted() : CancelOutcome.notFound());
+            return CompletableFuture.completedFuture(switch (result.status()) {
+                case ACCEPTED -> CancelOutcome.accepted();
+                case NOT_FOUND -> CancelOutcome.notFound();
+                case TOMBSTONED -> CancelOutcome.tombstoned();
+            });
         } catch (UnsupportedOperationException e) {
             return CompletableFuture.completedFuture(CancelOutcome.failed());
         } catch (Exception e) {

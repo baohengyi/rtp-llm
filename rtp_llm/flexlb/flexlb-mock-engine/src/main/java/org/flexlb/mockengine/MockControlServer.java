@@ -539,7 +539,7 @@ final class MockControlServer {
             long requestId = parseRequestId(body.get("request_id"));
             JavaMockEngineCluster.CancelResult result = service.cancelRequest(requestId);
             Map<String, Object> response = new LinkedHashMap<>();
-            response.put("status", result.found() ? "ACCEPTED" : "NOT_FOUND");
+            response.put("status", result.status().name());
             response.put("found", result.found());
             response.put("phase", result.phase() == null ? null : result.phase().name());
             response.put("already_finished", result.alreadyFinished());

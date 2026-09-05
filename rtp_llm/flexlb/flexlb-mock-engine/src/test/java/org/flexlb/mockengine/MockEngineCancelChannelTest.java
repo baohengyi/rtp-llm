@@ -40,8 +40,9 @@ import static org.junit.jupiter.api.Assertions.fail;
  *   <li>accepted: a live request on the addressed worker is cancelled and its
  *       CANCELLED completion surfaces in WorkerStatus;</li>
  *   <li>idempotent: an accepted priority-cancel tombstone stays ACCEPTED;</li>
- *   <li>not found: completed-before-cancel and unknown requests do not scan
- *       another Prefill for a match;</li>
+ *   <li>tombstoned: unknown requests install an absent-id fence without
+ *       scanning another Prefill;</li>
+ *   <li>not found: completed-before-cancel requests stay distinguishable;</li>
  *   <li>failed: Decode rejects the Prefill-owned Cancel RPC;</li>
  *   <li>unsupported: endpoint whose port maps to no mock engine.</li>
  * </ul>
@@ -207,14 +208,29 @@ class MockEngineCancelChannelTest {
     // ---- not found: unknown request id / wrong worker ----
 
     @Test
-    void cancelUnknownRequestIsNotFound() throws Exception {
+    void cancelUnknownRequestInstallsAbsentFence() throws Exception {
         startCluster(model("10"), 1, 1);
+        JavaMockEngineCluster.FastRpcService prefill = prefillServices.get(0);
         EngineCancelChannel channel = new MockEngineCancelChannel(services);
 
         CancelOutcome outcome = channel
-                .cancel(target(prefillServices.get(0).getGrpcPort()), 424242L, 2_000)
+                .cancel(target(prefill.getGrpcPort()), 424242L, 2_000)
                 .get(2, TimeUnit.SECONDS);
-        assertEquals(CancelAck.NOT_FOUND, outcome.ack());
+        assertEquals(CancelAck.TOMBSTONED, outcome.ack());
+
+        CancelOutcome retry = channel
+                .cancel(target(prefill.getGrpcPort()), 424242L, 2_000)
+                .get(2, TimeUnit.SECONDS);
+        assertEquals(CancelAck.TOMBSTONED, retry.ack(),
+                "absent fence must be idempotent");
+
+        EngineRpcService.EnqueueBatchResponsePB enqueue = enqueue(prefill, batch(
+                9400, slot(0, inputWithDecode(
+                        424242L, 10, decodeServices.get(0).getGrpcPort()))));
+        assertEquals(0, enqueue.getSuccessesCount());
+        assertEquals(1, enqueue.getErrorsCount());
+        assertEquals(8429L, enqueue.getErrors(0).getErrorInfo().getErrorCode(),
+                "absent fence must prevent a late enqueue from reaching the scheduler");
     }
 
     @Test

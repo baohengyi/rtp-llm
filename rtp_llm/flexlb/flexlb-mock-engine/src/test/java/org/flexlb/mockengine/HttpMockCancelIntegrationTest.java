@@ -47,8 +47,8 @@ import static org.junit.jupiter.api.Assertions.fail;
  * {@link HttpMockEngineCancelChannel} pointed at it, asserting:
  * <ul>
  *   <li>a live request and its priority-cancel tombstone return ACCEPTED;
- *       completed-before-cancel, unknown, or wrongly routed Prefill requests
- *       return NOT_FOUND,</li>
+ *       completed-before-cancel requests return NOT_FOUND, while unknown or
+ *       wrongly routed Prefill requests install a local TOMBSTONED fence,</li>
  *   <li>a Decode target returns HTTP 501 / a failed channel future, matching
  *       the production UNIMPLEMENTED contract,</li>
  *   <li>the raw /cancel_request JSON still exposes the mock control-plane
@@ -153,7 +153,7 @@ class HttpMockCancelIntegrationTest {
                 "a truly running request must report the RUNNING phase");
     }
 
-    // ──────────── idempotent tombstone / NOT_FOUND unknown request ────────────
+    // ──────────── active tombstone / finished NOT_FOUND / absent fence ────────────
 
     @Test
     void httpRepeatedPriorityCancelStaysAcceptedAndPublishesOneTerminal() throws Exception {
@@ -182,14 +182,14 @@ class HttpMockCancelIntegrationTest {
     }
 
     @Test
-    void httpCancelUnknownRequestIsNotFound() throws Exception {
+    void httpCancelUnknownRequestInstallsAbsentFence() throws Exception {
         startGatedDecodeCluster(false);
         EngineCancelChannel channel = channel();
 
         CancelOutcome outcome = channel
                 .cancel(target(prefillService.getGrpcPort()), 424242L, 5_000)
                 .get(5, TimeUnit.SECONDS);
-        assertEquals(CancelAck.NOT_FOUND, outcome.ack());
+        assertEquals(CancelAck.TOMBSTONED, outcome.ack());
     }
 
     @Test
@@ -208,7 +208,7 @@ class HttpMockCancelIntegrationTest {
         CancelOutcome outcome = channel().cancel(target(wrongPort), 23L, 5_000)
                 .get(5, TimeUnit.SECONDS);
 
-        assertEquals(CancelAck.NOT_FOUND, outcome.ack());
+        assertEquals(CancelAck.TOMBSTONED, outcome.ack());
         assertTrue(decodeService.getInflightCount() > 0,
                 "the control plane must not find and cancel a request on another worker");
     }

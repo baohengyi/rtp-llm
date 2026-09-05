@@ -26,7 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * enqueueErrorMessage、enqueueDelayMs、generateDelayMs、generateError、fetchError、
  * noRespond、kvPressureTokens、queueDepthLimit、crashAfterNRequests。
  *
- * <p>控制面（enqueueBatch）故障走真实调度器栈断言 8510 终态传播；数据面
+ * <p>控制面（enqueueBatch）故障走真实调度器栈断言终态传播；歧义 ACK
+ * 通过真实 Cancel 栅栏收敛为 8431；数据面
  * （generate_stream/fetch_response）故障不经过 LB 控制面，用直连 RPC 断言
  * mock 行为，同时验证调度器路径不受影响。
  *
@@ -266,8 +267,8 @@ class FaultInjectionE2ETest {
 
     @Test
     @Timeout(30)
-    void c09_crash_after_n_requests_yields_missing_ack_and_other_engine_survives() throws Exception {
-        try (AutoTpmE2EHarness h = new AutoTpmE2EHarness(BASE_PORT + 80, 2, 1, "5", 1.0, false)) {
+    void c09_crash_after_n_requests_is_fenced_and_other_engine_survives() throws Exception {
+        try (AutoTpmE2EHarness h = new AutoTpmE2EHarness(BASE_PORT + 80, 2, 1, "5", 1.0, true)) {
             arm(h);
             JavaMockEngineCluster.FastRpcService prefill = h.prefillEngines.get(0);
             prefill.setFaultConfig(FaultInjectionConfig.builder()
@@ -277,17 +278,21 @@ class FaultInjectionE2ETest {
             Response first = submitTo(h, 0, 9901);
             assertTrue(first.isSuccess(), "requests before the crash threshold succeed");
 
-            // 第 2 个 enqueue 触发 crash：空响应（无 ack）→ 8510 missing ack
+            // 第 2 个 enqueue 触发 crash：空响应的送达状态不确定，必须先由
+            // Cancel 安装 absent fence，再按 AutoTPM admission timeout 返回 8431。
             Response crashed = submitTo(h, 0, 9902);
             assertFalse(crashed.isSuccess());
-            assertEquals(StrategyErrorType.BATCH_DISPATCH_FAILED.getErrorCode(), crashed.getCode());
-            assertTrue(crashed.getErrorMessage().contains("missing ack"), crashed.getErrorMessage());
+            assertEquals(StrategyErrorType.RESOURCE_EXHAUSTED.getErrorCode(), crashed.getCode());
+            assertTrue(crashed.getErrorMessage().contains("engine fenced late enqueue"),
+                    crashed.getErrorMessage());
             assertTrue(prefill.isStopped(), "engine is down after the crash threshold");
 
             // crash 后的请求继续明确失败（调度器不崩溃、不挂起）
             Response afterCrash = submitTo(h, 0, 9903);
             assertFalse(afterCrash.isSuccess());
-            assertEquals(StrategyErrorType.BATCH_DISPATCH_FAILED.getErrorCode(), afterCrash.getCode());
+            assertEquals(StrategyErrorType.RESOURCE_EXHAUSTED.getErrorCode(), afterCrash.getCode());
+            assertTrue(afterCrash.getErrorMessage().contains("engine fenced late enqueue"),
+                    afterCrash.getErrorMessage());
 
             Response healthy = submitTo(h, 1, 9904);
             assertTrue(healthy.isSuccess(), "the crash never spreads to the healthy engine");

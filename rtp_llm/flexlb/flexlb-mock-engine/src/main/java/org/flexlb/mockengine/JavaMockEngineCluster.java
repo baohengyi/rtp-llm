@@ -382,6 +382,10 @@ public final class JavaMockEngineCluster {
         // after the live ownership entry has been removed.  Keep this separate
         // from client-cancel history so a normal terminal remains NOT_FOUND.
         private final LinkedHashSet<Long> priorityCancelTombstones = new LinkedHashSet<>();
+        // Cancel-before-enqueue fences mirror the C++ Prefill contract. Unlike
+        // active-cancel tombstones, retries report TOMBSTONED and a later
+        // EnqueueBatch for the same request id is rejected before admission.
+        private final LinkedHashSet<Long> absentCancelTombstones = new LinkedHashSet<>();
         // Recent execution times for snapshot prefill_ms_*/decode_ms_* fields.
         private final ArrayDeque<Double> recentPrefillTimes = new ArrayDeque<>();
         private final ArrayDeque<Double> recentDecodeTimes = new ArrayDeque<>();
@@ -559,15 +563,31 @@ public final class JavaMockEngineCluster {
             Runnable process = () -> {
                 for (EngineRpcService.EnqueueBatchDpSlotPB slot : request.getDpSlotsList()) {
                     List<MockPerformanceModel.RequestShape> shapes = new ArrayList<>(slot.getRequestsCount());
+                    List<EngineRpcService.EnqueueBatchExternalInputPB> acceptedInputs =
+                            new ArrayList<>(slot.getRequestsCount());
                     // Phase 1: register per-request state the completion callback
                     // depends on (responseQueues/requestStates) BEFORE admission so
                     // an immediately-admitted batch can never complete against a
                     // missing response queue.
                     for (EngineRpcService.EnqueueBatchExternalInputPB input : slot.getRequestsList()) {
                         long requestId = input.getInput().getRequestId();
+                        if (hasAbsentCancelTombstone(requestId)) {
+                            requestStates.put(requestId, "rejected");
+                            response.addErrorsBuilder()
+                                    .setRequestId(requestId)
+                                    .setErrorInfo(EngineRpcService.ErrorDetailsPB.newBuilder()
+                                            .setErrorCode(PRIORITY_PREEMPTED_ERROR_CODE)
+                                            .setErrorMessage("request fenced before enqueue")
+                                            .build());
+                            continue;
+                        }
+                        acceptedInputs.add(input);
                         shapes.add(performance.shape(input.getInput(), cache));
                         responseQueues.computeIfAbsent(requestId, k -> new LinkedBlockingQueue<>());
                         requestStates.put(requestId, "running");
+                    }
+                    if (acceptedInputs.isEmpty()) {
+                        continue;
                     }
                     // Phase 2: admission. false = prefill waiting-queue cap hit
                     // (batch-level backpressure, independent of the request-level
@@ -580,7 +600,7 @@ public final class JavaMockEngineCluster {
                         String message = String.format(
                                 "prefill waiting queue full (backpressure): waiting=%d cap=%d",
                                 prefillPendingQueueSize(), performance.maxWaitingPrefillBatches());
-                        for (EngineRpcService.EnqueueBatchExternalInputPB input : slot.getRequestsList()) {
+                        for (EngineRpcService.EnqueueBatchExternalInputPB input : acceptedInputs) {
                             long requestId = input.getInput().getRequestId();
                             responseQueues.remove(requestId);
                             requestStates.put(requestId, "rejected");
@@ -593,7 +613,7 @@ public final class JavaMockEngineCluster {
                         continue;
                     }
                     // Phase 3: success bookkeeping (only admitted requests count).
-                    for (EngineRpcService.EnqueueBatchExternalInputPB input : slot.getRequestsList()) {
+                    for (EngineRpcService.EnqueueBatchExternalInputPB input : acceptedInputs) {
                         stats.enqueuedRequests.increment();
                         acceptedCount.incrementAndGet();
                         long requestId = input.getInput().getRequestId();
@@ -939,7 +959,10 @@ public final class JavaMockEngineCluster {
                         "priority Cancel is only implemented by the original Prefill");
             }
             if (hasPriorityCancelTombstone(requestId)) {
-                return new CancelResult(true, null, true);
+                return CancelResult.accepted(null, true);
+            }
+            if (hasAbsentCancelTombstone(requestId)) {
+                return CancelResult.tombstoned();
             }
             EngineRpcService.TaskInfoPB tracked = runningTasks.get(requestId);
             if (tracked != null) {
@@ -950,7 +973,8 @@ public final class JavaMockEngineCluster {
                 // only when a racing terminal already emptied the entry.
                 EngineRpcService.TaskPhase phase = cancel(
                         requestId, true, false);
-                return new CancelResult(true, phase != null ? phase : tracked.getPhase(), false);
+                return CancelResult.accepted(
+                        phase != null ? phase : tracked.getPhase(), false);
             }
             FastRpcService decode = downstreamDecodeOwners.get(requestId);
             if (decode != null) {
@@ -974,9 +998,10 @@ public final class JavaMockEngineCluster {
                 }
             }
             if (alreadyFinished) {
-                return new CancelResult(false, null, true);
+                return CancelResult.notFound(true);
             }
-            return new CancelResult(false, null, false);
+            addAbsentCancelTombstone(requestId);
+            return CancelResult.tombstoned();
         }
 
         /**
@@ -1016,7 +1041,7 @@ public final class JavaMockEngineCluster {
         private CancelResult cancelFromPrefill(long requestId, FastRpcService expectedPrefill) {
             synchronized (decodeQueueLock) {
                 if (!upstreamPrefillOwners.remove(requestId, expectedPrefill)) {
-                    return new CancelResult(false, null, false);
+                    return CancelResult.notFound(false);
                 }
                 expectedPrefill.downstreamDecodeOwners.remove(requestId, this);
                 // This is downstream stream cancellation, not a Decode Cancel
@@ -1032,7 +1057,7 @@ public final class JavaMockEngineCluster {
                 // Ownership is itself the admission proof. A cancel may win the
                 // narrow hand-off race before Decode publishes runningTasks; the
                 // existing cancelled marker then prevents later scheduling.
-                return new CancelResult(true, observedPhase, false);
+                return CancelResult.accepted(observedPhase, false);
             }
         }
 
@@ -1839,9 +1864,29 @@ public final class JavaMockEngineCluster {
             }
         }
 
+        private void addAbsentCancelTombstone(long requestId) {
+            synchronized (priorityCancelTombstones) {
+                absentCancelTombstones.add(requestId);
+                while (absentCancelTombstones.size() > CANCELLED_RID_CAP) {
+                    var iterator = absentCancelTombstones.iterator();
+                    if (!iterator.hasNext()) {
+                        break;
+                    }
+                    iterator.next();
+                    iterator.remove();
+                }
+            }
+        }
+
         private boolean hasPriorityCancelTombstone(long requestId) {
             synchronized (priorityCancelTombstones) {
                 return priorityCancelTombstones.contains(requestId);
+            }
+        }
+
+        private boolean hasAbsentCancelTombstone(long requestId) {
+            synchronized (priorityCancelTombstones) {
+                return absentCancelTombstones.contains(requestId);
             }
         }
 
@@ -2024,13 +2069,30 @@ public final class JavaMockEngineCluster {
         }
     }
 
-    /**
-     * Result of {@link FastRpcService#cancelRequest(long)}: mirrors the three
-     * branches of the v3 EngineCancelChannel contract — accepted (live or an
-     * idempotent priority-cancel tombstone), already finished before the first
-     * cancel arrived, or unknown to this engine.
-     */
-    record CancelResult(boolean found, EngineRpcService.TaskPhase phase, boolean alreadyFinished) {
+    /** Result of the mock Prefill Cancel RPC, including the absent-id fence. */
+    record CancelResult(CancelStatus status, EngineRpcService.TaskPhase phase,
+                        boolean alreadyFinished) {
+        static CancelResult accepted(EngineRpcService.TaskPhase phase, boolean alreadyFinished) {
+            return new CancelResult(CancelStatus.ACCEPTED, phase, alreadyFinished);
+        }
+
+        static CancelResult notFound(boolean alreadyFinished) {
+            return new CancelResult(CancelStatus.NOT_FOUND, null, alreadyFinished);
+        }
+
+        static CancelResult tombstoned() {
+            return new CancelResult(CancelStatus.TOMBSTONED, null, false);
+        }
+
+        boolean found() {
+            return status == CancelStatus.ACCEPTED;
+        }
+    }
+
+    enum CancelStatus {
+        ACCEPTED,
+        NOT_FOUND,
+        TOMBSTONED
     }
 
     static final class ClusterStats {

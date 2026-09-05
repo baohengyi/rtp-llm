@@ -103,8 +103,8 @@ public class HttpMockEngineCancelChannel implements EngineCancelChannel {
 
     /**
      * Maps the control-plane response onto the engine Cancel contract. A 404
-     * means the target engine itself is unsupported; a 200 body carries either
-     * ACCEPTED or NOT_FOUND for the specifically addressed Prefill.
+     * means the target engine itself is unsupported; a 200 body carries
+     * ACCEPTED, NOT_FOUND, or TOMBSTONED for the specifically addressed Prefill.
      */
     private CancelOutcome mapResponse(HttpResponse<String> response, long requestId) {
         if (response.statusCode() == 404) {
@@ -120,6 +120,7 @@ public class HttpMockEngineCancelChannel implements EngineCancelChannel {
             return switch (status) {
                 case "ACCEPTED" -> CancelOutcome.accepted();
                 case "NOT_FOUND" -> CancelOutcome.notFound();
+                case "TOMBSTONED" -> CancelOutcome.tombstoned();
                 default -> throw new IllegalStateException(
                         "mock cancel control plane returned unknown status '" + status
                                 + "' for request " + requestId);
