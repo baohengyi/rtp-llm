@@ -8,6 +8,7 @@ import torch
 from rtp_llm.models_py.modules.factory.linear import LinearBase
 from aiter import hipb_mm, hipb_create_extension
 from functools import lru_cache
+from rtp_llm.models_py.utils.aiter_compat import call_aiter_with_bundled_core_abi
 from rtp_llm.ops import HWKernelConfig
 
 class RocmF16LinearBase(LinearBase):
@@ -42,7 +43,7 @@ class RocmF16LinearBase(LinearBase):
     @staticmethod    
     @lru_cache(maxsize=1)
     def init_hipblas():
-        hipb_create_extension()
+        call_aiter_with_bundled_core_abi(hipb_create_extension)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError("Subclasses must implement `forward`.")
@@ -64,7 +65,8 @@ class RocmF16LinearWithSwizzle(RocmF16LinearBase):
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         self.init_hipblas()
-        return hipb_mm(
+        return call_aiter_with_bundled_core_abi(
+            hipb_mm,
             input,
             self.weight,
             solution_index=-1,
@@ -100,7 +102,8 @@ class RocmF16LinearNoSwizzle(RocmF16LinearBase):
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         self.init_hipblas()
-        return hipb_mm(
+        return call_aiter_with_bundled_core_abi(
+            hipb_mm,
             input,
             self.weight,
             solution_index=-1,
