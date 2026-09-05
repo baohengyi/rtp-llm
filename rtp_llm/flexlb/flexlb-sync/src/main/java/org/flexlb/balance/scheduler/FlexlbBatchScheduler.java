@@ -1321,6 +1321,8 @@ public class FlexlbBatchScheduler implements BatchDecisionHandler, DispatchCallb
         if (entry == null) {
             return;
         }
+        Logger.error("FlexLB batch dispatch preparation failed request_id={} batch_id={}",
+                item.requestId(), entry.lifecycle.snapshot().batchId(), error);
         synchronized (entry) {
             reduceOrdinaryTerminalLocked(entry, DeferredTerminal.failure(
                     StrategyErrorType.BATCH_DISPATCH_FAILED,
