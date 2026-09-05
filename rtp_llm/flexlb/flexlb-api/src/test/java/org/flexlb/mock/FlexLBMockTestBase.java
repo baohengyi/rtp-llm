@@ -268,9 +268,21 @@ public abstract class FlexLBMockTestBase {
         Router fixedRouter = mock(Router.class);
         when(fixedRouter.route(any(BalanceContext.class))).thenAnswer(inv -> {
             BalanceContext ctx = inv.getArgument(0);
+            reserveDecode(ctx);
             return successRoute(ctx.getRequestId());
         });
         return fixedRouter;
+    }
+
+    /** Mirror the Decode reservation performed by the production routing strategy. */
+    protected void reserveDecode(BalanceContext ctx) {
+        Request request = ctx.getRequest();
+        getDecodeEndpoint().reserve(
+                request.getRequestId(),
+                request.getSeqLen(),
+                request.getSeqLen() + request.getMaxNewTokens(),
+                ctx.getPriority(),
+                ctx.getDeadlineMs());
     }
 
     /**
