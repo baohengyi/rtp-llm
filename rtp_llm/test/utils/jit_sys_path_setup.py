@@ -259,10 +259,17 @@ def setup_jit_cache():
     runfiles_dir = os.environ.get("RUNFILES_DIR")
     test_binary = sys.argv[1] if len(sys.argv) > 1 else ""
     if not runfiles_dir or not test_binary:
-        logging.warning(
-            "[Package Setup] Bazel wrapper unavailable; skip cache path injection"
+        # Native pytest starts a fresh child process from device_resource.py.
+        # PYTHONPATH is the child-process equivalent of the Bazel wrapper edit
+        # below and preserves the validated, stable JIT package locations.
+        current_pythonpath = os.environ.get("PYTHONPATH", "")
+        os.environ["PYTHONPATH"] = os.pathsep.join(
+            [*copied_paths, *([current_pythonpath] if current_pythonpath else [])]
         )
-        return None
+        logging.info(
+            "[Package Setup] Prepended cached packages to native child PYTHONPATH"
+        )
+        return copied_paths
     bazel_wrapper_path = Path(runfiles_dir) / "rtp_llm" / test_binary
     suffix = f"_new_{os.getpid()}"
     bazel_wrapper_path_new = bazel_wrapper_path.with_name(

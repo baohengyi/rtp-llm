@@ -640,6 +640,12 @@ if __name__ == "__main__":
             f"locked={gpu_resource.gpu_ids} pid={os.getpid()}\n"
         )
         sys.stderr.flush()
+        # Keep JIT-backed dependencies on the same stable package paths used by
+        # the legacy Bazel GPU wrapper. setup_jit_cache() injects those paths
+        # into the native pytest child via PYTHONPATH when runfiles are absent.
+        from jit_sys_path_setup import setup_jit_cache
+
+        setup_jit_cache()
         exit_code = _run_child(sys.argv[1:])
         logging.info("exitcode: %d", exit_code)
         sys.exit(exit_code)

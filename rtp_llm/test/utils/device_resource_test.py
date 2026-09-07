@@ -1,8 +1,9 @@
 import importlib.util
 import os
+import sys
 from pathlib import Path
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -10,6 +11,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 def _load_device_resource_module():
     path = PROJECT_ROOT / "rtp_llm" / "test" / "utils" / "device_resource.py"
     spec = importlib.util.spec_from_file_location("_device_resource_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_jit_sys_path_setup_module():
+    path = PROJECT_ROOT / "rtp_llm" / "test" / "utils" / "jit_sys_path_setup.py"
+    spec = importlib.util.spec_from_file_location(
+        "_jit_sys_path_setup_under_test", path
+    )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -53,6 +65,22 @@ class DeviceResourceMainContractTest(TestCase):
             ),
         ):
             resource._lock_gpus()
+
+        jit_setup = _load_jit_sys_path_setup_module()
+        cached_paths = ["/cache/torch/site-packages", "/cache/deep_gemm/site-packages"]
+        with (
+            patch.dict(os.environ, {"PYTHONPATH": "/workspace"}, clear=True),
+            patch.object(sys, "argv", ["device_resource.py", "pytest"]),
+            patch.object(
+                jit_setup,
+                "copy_package_with_lock",
+                Mock(side_effect=[*cached_paths, None, None]),
+            ),
+        ):
+            self.assertEqual(jit_setup.setup_jit_cache(), cached_paths)
+            self.assertEqual(
+                os.environ["PYTHONPATH"], os.pathsep.join([*cached_paths, "/workspace"])
+            )
 
     def test_default_uses_cpu_when_no_device_is_available(self):
         with patch.dict(os.environ, {}, clear=True):
