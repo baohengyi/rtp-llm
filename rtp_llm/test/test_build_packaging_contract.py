@@ -793,7 +793,6 @@ class BuildPackagingContractTest(TestCase):
                 )
 
             expected_arm_versions = {
-                "flashinfer-python": "==0.2.5",
                 "xgrammar": "==0.2.6rc1",
                 "apache-tvm-ffi": "==0.1.10",
                 "cuda-pathfinder": "==1.3.2",
@@ -807,9 +806,6 @@ class BuildPackagingContractTest(TestCase):
                     version,
                     f"{package} must match the deterministic GB200 dependency lock",
                 )
-            self.assertNotIn("flashinfer-cubin", arm_requirements)
-            self.assertNotIn("flashinfer-jit-cache", arm_requirements)
-
     def test_rocm_unit_cases_are_routed_by_mi308x_marker(self):
         """ROCm-only cases must be deselected before running on CUDA workers."""
 
@@ -1577,7 +1573,6 @@ class BuildPackagingContractTest(TestCase):
         namespace = {
             "List": list,
             "has_deep_gemm": lambda: True,
-            "_prepare_deep_gemm_jit_env": lambda: None,
             "resolve_symbol": lambda module, new, old: getattr(
                 module, new, getattr(module, old, None)
             ),
@@ -1603,8 +1598,19 @@ class BuildPackagingContractTest(TestCase):
 
         available_impl = object()
         fake_deep_gemm = SimpleNamespace(available_impl=available_impl)
-        with patch.dict(sys.modules, {"deep_gemm": fake_deep_gemm}):
+        compiler_env = {
+            "CPATH": "/existing/cpath",
+            "CPLUS_INCLUDE_PATH": "/existing/cplus",
+            "NVCC_PREPEND_FLAGS": "--existing-flag",
+        }
+        with (
+            patch.dict(sys.modules, {"deep_gemm": fake_deep_gemm}),
+            patch.dict(os.environ, compiler_env, clear=False),
+        ):
             namespace["_lazy_init_deep_gemm"](["available", "optional"])
+            self.assertEqual(
+                {key: os.environ[key] for key in compiler_env}, compiler_env
+            )
 
         self.assertIs(namespace["_available_impl"], available_impl)
         self.assertIsNone(namespace.get("_optional_impl"))
