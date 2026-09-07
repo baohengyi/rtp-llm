@@ -411,7 +411,13 @@ class AttnImplFactory(object):
             model_config.max_seq_len,
             parallelism_config,
         )
-        logging.debug(f"get fmha impl: {type(instance).__name__}")
+        logging.info(
+            "Selected attention implementation: type=%s stage=%s cuda_graph=%s impl=%s",
+            key_str,
+            "prefill" if attn_inputs.is_prefill else "decode",
+            is_cuda_graph,
+            type(instance).__name__,
+        )
         return instance
 
     @classmethod
