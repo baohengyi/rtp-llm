@@ -169,6 +169,11 @@ class BuildPackagingContractTest(TestCase):
                 Version("0.2.6rc1"),
                 "xgrammar 0.2.5 metadata requires transformers<5",
             )
+        self.assertEqual(
+            str(requirements["xgrammar"].marker),
+            'platform_machine != "aarch64"',
+            "ARM must preserve Bazel's optional-xgrammar dependency selection",
+        )
 
     def test_xgrammar_platform_extras_use_compatible_tvm_ffi(self):
         xgrammar_minimum_tvm_ffi = Version("0.1.10")
@@ -792,9 +797,13 @@ class BuildPackagingContractTest(TestCase):
                     f"{package} must match the golden-validated GB200 runtime stack",
                 )
 
+            self.assertNotIn(
+                "xgrammar",
+                arm_requirements,
+                "ARM must not override the base platform marker for xgrammar",
+            )
             expected_arm_versions = {
-                "xgrammar": "==0.2.6rc1",
-                "apache-tvm-ffi": "==0.1.10",
+                "apache-tvm-ffi": "==0.1.8.post2",
                 "cuda-pathfinder": "==1.3.2",
                 "cuda-tile": "==1.4.0",
                 "nvidia-cudnn-frontend": "==1.16.0",

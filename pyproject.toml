@@ -204,8 +204,10 @@ base-dependencies = [
     "nest_asyncio",
     "partial_json_parser",
     # 0.2.5 metadata requires transformers<5. 0.2.6rc1 removes that stale
-    # upper bound and supports the transformers 5.2 baseline above.
-    "xgrammar==0.2.6rc1",
+    # upper bound and supports the transformers 5.2 baseline above. Legacy
+    # Bazel intentionally omits Python xgrammar on ARM; keep that platform
+    # split so GB200 can use FlashInfer's validated TVM FFI runtime.
+    "xgrammar==0.2.6rc1 ; platform_machine != 'aarch64'",
 
     # Monitoring
     "opentelemetry-sdk==1.44.0",
