@@ -753,6 +753,26 @@ class BuildPackagingContractTest(TestCase):
             self.assertEqual(internal_profiles["py_ut_ppu"].get("minimum_count"), 1)
             self.assertEqual(internal_profiles["py_ut_ppu"].get("expected_count"), 23)
 
+            sm100_arm_env = internal_config["tool"]["rtp_llm"]["pytest_ci"][
+                "gpu_env"
+            ]["SM100_ARM"]
+            self.assertEqual(
+                sm100_arm_env["PATH"],
+                "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            )
+            self.assertEqual(
+                sm100_arm_env["LD_LIBRARY_PATH"],
+                "/opt/rocm/lib:/opt/conda310/lib/:/usr/local/nvidia/lib64:"
+                "/usr/lib64:/usr/local/cuda/lib64:/opt/amdgpu/lib64:"
+                "/usr/local/cuda/extras/CUPTI/lib64",
+            )
+            for cuda13_only_env in (
+                "LD_PRELOAD",
+                "DG_JIT_CPP_STANDARD",
+                "TRITON_PTXAS_PATH",
+            ):
+                self.assertNotIn(cuda13_only_env, sm100_arm_env)
+
             arm_requirements = {
                 requirement.name: requirement
                 for requirement in map(
