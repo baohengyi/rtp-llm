@@ -140,9 +140,11 @@ def _load_toml_module():
 def _load_pyproject(rootdir: Path) -> dict:
     """Load pyproject.toml, merging internal_source overrides when present.
 
-    Reads rootdir/pyproject.toml as the base, then deep-merges keys from
-    rootdir/internal_source/pyproject.toml (if it exists) so that internal
-    configs like [tool.rtp-llm.remote] are available without duplication.
+    Reads rootdir/pyproject.toml as the base, then deep-merges the internal
+    overlay from either a packaged checkout (rootdir/internal_source) or the
+    CI monorepo layout (rootdir/../internal_source). This keeps internal
+    configs such as [tool.rtp-llm.pytest_ci.gpu_env] available when pytest is
+    launched from github-opensource/.
     """
     tomllib = _load_toml_module()
     base: dict = {}
@@ -154,18 +156,24 @@ def _load_pyproject(rootdir: Path) -> dict:
         except Exception as exc:
             log.warning("Failed to load %s: %s", base_path, exc)
 
-    # internal_source overlay: prefer pyproject_internal.toml (current naming),
-    # fall back to pyproject.toml for backwards compatibility with older trees.
-    for fname in ("pyproject_internal.toml", "pyproject.toml"):
-        internal_path = rootdir / "internal_source" / fname
-        if internal_path.exists():
+    # Prefer the current overlay name and retain the older pyproject.toml
+    # fallback. CI keeps internal_source next to github-opensource, while the
+    # uploaded remote input materializes it below the execution root.
+    for internal_dir in (
+        rootdir / "internal_source",
+        rootdir.parent / "internal_source",
+    ):
+        for fname in ("pyproject_internal.toml", "pyproject.toml"):
+            internal_path = internal_dir / fname
+            if not internal_path.exists():
+                continue
             try:
                 with open(internal_path, "rb") as f:
                     internal = tomllib.load(f)
                 _deep_merge(base, internal)
             except Exception as exc:
                 log.warning("Failed to load %s: %s", internal_path, exc)
-            break
+            return base
 
     return base
 

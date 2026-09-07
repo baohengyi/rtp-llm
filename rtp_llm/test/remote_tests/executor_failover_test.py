@@ -1144,6 +1144,41 @@ def test_resolve_ci_profile_remote_env(monkeypatch):
     ) == {"RTP_BAZEL_CONFIG": "--config=custom"}
 
 
+def test_load_pyproject_merges_sibling_internal_overlay(tmp_path):
+    repo_root = tmp_path / "github-opensource"
+    repo_root.mkdir()
+    (repo_root / "pyproject.toml").write_text(
+        """
+[tool.rtp-llm.pytest_ci.profiles.smoke_sm100_oss]
+gpu_type = "SM100_ARM"
+""".strip(),
+        encoding="utf-8",
+    )
+    internal_root = tmp_path / "internal_source"
+    internal_root.mkdir()
+    (internal_root / "pyproject_internal.toml").write_text(
+        """
+[tool.rtp-llm.pytest_ci.gpu_env.SM100_ARM]
+FT_SERVER_TEST = "1"
+PATH = "/usr/bin:/bin"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    remote_exec_rtp._load_pyproject.cache_clear()
+    try:
+        config = remote_exec_rtp._load_pyproject(repo_root)
+    finally:
+        remote_exec_rtp._load_pyproject.cache_clear()
+
+    pytest_ci = config["tool"]["rtp_llm"]["pytest_ci"]
+    assert pytest_ci["profiles"]["smoke_sm100_oss"]["gpu_type"] == "SM100_ARM"
+    assert pytest_ci["gpu_env"]["SM100_ARM"] == {
+        "FT_SERVER_TEST": "1",
+        "PATH": "/usr/bin:/bin",
+    }
+
+
 def test_build_runtime_config_uses_gpu_type_remote_env(monkeypatch):
     monkeypatch.setattr(
         remote_exec_rtp,
