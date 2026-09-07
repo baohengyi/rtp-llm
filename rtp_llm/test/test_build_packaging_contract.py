@@ -793,6 +793,7 @@ class BuildPackagingContractTest(TestCase):
                 )
 
             expected_arm_versions = {
+                "flashinfer-python": "==0.2.5",
                 "xgrammar": "==0.2.6rc1",
                 "apache-tvm-ffi": "==0.1.10",
                 "cuda-pathfinder": "==1.3.2",
@@ -806,6 +807,8 @@ class BuildPackagingContractTest(TestCase):
                     version,
                     f"{package} must match the deterministic GB200 dependency lock",
                 )
+            self.assertNotIn("flashinfer-cubin", arm_requirements)
+            self.assertNotIn("flashinfer-jit-cache", arm_requirements)
 
     def test_rocm_unit_cases_are_routed_by_mi308x_marker(self):
         """ROCm-only cases must be deselected before running on CUDA workers."""
