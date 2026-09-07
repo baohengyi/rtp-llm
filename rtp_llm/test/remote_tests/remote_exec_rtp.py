@@ -153,6 +153,7 @@ def _load_pyproject(rootdir: Path) -> dict:
         try:
             with open(base_path, "rb") as f:
                 base = tomllib.load(f)
+            _normalize_pytest_ci_namespace(base)
         except Exception as exc:
             log.warning("Failed to load %s: %s", base_path, exc)
 
@@ -170,6 +171,7 @@ def _load_pyproject(rootdir: Path) -> dict:
             try:
                 with open(internal_path, "rb") as f:
                     internal = tomllib.load(f)
+                _normalize_pytest_ci_namespace(internal)
                 _deep_merge(base, internal)
             except Exception as exc:
                 log.warning("Failed to load %s: %s", internal_path, exc)
@@ -185,6 +187,31 @@ def _deep_merge(base: dict, override: dict) -> None:
             _deep_merge(base[key], val)
         else:
             base[key] = val
+
+
+def _normalize_pytest_ci_namespace(config: dict) -> None:
+    """Map the legacy internal pytest_ci namespace to the canonical one."""
+    tool = config.get("tool", {})
+    if not isinstance(tool, dict):
+        return
+    legacy_namespace = tool.get("rtp-llm", {})
+    if not isinstance(legacy_namespace, dict):
+        return
+    legacy_pytest_ci = legacy_namespace.get("pytest_ci")
+    if not isinstance(legacy_pytest_ci, dict):
+        return
+
+    canonical_namespace = tool.setdefault("rtp_llm", {})
+    if not isinstance(canonical_namespace, dict):
+        return
+    canonical_pytest_ci = canonical_namespace.setdefault("pytest_ci", {})
+    if not isinstance(canonical_pytest_ci, dict):
+        return
+
+    merged: dict = {}
+    _deep_merge(merged, legacy_pytest_ci)
+    _deep_merge(merged, canonical_pytest_ci)
+    canonical_namespace["pytest_ci"] = merged
 
 
 def _get_pytest_ini_options(rootdir: Path) -> dict:

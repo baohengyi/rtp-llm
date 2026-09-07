@@ -1149,7 +1149,7 @@ def test_load_pyproject_merges_sibling_internal_overlay(tmp_path):
     repo_root.mkdir()
     (repo_root / "pyproject.toml").write_text(
         """
-[tool.rtp-llm.pytest_ci.profiles.smoke_sm100_oss]
+[tool.rtp_llm.pytest_ci.profiles.smoke_sm100_oss]
 gpu_type = "SM100_ARM"
 """.strip(),
         encoding="utf-8",
