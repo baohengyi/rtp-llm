@@ -188,6 +188,10 @@ try:
         get_block_cache_keys as cpp_get_block_cache_keys,
     )
     from libth_transformer_config import MultimodalInput, MMPreprocessConfig
+    logging.warning(
+        "[GB200_DIAG] libth_transformer_config=%s",
+        sys.modules["libth_transformer_config"].__file__,
+    )
 
 except BaseException as e:
     logging.info(f"Exception: {e}, traceback: {traceback.format_exc()}")
@@ -282,6 +286,10 @@ def _load_compute_ops(required: bool = False) -> None:
         try:
             import librtp_compute_ops
 
+            logging.warning(
+                "[GB200_DIAG] librtp_compute_ops=%s", librtp_compute_ops.__file__
+            )
+
             globals()["KVCache"] = librtp_compute_ops.KVCache
             globals()["LayerKVCache"] = librtp_compute_ops.LayerKVCache
             globals()["CacheStoreWriter"] = librtp_compute_ops.CacheStoreWriter
@@ -355,6 +363,11 @@ def _load_engine_ops(required: bool = False) -> None:
         # process teardown in the current binary build.
         _load_compute_ops(required=required)
         try:
+            import libth_transformer
+
+            logging.warning(
+                "[GB200_DIAG] libth_transformer=%s", libth_transformer.__file__
+            )
             from libth_transformer import EmbeddingCppOutput
 
             # MultimodalInput is registered by the config module
