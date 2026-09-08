@@ -42,6 +42,22 @@ py_binary(
     main = "device_resource.py",
 )
 
+# Diagnostic-only compatibility targets for running the pre-migration SM100
+# smoke rules against the Python Native source tree.
+py_library(
+    name = "device_resource",
+    srcs = [
+        "device_resource.py",
+        "jit_sys_path_setup.py",
+    ],
+)
+
+py_library(
+    name = "maga_server_manager",
+    srcs = ["maga_server_manager.py"],
+    deps = [":test_util"],
+)
+
 py_test(
     name = "numeric_util_test",
     srcs = ["numeric_util_test.py"],
