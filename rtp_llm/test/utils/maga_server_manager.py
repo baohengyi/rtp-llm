@@ -263,8 +263,10 @@ class MagaServerManager(object):
             self._role_name,
             current_env.get("CUDA_VISIBLE_DEVICES", "<not set>"),
         )
+        server_python = os.environ.get("RTP_SERVER_PYTHON", sys.executable)
+        logging.info("[%s] server Python: %s", self._role_name, server_python)
         p = subprocess.Popen(
-            [sys.executable, "-m", "rtp_llm.start_server"] + parsed_args,
+            [server_python, "-m", "rtp_llm.start_server"] + parsed_args,
             env=current_env,
             stdout=self._file_stream,
             stderr=self._file_stream,

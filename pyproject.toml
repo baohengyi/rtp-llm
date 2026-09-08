@@ -474,6 +474,15 @@ expected_count = 1
 forbid_skips = true
 remote_env = { REMOTE_JIT_DIR = "/tmp/rtp-llm/.remote_jit_cache" }
 
+[tool.rtp_llm.pytest_ci.profiles.smoke_sm100_diag_fp8]
+description = "Diagnostic-only SM100 FP8 attention smoke"
+paths = ["rtp_llm/test/smoke/suites/test_smoke_sm100_dense.py::test_smoke_sm100_dense[fp8_attention_sm100]"]
+gpu_type = "SM100_ARM"
+markexpr = "manual and smoke and SM100_ARM and not eval"
+expected_count = 1
+forbid_skips = true
+remote_env = { REMOTE_JIT_DIR = "/tmp/rtp-llm/.remote_jit_cache", RTP_SERVER_PYTHON = "/opt/conda310/bin/python" }
+
 [tool.rtp_llm.pytest_ci.profiles.smoke_sm120_oss]
 description = "OSS smoke RTX 5000 Pro / SM120"
 paths = ["rtp_llm/test/smoke/suites/"]
