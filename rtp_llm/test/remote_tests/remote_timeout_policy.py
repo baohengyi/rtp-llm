@@ -80,11 +80,11 @@ _POLICIES = {
     "per_test_eval": RemoteTimeoutPolicy(
         profile_class="per_test_eval",
         # Eval cases retain their explicit 6000s pytest timeout.  Budget cold
-        # worker setup separately so the supervisor cannot terminate them
-        # before pytest reports a real pass or failure.
-        session_budget_seconds=9000,
-        action_timeout_seconds=8700,
-        supervisor_timeout_seconds=8580,
+        # worker setup separately while respecting the REAPI server's 7200s
+        # maximum action timeout.
+        session_budget_seconds=7500,
+        action_timeout_seconds=7200,
+        supervisor_timeout_seconds=7080,
         pytest_timeout_seconds=6000,
         queued_timeout_seconds=300,
         min_retry_remaining_seconds=1200,

@@ -749,7 +749,7 @@ def test_timeout_policy_maps_ci_profiles():
         per_test_eval.supervisor_timeout_seconds,
         per_test_eval.pytest_timeout_seconds,
         per_test_eval.heartbeat_stall_seconds,
-    ) == ("per_test_eval", 9000, 8700, 8580, 6000, 6600)
+    ) == ("per_test_eval", 7500, 7200, 7080, 6000, 6600)
     assert (
         per_test_perf.session_budget_seconds,
         per_test_perf.action_timeout_seconds,
