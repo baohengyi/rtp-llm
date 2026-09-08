@@ -238,6 +238,9 @@ class RemoteExecutor:
     ) -> ExecutionResult:
         action_timeout_seconds = int(action_timeout_seconds or timeout)
         rpc_timeout_seconds = int(rpc_timeout_seconds or (action_timeout_seconds + 120))
+        allow_executing_requeue = os.environ.get(
+            "RTP_REMOTE_ALLOW_EXECUTING_REQUEUE", ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
         if global_deadline_epoch is not None:
             remaining = int(global_deadline_epoch - time.time())
             if remaining <= 0:
@@ -538,26 +541,40 @@ class RemoteExecutor:
                 ):
                     message = (
                         f"Execute stage regressed from {last_stage} to {stage}; "
-                        "treating remote action as infrastructure failure"
+                        "remote action was requeued"
                     )
-                    log.warning("[REMOTE_STAGE_REGRESSION] %s op=%s", message, op.name)
-                    self.cancel_operation(op.name)
-                    stop_event.set()
-                    for t in stream_threads:
-                        t.join(timeout=5)
-                    return ExecutionResult(
-                        exit_code=-1,
-                        stderr_raw=(
-                            f"{message}\n[reapi-targets] {self.reapi_targets_combined}"
-                        ).encode(),
-                        metadata_worker=logged_metadata_worker,
-                        stream_stdout_path=abs_stdout,
-                        stream_stderr_path=abs_stderr,
-                        executor_endpoint=self.grpc_uri,
-                        operation_name=op.name,
-                        last_stage=stage,
-                        infra_category="executor_stage_regressed",
-                    )
+                    if allow_executing_requeue:
+                        log.warning(
+                            "[REMOTE_STAGE_REGRESSION] %s; continuing under queued "
+                            "watchdog op=%s",
+                            message,
+                            op.name,
+                        )
+                    else:
+                        log.warning(
+                            "[REMOTE_STAGE_REGRESSION] %s; treating as infrastructure "
+                            "failure op=%s",
+                            message,
+                            op.name,
+                        )
+                        self.cancel_operation(op.name)
+                        stop_event.set()
+                        for t in stream_threads:
+                            t.join(timeout=5)
+                        return ExecutionResult(
+                            exit_code=-1,
+                            stderr_raw=(
+                                f"{message}\n"
+                                f"[reapi-targets] {self.reapi_targets_combined}"
+                            ).encode(),
+                            metadata_worker=logged_metadata_worker,
+                            stream_stdout_path=abs_stdout,
+                            stream_stderr_path=abs_stderr,
+                            executor_endpoint=self.grpc_uri,
+                            operation_name=op.name,
+                            last_stage=stage,
+                            infra_category="executor_stage_regressed",
+                        )
                 last_stage = stage
                 _ensure_queued_watchdog(stage)
                 if on_stage:

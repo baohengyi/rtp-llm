@@ -1592,6 +1592,37 @@ def test_execute_classifies_executing_to_queued_regression_as_infra(monkeypatch)
     assert cancelled == ["operations/stage-regression"]
 
 
+def test_execute_can_watch_requeued_action_until_completion(monkeypatch):
+    executor = RemoteExecutor("grpc://scheduler.example.test:50052", _FakeCAS())
+
+    class _Stub:
+        def Execute(self, request, metadata, timeout):
+            yield _operation_with_stage("QUEUED")
+            yield _operation_with_stage("EXECUTING")
+            yield _operation_with_stage("QUEUED")
+            yield _operation_with_stage("EXECUTING")
+            yield _done_operation()
+
+    cancelled = []
+    executor.stub = _Stub()
+    monkeypatch.setenv("RTP_REMOTE_ALLOW_EXECUTING_REQUEUE", "1")
+    monkeypatch.setattr(
+        executor,
+        "cancel_operation",
+        lambda operation_name: cancelled.append(operation_name) or True,
+    )
+
+    result = executor.execute(
+        command=["bash", "-c", "true"],
+        input_root_digest=remote_execution_pb2.Digest(hash="root", size_bytes=1),
+        timeout=7200,
+    )
+
+    assert result.exit_code == 0
+    assert result.last_stage == "COMPLETED"
+    assert cancelled == []
+
+
 def test_default_queued_watchdog_is_shorter_than_aone_timeout(monkeypatch):
     monkeypatch.delenv("RTP_REMOTE_QUEUED_TIMEOUT_SECONDS", raising=False)
 
