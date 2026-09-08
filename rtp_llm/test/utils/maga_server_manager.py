@@ -4,6 +4,7 @@ import os
 import random
 import shlex
 import signal as signal_mod
+import site
 import socket
 import subprocess
 import sys
@@ -25,6 +26,39 @@ PTUNING_PATH = "PTUNING_PATH"
 LOG_PATH = "LOG_PATH"
 
 long_live_port_locks = []
+
+
+def _resolve_server_python(current_env: Dict[str, str]) -> str:
+    server_python = current_env.get("RTP_SERVER_PYTHON", "")
+    use_base_python = current_env.get("RTP_SERVER_USE_BASE_PYTHON", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if not server_python:
+        server_python = sys.executable
+        if use_base_python:
+            server_python = getattr(sys, "_base_executable", "") or sys.executable
+
+    if server_python != sys.executable and sys.prefix != sys.base_prefix:
+        venv_site_packages = [
+            path
+            for path in site.getsitepackages()
+            if path == sys.prefix or path.startswith(sys.prefix + os.sep)
+        ]
+        python_path = current_env.get("PYTHONPATH", "")
+        current_env["PYTHONPATH"] = os.pathsep.join(
+            path
+            for path in (python_path, *venv_site_packages)
+            if path
+        )
+        logging.info(
+            "Appended native venv site-packages for server Python: %s",
+            venv_site_packages,
+        )
+
+    return server_python
 
 
 class MagaServerManager(object):
@@ -263,8 +297,10 @@ class MagaServerManager(object):
             self._role_name,
             current_env.get("CUDA_VISIBLE_DEVICES", "<not set>"),
         )
+        server_python = _resolve_server_python(current_env)
+        logging.info("[%s] server Python: %s", self._role_name, server_python)
         p = subprocess.Popen(
-            [sys.executable, "-m", "rtp_llm.start_server"] + parsed_args,
+            [server_python, "-m", "rtp_llm.start_server"] + parsed_args,
             env=current_env,
             stdout=self._file_stream,
             stderr=self._file_stream,
