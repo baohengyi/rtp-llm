@@ -264,6 +264,29 @@ class MagaServerManager(object):
             current_env.get("CUDA_VISIBLE_DEVICES", "<not set>"),
         )
         server_python = os.environ.get("RTP_SERVER_PYTHON", sys.executable)
+        if server_python != sys.executable:
+            import site
+
+            venv_site_packages = next(
+                (
+                    path
+                    for path in site.getsitepackages()
+                    if path.endswith("site-packages")
+                ),
+                "",
+            )
+            if venv_site_packages:
+                python_path = current_env.get("PYTHONPATH", "")
+                current_env["PYTHONPATH"] = os.pathsep.join(
+                    path
+                    for path in (python_path, venv_site_packages)
+                    if path
+                )
+                logging.info(
+                    "[%s] appended native venv site-packages for diagnostic: %s",
+                    self._role_name,
+                    venv_site_packages,
+                )
         logging.info("[%s] server Python: %s", self._role_name, server_python)
         p = subprocess.Popen(
             [server_python, "-m", "rtp_llm.start_server"] + parsed_args,
