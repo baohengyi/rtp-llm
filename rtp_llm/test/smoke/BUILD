@@ -13,3 +13,9 @@ exports_files([
 
 # Platform-grouped Bazel suites were removed during the pyproject/setup.py
 # migration. Internal smoke targets still use this thin compatibility wrapper.
+
+# Diagnostic-only legacy entry: run the unchanged SM100 manifest through the
+# Bazel path while keeping the feature branch runtime sources.
+load("//rtp_llm/test/smoke:suites_sm100.bzl", "sm100_suites")
+
+sm100_suites()
