@@ -29,17 +29,7 @@ long_live_port_locks = []
 
 
 def _resolve_server_python(current_env: Dict[str, str]) -> str:
-    server_python = current_env.get("RTP_SERVER_PYTHON", "")
-    use_base_python = current_env.get("RTP_SERVER_USE_BASE_PYTHON", "").lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    if not server_python:
-        server_python = sys.executable
-        if use_base_python:
-            server_python = getattr(sys, "_base_executable", "") or sys.executable
+    server_python = current_env.get("RTP_SERVER_PYTHON", sys.executable)
 
     if server_python != sys.executable and sys.prefix != sys.base_prefix:
         venv_site_packages = [

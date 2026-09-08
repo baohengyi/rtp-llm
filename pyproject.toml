@@ -463,7 +463,7 @@ gpu_type = "SM100_ARM"
 markexpr = "manual and smoke and SM100_ARM and not eval"
 expected_count = 12
 forbid_skips = true
-remote_env = { REMOTE_JIT_DIR = "/tmp/rtp-llm/.remote_jit_cache", RTP_SERVER_USE_BASE_PYTHON = "1" }
+remote_env = { REMOTE_JIT_DIR = "/tmp/rtp-llm/.remote_jit_cache", RTP_SERVER_PYTHON = "/opt/conda310/bin/python" }
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_sm100_eval_oss]
 description = "OSS smoke SM100 ARM eval bench (smoke-sm100-eval-oss)"
