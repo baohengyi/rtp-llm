@@ -449,6 +449,12 @@ def build_remote_setup_command(rootdir: Path, *, setup_env: Optional[dict] = Non
         '  echo ">>>PHASE:prepare_venv_skipped $(date +%s)"; '
         "fi; "
         'echo ">>>PHASE:pip_install_done $(date +%s)"; '
+        # FlashInfer's build.ninja embeds package paths. Sharing its default
+        # HOME cache across CAS-scoped venvs retains paths to evicted venvs.
+        'if [ -n "${VIRTUAL_ENV:-}" ] && [ -z "${FLASHINFER_WORKSPACE_BASE:-}" ]; then '
+        '  export FLASHINFER_WORKSPACE_BASE="$VIRTUAL_ENV"; '
+        "fi; "
+        'echo "[remote_setup] FLASHINFER_WORKSPACE_BASE=${FLASHINFER_WORKSPACE_BASE:-unset}"; '
         f"if [ -f {shlex.quote(str(_RUNTIME_LIBS_ARCHIVE))} ]; then "
         f"  tar -xf {shlex.quote(str(_RUNTIME_LIBS_ARCHIVE))}; "
         '  echo "[remote_setup] restored rtp_llm/libs from runtime libs archive"; '
