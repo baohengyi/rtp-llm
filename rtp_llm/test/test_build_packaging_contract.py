@@ -2,6 +2,7 @@ import ast
 import importlib.util
 import os
 import re
+import shlex
 import sys
 import tempfile
 from pathlib import Path
@@ -80,6 +81,38 @@ def _load_setup_module():
 
 
 class BuildPackagingContractTest(TestCase):
+    def test_cuda13_arm_architecture_is_not_shadowed_by_duplicate_configs(self):
+        directives = [
+            shlex.split(line, comments=True)
+            for line in (PROJECT_ROOT / ".bazelrc").read_text().splitlines()
+        ]
+        for config, expected in (
+            ("cuda13_arm", "10.0,10.3"),
+            ("cuda12_9_arm", "10.0"),
+        ):
+            for flag in ("--action_env", "--host_action_env"):
+                values = [
+                    parts[2].split("=", 1)[1]
+                    for parts in directives
+                    if len(parts) == 3
+                    and parts[:2] == [f"build:{config}", flag]
+                    and parts[2].startswith("TF_CUDA_COMPUTE_CAPABILITIES=")
+                ]
+                # A later duplicate used to silently reduce CUDA 13 ARM back
+                # to SM100 even though the earlier declaration included SM103.
+                self.assertTrue(values, (config, flag))
+                self.assertEqual(values[-1], expected, (config, flag, values))
+        for config, parent in (
+            ("cuda13_base", "cuda12"),
+            ("cuda13_arm", "cuda13_base"),
+            ("cuda13", "cuda13_base"),
+        ):
+            self.assertEqual(
+                directives.count([f"build:{config}", f"--config={parent}"]),
+                1,
+                config,
+            )
+
     def test_native_test_command_preserves_multiple_cpp_targets(self):
         setup_module = _load_setup_module()
         command = setup_module.BazelTest(Distribution())
@@ -104,6 +137,18 @@ class BuildPackagingContractTest(TestCase):
                 "//rtp_llm/cpp/cuda_graph/tests:retry",
             ],
         )
+
+    def test_block_tree_tests_link_venv_torch_instead_of_bazel_pip_torch(self):
+        builds = list((PROJECT_ROOT / "rtp_llm/cpp/cache/block_tree_cache").rglob("BUILD"))
+        self.assertTrue(builds)
+        for path in builds:
+            with self.subTest(path=path.relative_to(PROJECT_ROOT)):
+                self.assertNotRegex(path.read_text(), r"@pip_[^\s\"]*torch")
+        torch_build = (PROJECT_ROOT / "BUILD.pytorch").read_text()
+        self.assertIn('"torch/lib/libtorch_nvshmem.so"', torch_build)
+        self.assertIn('"nvidia/nvshmem/lib/libnvshmem_host.so.3"', torch_build)
+        self.assertIn('"@//:using_cuda13_x86"', torch_build)
+        self.assertIn('"@//:using_cuda13_arm"', torch_build)
 
     def test_arch_select_has_unique_top_level_functions(self):
         source = (PROJECT_ROOT / "arch_config" / "arch_select.bzl").read_text(
@@ -975,12 +1020,13 @@ class BuildPackagingContractTest(TestCase):
             "py_ut_oss_sm8x": 2968,
             "py_ut_sm9x": 526,
             "py_ut_sm100": 20,
-            "py_ut_sm120": 118,
+            "py_ut_sm120": 120,
+            "py_ut_cuda13_sm120": 184,
             "py_ut_l20": 86,
             "py_ut_oss_l20": 84,
             "py_ut_sm100_arm": 104,
             "py_ut_amd": 405,
-            "py_ut_frontend": 71,
+            "py_ut_frontend": 73,
         }.items():
             self.assertEqual(profiles[name].get("expected_count"), expected_count)
             self.assertTrue(
@@ -1645,8 +1691,8 @@ class BuildPackagingContractTest(TestCase):
 
         profiles = pyproject["tool"]["rtp_llm"]["pytest_ci"]["profiles"]
         expected_counts = {
-            "smoke_h20_light_oss": 16,
-            "smoke_h20_full_oss": 58,
+            "smoke_h20_light_oss": 19,
+            "smoke_h20_full_oss": 61,
             "smoke_sm8x_light_oss": 9,
             "smoke_sm8x_full_oss": 9,
             "smoke_sm100_oss": 12,
@@ -1655,7 +1701,7 @@ class BuildPackagingContractTest(TestCase):
             "smoke_rocm_oss": 26,
             "smoke_amd_internal": 3,
             "smoke_rocm_qwen35_mtp_manual": 1,
-            "smoke_remote_cache_oss": 11,
+            "smoke_remote_cache_oss": 12,
         }
         for name, expected_count in expected_counts.items():
             self.assertEqual(profiles[name]["expected_count"], expected_count)

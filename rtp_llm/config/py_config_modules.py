@@ -67,9 +67,7 @@ class ServerConfig:
         self.backend_post_frontend_drain_seconds: float = -1.0
         self.enable_torch_allocator_dump: bool = False
         self.torch_allocator_dump_auth_token: str = ""
-        self.torch_allocator_dump_auth_header: str = (
-            "X-RTP-LLM-Allocator-Dump-Token"
-        )
+        self.torch_allocator_dump_auth_header: str = "X-RTP-LLM-Allocator-Dump-Token"
         self.torch_allocator_dump_cooldown_seconds: float = 60.0
 
     def validate_allocator_dump_config(self) -> None:
@@ -88,7 +86,9 @@ class ServerConfig:
             r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+",
             self.torch_allocator_dump_auth_header,
         ):
-            raise ValueError("torch_allocator_dump_auth_header is not a valid HTTP header name")
+            raise ValueError(
+                "torch_allocator_dump_auth_header is not a valid HTTP header name"
+            )
 
     def _server_base(self) -> int:
         return self.start_port + self.rank_id * self.worker_info_port_num

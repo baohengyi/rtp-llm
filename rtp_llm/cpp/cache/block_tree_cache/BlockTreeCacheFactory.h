@@ -1,0 +1,33 @@
+#pragma once
+
+#include <memory>
+#include <string>
+#include <unordered_map>
+
+#include "rtp_llm/cpp/cache/CacheConfig.h"
+#include "rtp_llm/cpp/cache/block_tree_cache/BlockTreeCache.h"
+#include "rtp_llm/cpp/cache/KVCacheAllocator.h"
+#include "rtp_llm/cpp/config/ConfigModules.h"
+
+namespace rtp_llm {
+
+class BroadcastManager;
+class StorageBackend;
+
+size_t computeHostUsableBlockCount(size_t capacity_bytes, size_t stride_bytes);
+
+std::string resolveDiskMountPath(const std::string& disk_paths_csv, int64_t local_world_size, int64_t local_rank);
+
+// Validate before allocator initialization so invalid transfer timeouts do not
+// allocate device/lower-tier pools or hide behind unrelated pool errors.
+void validateBlockTreeCacheTimeouts(const KVCacheConfig& kv_cache_config);
+
+BlockTreeCachePtr createBlockTreeCache(const CacheConfig&                         cache_config,
+                                       const KVCacheConfig&                       kv_cache_config,
+                                       const std::shared_ptr<KVCacheAllocator>&   allocator,
+                                       const ParallelismConfig&                   parallelism_config = {},
+                                       std::shared_ptr<StorageBackend>            storage_backend    = nullptr,
+                                       std::shared_ptr<BroadcastManager>          broadcast_manager  = nullptr,
+                                       std::shared_ptr<kmonitor::MetricsReporter> metrics_reporter   = nullptr);
+
+}  // namespace rtp_llm

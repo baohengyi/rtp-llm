@@ -461,7 +461,7 @@ class PyWrappedModelCacheStoreIntegrationTest(unittest.TestCase):
 
     @pytest.mark.gpu(type="H20")
     def test_context_parallel_publishes_original_lengths_not_local_chunk(self) -> None:
-        execution = _run_native_scenario_isolated("cp_actual_lengths")
+        execution = _run_native_scenario_isolated("cp_actual_lengths_rank0")
         result = execution["result"]
 
         self.assertEqual(execution["seen_input_lengths"], [[4]])
@@ -499,6 +499,60 @@ class PyWrappedModelCacheStoreIntegrationTest(unittest.TestCase):
             self.assertTrue(
                 any(f"_token_id_str_{token_key}_" in key for key in full_blocks)
             )
+
+
+    @pytest.mark.gpu(type="H20")
+    def test_context_parallel_publishes_original_lengths_to_every_tag(self) -> None:
+        rank_key_sets = []
+        for tp_rank in range(2):
+            execution = _run_native_scenario_isolated(f"cp_actual_lengths_rank{tp_rank}")
+            result = execution["result"]
+
+            # Forward CP turns the six-token request into a four-token local
+            # chunk for attention, but kv_cache_sharded=false means both ranks
+            # publish the same complete cache namespace. Tag-local blocks keep
+            # their own physical table and terminal-key stride.
+            self.assertEqual(execution["seen_input_lengths"], [[4]])
+            self.assertEqual(len(result["records"]), 2)
+            blocks = _blocks_by_key(result)
+            full_blocks = {
+                key: block for key, block in blocks.items() if "_tag_full" in key
+            }
+            linear_blocks = {
+                key: block for key, block in blocks.items() if "_tag_linear" in key
+            }
+            self.assertEqual(len(full_blocks), 3)
+            self.assertEqual(len(linear_blocks), 6)
+            self.assertEqual(
+                sorted(
+                    block["address"] - result["base_addresses"]["full"]
+                    for block in full_blocks.values()
+                ),
+                [16, 32, 48],
+            )
+            self.assertEqual(
+                sorted(
+                    block["address"] - result["base_addresses"]["linear"]
+                    for block in linear_blocks.values()
+                ),
+                [72, 96, 120, 144, 168, 192],
+            )
+            self.assertEqual({block["length"] for block in full_blocks.values()}, {16})
+            self.assertEqual(
+                {block["length"] for block in linear_blocks.values()}, {24}
+            )
+            for token_key in range(3101, 3107):
+                self.assertTrue(
+                    any(f"_token_id_str_{token_key}_" in key for key in linear_blocks)
+                )
+            for token_key in (3102, 3104, 3106):
+                self.assertTrue(
+                    any(f"_token_id_str_{token_key}_" in key for key in full_blocks)
+                )
+            rank_key_sets.append(set(blocks))
+
+        self.assertEqual(rank_key_sets[0], rank_key_sets[1])
+
 
     def test_mtp_writer_uses_selected_sub_config_for_real_write(self) -> None:
         execution = _run_native_scenario_isolated("mtp_sub_config")

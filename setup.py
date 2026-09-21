@@ -881,6 +881,11 @@ def _selected_bazel_staged_outputs(build_config: str, bazel_args: list = None) -
         # bindings below libs/test/ so remote-session archives them, while
         # wheel package-data (libs/*.so) does not publish test-only modules.
         staged_outputs.extend(_CUDA129_TEST_BAZEL_STAGED_OUTPUTS)
+        staged_outputs.append((
+            _STAGED_OUTPUT_RUNTIME,
+            "//rtp_llm/cpp/cache/block_tree_cache/benchmark:block_tree_cache_gpu_benchmark",
+            (("block_tree_cache_gpu_benchmark", "benchmark/block_tree_cache_gpu_benchmark"),),
+        ))
     if "cuda12_9" in _bazel_config_names(bazel_args):
         staged_outputs.extend(_CUDA_PY_WRAPPER_TEST_BAZEL_STAGED_OUTPUTS)
     if {"cuda13", "cuda13_arm"} & _bazel_config_names(bazel_args):

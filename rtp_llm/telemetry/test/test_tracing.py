@@ -23,16 +23,12 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from rtp_llm.telemetry import attributes as attrs
+from rtp_llm.telemetry import config as trace_config
 from rtp_llm.telemetry import tracing
-
-try:  # probe only; real imports live in tracing
-    import opentelemetry  # noqa: F401
-
-    OTEL_AVAILABLE = True
-except ImportError:  # pragma: no cover - exercised only on bare images
-    OTEL_AVAILABLE = False
+from rtp_llm.telemetry.config import TraceConfig
 
 TELEMETRY_ENVS = [
+    "RTP_LLM_TRACE_CONFIG",
     "RTP_LLM_OTEL_TRACE_ENABLE",
     "RTP_LLM_OTEL_REGION",
     "RTP_LLM_OTEL_REGION_CONFIG_FILE",
@@ -57,20 +53,25 @@ TELEMETRY_ENVS = [
 
 def _reset_runtime():
     assert tracing.reset_telemetry_for_test()
+    trace_config._cache_pid = None
 
 
-def _start_in_memory_runtime():
+def _start_in_memory_runtime(config=None):
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
         InMemorySpanExporter,
     )
 
     exporter = InMemorySpanExporter()
-    assert tracing.init_telemetry_for_test(exporter, role="test", tp_rank=0)
+    assert tracing.init_telemetry_for_test(
+        exporter, role="test", tp_rank=0, config=config
+    )
     return exporter
 
 
 class TestDependencyContract(unittest.TestCase):
     def test_opentelemetry_runtime_is_available(self):
+        with tracing._isolated_sdk_environment():
+            tracing._load_otel_sdk()
         self.assertTrue(
             tracing.OTEL_AVAILABLE,
             f"opentelemetry runtime unavailable: {tracing._OTEL_IMPORT_ERROR!r}",
@@ -103,7 +104,6 @@ class TestDependencyContract(unittest.TestCase):
         )
 
 
-@unittest.skipUnless(OTEL_AVAILABLE, "opentelemetry not installed")
 class TracingTestCase(unittest.TestCase):
     """Shared env/runtime isolation, mirroring the old autouse fixture."""
 
@@ -126,6 +126,20 @@ class TestConfig(TracingTestCase):
         assert tracing.telemetry_state() == tracing.TelemetryState.DISABLED
         assert not tracing.is_telemetry_active()
 
+    def test_enabled_without_endpoint_disabled(self):
+        os.environ["RTP_LLM_TRACE_CONFIG"] = json.dumps({"enabled": True})
+        assert not tracing.init_telemetry("frontend", 0)
+        assert tracing.telemetry_state() == tracing.TelemetryState.DISABLED
+
+    def test_non_rank0_disabled(self):
+        os.environ["RTP_LLM_TRACE_CONFIG"] = json.dumps({
+            "enabled": True,
+            "endpoint": "http://127.0.0.1:4318/v1/traces",
+            "headers": {"authorization": "fake-test-only"},
+        })
+        assert not tracing.init_telemetry("prefill", 1)
+        assert tracing.telemetry_state() == tracing.TelemetryState.DISABLED
+
     def test_disabled_region_resolution_has_no_side_effects(self):
         os.environ["RTP_LLM_OTEL_REGION"] = "cn-test"
         os.environ["RequestedIP"] = "10.4.5.6"
@@ -138,19 +152,6 @@ class TestConfig(TracingTestCase):
         gethostbyname.assert_not_called()
         assert "RTP_LLM_OTEL_SCOPE_VERSION" not in os.environ
         assert "POD_IP" not in os.environ
-
-    def test_enabled_without_endpoint_disabled(self):
-        os.environ["RTP_LLM_OTEL_TRACE_ENABLE"] = "1"
-        assert not tracing.init_telemetry("frontend", 0)
-        assert tracing.telemetry_state() == tracing.TelemetryState.DISABLED
-
-    def test_non_rank0_disabled(self):
-        os.environ["RTP_LLM_OTEL_TRACE_ENABLE"] = "1"
-        os.environ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = (
-            "http://127.0.0.1:4318/v1/traces"
-        )
-        assert not tracing.init_telemetry("prefill", 1)
-        assert tracing.telemetry_state() == tracing.TelemetryState.DISABLED
 
     def test_endpoint_priority_signal_specific_wins(self):
         os.environ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = (
@@ -379,6 +380,7 @@ class TestConfig(TracingTestCase):
         assert "OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE" not in os.environ
 
 
+
 class TestInactiveNoop(TracingTestCase):
     def test_apis_safe_when_inactive(self):
         assert tracing.get_tracer() is None
@@ -389,43 +391,8 @@ class TestInactiveNoop(TracingTestCase):
         tracing.RequestTraceState().finish()
 
 
-class TestScopeVersion(TracingTestCase):
-    """otel.scope.version: env override > rtp_llm wheel metadata > empty."""
-
-    def setUp(self):
-        super().setUp()
-        tracing._scope_version_cache = None
-
-    def tearDown(self):
-        tracing._scope_version_cache = None
-        super().tearDown()
-
-    def test_scope_version_from_env_on_spans(self):
-        os.environ["RTP_LLM_OTEL_SCOPE_VERSION"] = "9.9.9-test"
-        exporter = _start_in_memory_runtime()
-        state = tracing.start_server_span("scope_probe", {})
-        assert state is not None
-        state.finish()
-        tracing.shutdown_telemetry()
-        spans = exporter.get_finished_spans()
-        assert len(spans) == 1
-        assert spans[0].instrumentation_scope.name == "rtp_llm"
-        assert spans[0].instrumentation_scope.version == "9.9.9-test"
-
-    def test_resolve_region_env_exports_scope_version(self):
-        os.environ["RTP_LLM_OTEL_TRACE_ENABLE"] = "1"
-        os.environ.pop("RTP_LLM_OTEL_SCOPE_VERSION", None)
-        with mock.patch.object(tracing, "_scope_version_cache", "7.7.7-launcher"):
-            tracing.resolve_region_env()
-            assert os.environ.get("RTP_LLM_OTEL_SCOPE_VERSION") == "7.7.7-launcher"
-
-
 class TestResource(TracingTestCase):
-    """Parity with the C++ runtime: host.ip only from POD_IP."""
-
-    def setUp(self):
-        super().setUp()
-        os.environ["RTP_LLM_OTEL_TRACE_ENABLE"] = "1"
+    """Parity with the C++ runtime: host.ip is hostname-pid, pod IP is separate."""
 
     def _finished_resource_attributes(self, exporter):
         state = tracing.start_server_span("resource_probe", {})
@@ -435,6 +402,131 @@ class TestResource(TracingTestCase):
         spans = exporter.get_finished_spans()
         assert len(spans) == 1
         return spans[0].resource.attributes
+
+    def test_pod_ip_lands_on_rtp_llm_pod_ip(self):
+        os.environ["POD_IP"] = "10.1.2.3"
+        exporter = _start_in_memory_runtime()
+        attributes = self._finished_resource_attributes(exporter)
+        assert attributes.get("rtp_llm.pod_ip") == "10.1.2.3"
+        # The pod address must never leak back into host.ip: the platform's
+        # per-instance panels key off host.ip and a pod IP is not process-unique.
+        assert attributes.get("host.ip") != "10.1.2.3"
+        assert attributes.get("rtp_llm.role") == "test"
+
+    def test_rtp_llm_pod_ip_absent_without_pod_ip(self):
+        exporter = _start_in_memory_runtime()
+        attributes = self._finished_resource_attributes(exporter)
+        assert "rtp_llm.pod_ip" not in attributes
+        # host.ip no longer depends on POD_IP, so it stays present.
+        assert attributes.get("host.ip", "").endswith(f"-{os.getpid()}")
+
+    def test_host_identity_is_hostname_and_hostname_pid(self):
+        with mock.patch.object(socket, "gethostname", return_value="probe-host"):
+            exporter = _start_in_memory_runtime()
+            attributes = self._finished_resource_attributes(exporter)
+        assert attributes.get("host.name") == "probe-host"
+        assert attributes.get("host.ip") == f"probe-host-{os.getpid()}"
+        assert attributes.get("service.instance.id") == f"probe-host-{os.getpid()}"
+
+    def test_host_keys_skipped_when_hostname_unknown(self):
+        # "unknown-<pid>" would pollute exactly the per-instance aggregation the
+        # host keys exist to serve, so neither is synthesized. The instance id
+        # keeps its fallback so it is never absent.
+        with mock.patch.object(socket, "gethostname", return_value=""):
+            exporter = _start_in_memory_runtime()
+            attributes = self._finished_resource_attributes(exporter)
+        assert "host.ip" not in attributes
+        assert "host.name" not in attributes
+        assert attributes.get("service.instance.id") == f"unknown-{os.getpid()}"
+
+    def test_instrumentation_sdk_name_is_always_present(self):
+        # Fixed marker the platform's GenAI statistics match on; unconditional so
+        # it cannot depend on host or pod information being available.
+        with mock.patch.object(socket, "gethostname", return_value=""):
+            exporter = _start_in_memory_runtime()
+            attributes = self._finished_resource_attributes(exporter)
+        assert (
+            attributes.get("gen_ai.instrumentation.sdk.name")
+            == "loongsuite-genai-utils"
+        )
+
+    def test_resolve_region_env_preserves_existing_pod_ip(self):
+        os.environ["POD_IP"] = "10.1.2.3"
+        os.environ["RequestedIP"] = "10.4.5.6"
+        with mock.patch.object(socket, "gethostbyname") as gethostbyname:
+            tracing.resolve_pod_ip()
+        assert os.environ["POD_IP"] == "10.1.2.3"
+        gethostbyname.assert_not_called()
+
+    def test_resolve_region_env_uses_requested_ip(self):
+        os.environ["RequestedIP"] = "10.4.5.6"
+        with mock.patch.object(socket, "gethostbyname") as gethostbyname:
+            tracing.resolve_pod_ip()
+        assert os.environ["POD_IP"] == "10.4.5.6"
+        gethostbyname.assert_not_called()
+
+    def test_resolve_region_env_replaces_empty_pod_ip(self):
+        os.environ["POD_IP"] = ""
+        os.environ["RequestedIP"] = "10.4.5.6"
+        tracing.resolve_pod_ip()
+        assert os.environ["POD_IP"] == "10.4.5.6"
+
+    def test_resolve_region_env_rejects_invalid_requested_ip(self):
+        os.environ["RequestedIP"] = "127.0.0.1"
+        with mock.patch.object(socket, "gethostbyname", return_value="10.7.8.9"):
+            tracing.resolve_pod_ip()
+        assert os.environ["POD_IP"] == "10.7.8.9"
+
+    def test_resolve_region_env_uses_hostname_ip(self):
+        with (
+            mock.patch.object(socket, "gethostname", return_value="test-host"),
+            mock.patch.object(
+                socket, "gethostbyname", return_value="10.7.8.9"
+            ) as gethostbyname,
+        ):
+            tracing.resolve_pod_ip()
+        assert os.environ["POD_IP"] == "10.7.8.9"
+        gethostbyname.assert_called_once_with("test-host")
+
+    def test_resolve_region_env_dns_failure_is_fail_open(self):
+        with mock.patch.object(
+            socket, "gethostbyname", side_effect=socket.gaierror("not found")
+        ):
+            tracing.resolve_pod_ip()
+        assert "POD_IP" not in os.environ
+
+    def test_resolve_region_env_rejects_invalid_automatic_ips(self):
+        for resolved_ip in ("", "127.0.0.1", "0.0.0.0"):
+            with self.subTest(resolved_ip=resolved_ip):
+                os.environ.pop("POD_IP", None)
+                os.environ.pop("RequestedIP", None)
+                with mock.patch.object(
+                    socket, "gethostbyname", return_value=resolved_ip
+                ):
+                    tracing.resolve_pod_ip()
+                assert "POD_IP" not in os.environ
+
+    def test_resolve_region_env_is_idempotent(self):
+        os.environ["RequestedIP"] = "10.4.5.6"
+        tracing.resolve_pod_ip()
+        os.environ["RequestedIP"] = "10.7.8.9"
+        tracing.resolve_pod_ip()
+        assert os.environ["POD_IP"] == "10.4.5.6"
+
+    def test_resolved_pod_ip_populates_span_resource(self):
+        os.environ["RequestedIP"] = "10.4.5.6"
+        tracing.resolve_pod_ip()
+        exporter = _start_in_memory_runtime()
+        attributes = self._finished_resource_attributes(exporter)
+        # The POD_IP derivation chain still reaches the exported resource; it now
+        # lands on rtp_llm.pod_ip instead of host.ip.
+        assert attributes.get("rtp_llm.pod_ip") == "10.4.5.6"
+
+    def test_service_name_derived_from_role(self):
+        # 未提供 service_name 时按角色派生。
+        exporter = _start_in_memory_runtime()
+        attributes = self._finished_resource_attributes(exporter)
+        assert attributes.get("service.name") == "rtp_llm_test"
 
     def test_host_ip_from_pod_ip(self):
         os.environ["POD_IP"] = "10.1.2.3"
@@ -448,82 +540,6 @@ class TestResource(TracingTestCase):
         attributes = self._finished_resource_attributes(exporter)
         assert "host.ip" not in attributes
 
-    def test_resolve_region_env_preserves_existing_pod_ip(self):
-        os.environ["POD_IP"] = "10.1.2.3"
-        os.environ["RequestedIP"] = "10.4.5.6"
-        with mock.patch.object(socket, "gethostbyname") as gethostbyname:
-            tracing.resolve_region_env()
-        assert os.environ["POD_IP"] == "10.1.2.3"
-        gethostbyname.assert_not_called()
-
-    def test_resolve_region_env_uses_requested_ip(self):
-        os.environ["RequestedIP"] = "10.4.5.6"
-        with mock.patch.object(socket, "gethostbyname") as gethostbyname:
-            tracing.resolve_region_env()
-        assert os.environ["POD_IP"] == "10.4.5.6"
-        gethostbyname.assert_not_called()
-
-    def test_resolve_region_env_replaces_empty_pod_ip(self):
-        os.environ["POD_IP"] = ""
-        os.environ["RequestedIP"] = "10.4.5.6"
-        tracing.resolve_region_env()
-        assert os.environ["POD_IP"] == "10.4.5.6"
-
-    def test_resolve_region_env_rejects_invalid_requested_ip(self):
-        os.environ["RequestedIP"] = "127.0.0.1"
-        with mock.patch.object(socket, "gethostbyname", return_value="10.7.8.9"):
-            tracing.resolve_region_env()
-        assert os.environ["POD_IP"] == "10.7.8.9"
-
-    def test_resolve_region_env_uses_hostname_ip(self):
-        with mock.patch.object(
-            socket, "gethostname", return_value="test-host"
-        ), mock.patch.object(
-            socket, "gethostbyname", return_value="10.7.8.9"
-        ) as gethostbyname:
-            tracing.resolve_region_env()
-        assert os.environ["POD_IP"] == "10.7.8.9"
-        gethostbyname.assert_called_once_with("test-host")
-
-    def test_resolve_region_env_dns_failure_is_fail_open(self):
-        with mock.patch.object(
-            socket, "gethostbyname", side_effect=socket.gaierror("not found")
-        ):
-            tracing.resolve_region_env()
-        assert "POD_IP" not in os.environ
-
-    def test_resolve_region_env_rejects_invalid_automatic_ips(self):
-        for resolved_ip in ("", "127.0.0.1", "0.0.0.0"):
-            with self.subTest(resolved_ip=resolved_ip):
-                os.environ.pop("POD_IP", None)
-                os.environ.pop("RequestedIP", None)
-                with mock.patch.object(
-                    socket, "gethostbyname", return_value=resolved_ip
-                ):
-                    tracing.resolve_region_env()
-                assert "POD_IP" not in os.environ
-
-    def test_resolve_region_env_is_idempotent(self):
-        os.environ["RequestedIP"] = "10.4.5.6"
-        tracing.resolve_region_env()
-        os.environ["RequestedIP"] = "10.7.8.9"
-        tracing.resolve_region_env()
-        assert os.environ["POD_IP"] == "10.4.5.6"
-
-    def test_resolved_pod_ip_populates_span_resource(self):
-        os.environ["RequestedIP"] = "10.4.5.6"
-        tracing.resolve_region_env()
-        exporter = _start_in_memory_runtime()
-        attributes = self._finished_resource_attributes(exporter)
-        assert attributes.get("host.ip") == "10.4.5.6"
-
-    def test_service_name_derived_from_role(self):
-        # no env override -> "rtp_llm_" + role (role-split components)
-        os.environ.pop("RTP_LLM_OTEL_SERVICE_NAME", None)
-        exporter = _start_in_memory_runtime()
-        attributes = self._finished_resource_attributes(exporter)
-        assert attributes.get("service.name") == "rtp_llm_test"
-
     def test_service_name_env_override(self):
         os.environ["RTP_LLM_OTEL_SERVICE_NAME"] = "custom_svc"
         exporter = _start_in_memory_runtime()
@@ -531,19 +547,22 @@ class TestResource(TracingTestCase):
         assert attributes.get("service.name") == "custom_svc"
 
 
+
 class TestActiveRuntime(TracingTestCase):
     def test_span_export_and_attributes(self):
         exporter = _start_in_memory_runtime()
         state = tracing.start_server_span("rtp_llm.http_server", {})
         assert state is not None
-        state.set_attribute("rtp_llm.request_id", 42)
+        state.set_attribute("request_id", "42")
         state.finish()
         tracing.shutdown_telemetry()
 
         spans = exporter.get_finished_spans()
         assert len(spans) == 1
         assert spans[0].name == "rtp_llm.http_server"
-        assert spans[0].attributes["rtp_llm.request_id"] == 42
+        assert spans[0].attributes["request_id"] == "42"
+        assert isinstance(spans[0].attributes["request_id"], str)
+        assert "rtp_llm.request_id" not in spans[0].attributes
 
     def test_master_route_internal_span_attributes(self):
         """PD node-selection span contract: INTERNAL kind (in-process routing
@@ -642,7 +661,7 @@ class TestActiveRuntime(TracingTestCase):
         assert len(spans) == 1
         assert spans[0].start_time == start_time
 
-    def test_untrusted_unsampled_remote_parent_uses_local_sampler(self):
+    def test_unsampled_remote_parent_is_respected(self):
         exporter = _start_in_memory_runtime()
         headers = {
             "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00"
@@ -652,25 +671,18 @@ class TestActiveRuntime(TracingTestCase):
         state.finish()
         tracing.shutdown_telemetry()
         spans = exporter.get_finished_spans()
-        assert len(spans) == 1
-        assert format(spans[0].parent.span_id, "016x") == "b7ad6b7169203331"
+        assert spans == ()
 
-    def test_untrusted_sampled_remote_parent_cannot_bypass_zero_ratio(self):
-        os.environ["RTP_LLM_OTEL_TRACE_SAMPLER_RATIO"] = "0"
-        exporter = _start_in_memory_runtime()
-        state = tracing.start_server_span(
-            "untrusted_sampled",
-            {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
-        )
+    def test_root_respects_zero_ratio(self):
+        exporter = _start_in_memory_runtime(TraceConfig(sampler_ratio=0))
+        state = tracing.start_server_span("root", {})
         assert state is not None
         state.finish()
         tracing.shutdown_telemetry()
         assert exporter.get_finished_spans() == ()
 
-    def test_explicit_trust_preserves_remote_sampling_decision(self):
-        os.environ["RTP_LLM_OTEL_TRACE_SAMPLER_RATIO"] = "0"
-        os.environ["RTP_LLM_OTEL_TRUST_REMOTE_SAMPLING"] = "1"
-        exporter = _start_in_memory_runtime()
+    def test_parent_sampling_wins_over_zero_ratio(self):
+        exporter = _start_in_memory_runtime(TraceConfig(sampler_ratio=0))
         state = tracing.start_server_span(
             "trusted_sampled",
             {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
@@ -860,6 +872,25 @@ class TestActiveRuntime(TracingTestCase):
         assert spans["client"].parent.span_id == spans["server"].context.span_id
         assert spans["client"].context.trace_id == spans["server"].context.trace_id
 
+    def test_internal_span_parents_schedule_client_and_resets_context(self):
+        exporter = _start_in_memory_runtime()
+        state = tracing.start_server_span("server", {})
+        internal = tracing.start_internal_span("batch_wait")
+        assert internal is not None
+        client, metadata = tracing.start_client_span("schedule", "master:7003")
+        assert client is not None
+        assert dict(metadata)["traceparent"]
+        client.finish()
+        internal.finish()
+        assert tracing.CURRENT_INTERNAL_CONTEXT.get() is None
+        state.finish()
+        tracing.shutdown_telemetry()
+
+        spans = {span.name: span for span in exporter.get_finished_spans()}
+        assert spans["batch_wait"].parent.span_id == spans["server"].context.span_id
+        assert spans["schedule"].parent.span_id == spans["batch_wait"].context.span_id
+        assert spans["schedule"].context.trace_id == spans["server"].context.trace_id
+
     def test_shutdown_idempotent(self):
         _start_in_memory_runtime()
         assert tracing.shutdown_telemetry()
@@ -889,6 +920,49 @@ class TestActiveRuntime(TracingTestCase):
         self.assertEqual(tracing.telemetry_state(), tracing.TelemetryState.SHUTDOWN)
         self.assertIsNone(tracing.get_tracer())
 
+    def test_untrusted_unsampled_remote_parent_uses_local_sampler(self):
+        exporter = _start_in_memory_runtime()
+        headers = {
+            "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00"
+        }
+        state = tracing.start_server_span("unsampled_child", headers)
+        assert state is not None
+        state.finish()
+        tracing.shutdown_telemetry()
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+        assert format(spans[0].parent.span_id, "016x") == "b7ad6b7169203331"
+
+    def test_untrusted_sampled_remote_parent_cannot_bypass_zero_ratio(self):
+        os.environ["RTP_LLM_OTEL_TRACE_SAMPLER_RATIO"] = "0"
+        exporter = _start_in_memory_runtime()
+        state = tracing.start_server_span(
+            "untrusted_sampled",
+            {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+        )
+        assert state is not None
+        state.finish()
+        tracing.shutdown_telemetry()
+        assert exporter.get_finished_spans() == ()
+
+    def test_explicit_trust_preserves_remote_sampling_decision(self):
+        os.environ["RTP_LLM_OTEL_TRACE_SAMPLER_RATIO"] = "0"
+        os.environ["RTP_LLM_OTEL_TRUST_REMOTE_SAMPLING"] = "1"
+        exporter = _start_in_memory_runtime()
+        state = tracing.start_server_span(
+            "trusted_sampled",
+            {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+        )
+        assert state is not None
+        state.finish()
+        tracing.shutdown_telemetry()
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+        assert format(spans[0].context.trace_id, "032x") == (
+            "0af7651916cd43dd8448eb211c80319c"
+        )
+
+
 
 class TestClientSpan(TracingTestCase):
     def test_no_state_returns_noop(self):
@@ -917,12 +991,11 @@ class TestClientSpan(TracingTestCase):
         assert format(client.context.trace_id, "032x") in carrier["traceparent"]
 
     def test_zero_ratio_still_propagates_non_recording_client_context(self):
-        os.environ["RTP_LLM_OTEL_TRACE_SAMPLER_RATIO"] = "0"
-        exporter = _start_in_memory_runtime()
+        exporter = _start_in_memory_runtime(TraceConfig(sampler_ratio=0))
         trace_id = "0af7651916cd43dd8448eb211c80319c"
         state = tracing.start_server_span(
             "server",
-            {"traceparent": f"00-{trace_id}-b7ad6b7169203331-01"},
+            {"traceparent": f"00-{trace_id}-b7ad6b7169203331-00"},
         )
         handle, metadata = tracing.start_client_span("client")
         assert handle is not None
@@ -1437,3 +1510,35 @@ class TestFrontendTokenLatency(TracingTestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestScopeVersion(TracingTestCase):
+    """otel.scope.version: env override > rtp_llm wheel metadata > empty."""
+
+    def setUp(self):
+        super().setUp()
+        tracing._scope_version_cache = None
+
+    def tearDown(self):
+        tracing._scope_version_cache = None
+        super().tearDown()
+
+    def test_scope_version_from_env_on_spans(self):
+        os.environ["RTP_LLM_OTEL_SCOPE_VERSION"] = "9.9.9-test"
+        exporter = _start_in_memory_runtime()
+        state = tracing.start_server_span("scope_probe", {})
+        assert state is not None
+        state.finish()
+        tracing.shutdown_telemetry()
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+        assert spans[0].instrumentation_scope.name == "rtp_llm"
+        assert spans[0].instrumentation_scope.version == "9.9.9-test"
+
+    def test_resolve_region_env_exports_scope_version(self):
+        os.environ["RTP_LLM_OTEL_TRACE_ENABLE"] = "1"
+        os.environ.pop("RTP_LLM_OTEL_SCOPE_VERSION", None)
+        with mock.patch.object(tracing, "_scope_version_cache", "7.7.7-launcher"):
+            tracing.resolve_region_env()
+            assert os.environ.get("RTP_LLM_OTEL_SCOPE_VERSION") == "7.7.7-launcher"
+

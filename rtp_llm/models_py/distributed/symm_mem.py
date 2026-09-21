@@ -167,9 +167,9 @@ class TorchSymmMemCommunicator:
             reason = f"world size {self.world_size} not supported"
 
         if local_ok:
-            self.max_size = TORCH_SYMM_MEM_ALL_REDUCE_MAX_SIZES[
-                self.device_capability
-            ][self.world_size]
+            self.max_size = TORCH_SYMM_MEM_ALL_REDUCE_MAX_SIZES[self.device_capability][
+                self.world_size
+            ]
             try:
                 self.buffer = torch_symm_mem.empty(
                     self.max_size // self.dtype.itemsize,

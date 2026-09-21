@@ -83,9 +83,7 @@ def quantize_to_fp8_if_needed(
 # Global workspace buffer pool. CUDA graph instances keep their compact buffers
 # alive; the default 128 MiB buffer is reused as staging while each instance is
 # planned and right-sized.
-_g_py_flashinfer_workspace_pool: dict[
-    tuple[torch.device, int], list[torch.Tensor]
-] = {}
+_g_py_flashinfer_workspace_pool: dict[tuple[torch.device, int], list[torch.Tensor]] = {}
 _g_py_flashinfer_pool_lock = __import__("threading").Lock()
 
 
@@ -165,8 +163,7 @@ def _planned_flashinfer_workspace_size(
     lse_offset = int(plan_info[11])
     partial_rows = num_qo_heads * padded_batch_size * cta_tile_q
     required_bytes = max(
-        value_offset
-        + partial_rows * head_dim_vo * _FLASHINFER_ACCUMULATOR_BYTES,
+        value_offset + partial_rows * head_dim_vo * _FLASHINFER_ACCUMULATOR_BYTES,
         lse_offset + partial_rows * _FLASHINFER_ACCUMULATOR_BYTES,
     )
     return _round_workspace_size(required_bytes)
@@ -1489,11 +1486,25 @@ class PyFlashinferDecodeImpl(FMHAImplBase):
     def prepare_cuda_graph(self, attn_inputs: PyAttentionInputs) -> None:
         """Prepare FlashInfer/RoPE buffers and metadata for CUDA graph replay."""
         self.fmha_impl.prepare_for_cuda_graph_replay(attn_inputs)
-        # Update rope params for correct position encoding during cuda graph replay
-        new_rope_params = self.rope_impl.prepare(attn_inputs)
-        common.copy_kv_cache_offset(
-            self.rope_params.kv_cache_offset, new_rope_params.kv_cache_offset
-        )
+        if self.need_rope_kv_cache:
+            # Update rope params for correct position encoding during replay.
+            refresh_sequence_lengths = getattr(
+                self.rope_impl, "refresh_sequence_lengths", None
+            )
+            if refresh_sequence_lengths is None:
+                # Non-CUDA backends use the C++ RoPE binding. Its prepare()
+                # accepts only attn_inputs and its params do not expose the
+                # CUDA-only stable sequence_lengths buffer.
+                new_rope_params = self.rope_impl.prepare(attn_inputs)
+            else:
+                new_rope_params = self.rope_impl.prepare(
+                    attn_inputs, forbid_reallocation=True
+                )
+            common.copy_kv_cache_offset(
+                self.rope_params.kv_cache_offset, new_rope_params.kv_cache_offset
+            )
+            if refresh_sequence_lengths is not None:
+                self.rope_params.sequence_lengths = new_rope_params.sequence_lengths
 
     def support_cuda_graph(self) -> bool:
         return True

@@ -23,8 +23,7 @@ class DeepGemmMaskedExecutorSM100Test(
         self.assertTrue("aarch64" in platform.machine())
 
     def test_no_fp8(self):
-        # sm100 not support bf16
-        pass
+        self._test_deepgemm_masked_executor(False)
 
     def test_fp8(self):
         self._test_deepgemm_masked_executor(True)

@@ -1,4 +1,5 @@
 load("//rtp_llm/test/smoke:defs.bzl", "smoke_test")
+load("//rtp_llm/test/smoke:suites_remote_cache.bzl", "REMOTE_CACHE_DEVICE_STORE_ARGS")
 
 def h20_oss_suites():
     # H20 (SM9x) — Architecture-grouped suites
@@ -162,6 +163,7 @@ def h20_oss_suites():
 
 
     # H20 Dense (Qwen2.5/Qwen3 dense)
+    flashinfer_decode_base_args = "--disable_flashinfer_native 0 --act_type BF16 --reserver_runtime_mem_mb 8192 --tp_size 1 --warm_up 0 --seq_size_per_block 64 --enable_xqa 0 --enable_flashinfer_trtllm_gen 0 --enable_flashinfer_trt_fmha_v2 0 --enable_paged_flashinfer_trt_fmha_v2 0"
     native.test_suite(
         name = "smoke_h20_dense",
         tests = [
@@ -196,6 +198,32 @@ def h20_oss_suites():
                 name="dense_fp8_prequant_tp2",
                 task_info="data/model/qwen3/q_r_block_fp8.json",
                 smoke_args="--disable_flashinfer_native 1 --act_type BF16 --reserver_runtime_mem_mb 8192 --tp_size 2 --warm_up 0",
+                gpu_type=["H20"],
+            ),
+            # Shares prompts/tools with data/model/qwen3/q_r_block_fp8.json,
+            # but the response is validated with TP=1 FlashInfer on H20.
+            # Keep messages, tools, and prompt_tokens synchronized.
+            # It is intentionally shared by graph/eager to isolate graph behavior.
+            # Its 497-token prompt plus 17 generated tokens is the minimum window
+            # that crosses the 512-token boundary (page 8 -> 9 with block size 64).
+            # Graph capture size 2 and the serial smoke request exercise one real
+            # request plus one padding slot. Both cases intentionally remain in
+            # the light suite: eager runs at batch 1, while graph runs at fixed
+            # batch 2, so only eager-pass/graph-fail points to graph replay. UT
+            # covers multi-active metadata transitions and reference outputs;
+            # actual graph capture/replay coverage here is single-active. This
+            # smoke validates end-to-end output under graph configuration but
+            # does not expose a standalone replay counter.
+            smoke_test(
+                name="dense_fp8_prequant_flashinfer_no_cudagraph",
+                task_info="data/model/qwen3/q_r_block_fp8_flashinfer_decode.json",
+                smoke_args=flashinfer_decode_base_args + " --enable_cuda_graph 0",
+                gpu_type=["H20"],
+            ),
+            smoke_test(
+                name="dense_fp8_prequant_flashinfer_cudagraph",
+                task_info="data/model/qwen3/q_r_block_fp8_flashinfer_decode.json",
+                smoke_args=flashinfer_decode_base_args + " --enable_cuda_graph 1 --decode_capture_config '2'",
                 gpu_type=["H20"],
             ),
             smoke_test(
@@ -316,14 +344,32 @@ def h20_oss_suites():
             ),
             smoke_test(
                 name="next_long_reuse_memcache",
-                task_info="data/model/qwen3_next/q_r_next_fp8_tp2_long_input_reuse_cache.json",
-                smoke_args="--tp_size 2 --act_type BF16 --seq_size_per_block 2048 --linear_step 2 --reuse_cache 1 --enable_memory_cache 1 --memory_cache_size_mb 1024 --write_cache_sync 1",
+                task_info="data/model/qwen3_next/q_r_next_fp8_tp2_long_input_reuse_memory.json",
+                sleep_time_qr=10,
+                smoke_args="--tp_size 2 --act_type BF16 --seq_size_per_block 2048 --linear_step 2 --reuse_cache 1 --enable_device_cache 0 --enable_memory_cache 1 --memory_cache_size_mb 1024",
+                gpu_type=["H20"],
+            ),
+            smoke_test(
+                name="next_long_reuse_device",
+                task_info="data/model/qwen3_next/q_r_next_fp8_tp2_long_input_reuse_device.json",
+                sleep_time_qr=10,
+                smoke_args="--tp_size 2 --act_type BF16 --seq_size_per_block 2048 --linear_step 2 --reuse_cache 1 --enable_device_cache 1 --enable_memory_cache 1 --memory_cache_size_mb 1024",
                 gpu_type=["H20"],
             ),
             smoke_test(
                 name="next_long_reuse_remote",
-                task_info="data/model/qwen3_next/q_r_next_fp8_tp2_long_input_reuse_remote_cache.json",
-                smoke_args="--tp_size 2 --act_type BF16 --seq_size_per_block 2048 --linear_step 2 --reuse_cache 1 --enable_remote_cache 1 --write_cache_sync 1 --reco_put_timeout_ms 17000 --reco_get_timeout_ms 17000 --reco_get_broadcast_timeout 20000 --reco_put_broadcast_timeout 20000",
+                task_info="data/model/qwen3_next/q_r_next_fp8_tp2_long_input_reuse_remote_only.json",
+                sleep_time_qr=10,
+                smoke_args="--tp_size 2 --act_type BF16 --seq_size_per_block 2048 --linear_step 2 --reuse_cache 1 --enable_remote_cache 1 --kvcm_put_timeout_ms 17000 --kvcm_get_timeout_ms 17000 --kvcm_get_broadcast_timeout 20000 --kvcm_put_broadcast_timeout 20000" + REMOTE_CACHE_DEVICE_STORE_ARGS,
+                gpu_type=["H20"],
+                kvcm_envs = ["KVCM_LOG_LEVEL=DEBUG"],
+                data = ["@remote_kv_cache_manager_server//:bin/kv_cache_manager_bin"],
+            ),
+            smoke_test(
+                name="next_long_reuse_remote_device",
+                task_info="data/model/qwen3_next/q_r_next_fp8_tp2_long_input_reuse_device.json",
+                sleep_time_qr=10,
+                smoke_args="--tp_size 2 --act_type BF16 --seq_size_per_block 2048 --linear_step 2 --reuse_cache 1 --enable_device_cache 1 --enable_memory_cache 0 --enable_remote_cache 1 --kvcm_put_timeout_ms 17000 --kvcm_get_timeout_ms 17000 --kvcm_get_broadcast_timeout 20000 --kvcm_put_broadcast_timeout 20000",
                 gpu_type=["H20"],
                 kvcm_envs = ["KVCM_LOG_LEVEL=DEBUG"],
                 data = ["@remote_kv_cache_manager_server//:bin/kv_cache_manager_bin"],
@@ -423,8 +469,17 @@ def h20_oss_suites():
             ),
             smoke_test(
                 name="kimi_long_reuse_memcache",
-                task_info="data/model/kimi_linear/q_r_bf16_tp2_long_input_reuse_cache.json",
-                smoke_args="--tp_size 2 --act_type BF16 --max_seq_len 16384 --seq_size_per_block 2048 --linear_step 2 --reuse_cache 1 --enable_memory_cache 1 --memory_cache_size_mb 2048 --write_cache_sync 1 --ssm_state_dtype fp32 --reserver_runtime_mem_mb 8192",
+                task_info="data/model/kimi_linear/q_r_bf16_tp2_long_input_reuse_cache_memory.json",
+                sleep_time_qr=10,
+                smoke_args="--tp_size 2 --act_type BF16 --max_seq_len 16384 --seq_size_per_block 2048 --linear_step 2 --reuse_cache 1 --enable_device_cache 0 --enable_memory_cache 1 --memory_cache_size_mb 2048 --ssm_state_dtype fp32 --reserver_runtime_mem_mb 8192",
+                envs=["TRITON_AUTOTUNE_CACHE_MODE=cached"],
+                gpu_type=["H20"],
+            ),
+            smoke_test(
+                name="kimi_long_reuse_device",
+                task_info="data/model/kimi_linear/q_r_bf16_tp2_long_input_reuse_cache_device.json",
+                sleep_time_qr=10,
+                smoke_args="--tp_size 2 --act_type BF16 --max_seq_len 16384 --seq_size_per_block 2048 --linear_step 2 --reuse_cache 1 --enable_device_cache 1 --enable_memory_cache 1 --memory_cache_size_mb 2048 --ssm_state_dtype fp32 --reserver_runtime_mem_mb 8192",
                 envs=["TRITON_AUTOTUNE_CACHE_MODE=cached"],
                 gpu_type=["H20"],
             ),
@@ -462,10 +517,18 @@ def h20_oss_suites():
                 smoke_args="--max_seq_len 16384 --ft_disable_custom_ar 1 --sp_type eagle --gen_num_per_cycle 4 --act_type FP16 --sp_model_type qwen_2-mtp --sp_checkpoint_path /mnt/nas1/mtp_reg/qwen2_14b_draft/  --warm_up 0 --reserver_runtime_mem_mb 21954 --tp_size 2",
                 gpu_type=["H20"]
             ),
+            # Request tier flags remain accepted; deployments select DEVICE or HOST.
             smoke_test(
                 name="eagle_mtp_reuse",
                 task_info="data/model/qwen2_14b/q_r_mtp_reuse_cache.json",
-                smoke_args="--reuse_cache 1 --enable_memory_cache 1 --memory_cache_size_mb 1024 --write_cache_sync 1 --max_seq_len 16384 --ft_disable_custom_ar 1 --sp_type eagle --gen_num_per_cycle 4 --act_type FP16 --sp_model_type qwen_2-mtp --sp_checkpoint_path /mnt/nas1/mtp_reg/qwen2_14b_draft/  --warm_up 0 --reserver_runtime_mem_mb 21954 --tp_size 2",
+                smoke_args="--reuse_cache 1 --enable_device_cache 1 --enable_memory_cache 1 --enable_disk_cache 0 --enable_remote_cache 0 --memory_cache_size_mb 1024 --max_seq_len 16384 --ft_disable_custom_ar 1 --sp_type eagle --gen_num_per_cycle 4 --act_type FP16 --sp_model_type qwen_2-mtp --sp_checkpoint_path /mnt/nas1/mtp_reg/qwen2_14b_draft/  --warm_up 0 --reserver_runtime_mem_mb 21954 --tp_size 2",
+                gpu_type=["H20"]
+            ),
+            smoke_test(
+                name="eagle_mtp_reuse_host",
+                task_info="data/model/qwen2_14b/q_r_mtp_reuse_host_cache.json",
+                smoke_args="--reuse_cache 1 --enable_device_cache 0 --enable_memory_cache 1 --enable_disk_cache 0 --enable_remote_cache 0 --memory_cache_size_mb 1024 --max_seq_len 16384 --ft_disable_custom_ar 1 --sp_type eagle --gen_num_per_cycle 4 --act_type FP16 --sp_model_type qwen_2-mtp --sp_checkpoint_path /mnt/nas1/mtp_reg/qwen2_14b_draft/  --warm_up 0 --reserver_runtime_mem_mb 21954 --tp_size 2",
+                sleep_time_qr=10,
                 gpu_type=["H20"]
             ),
             smoke_test(
@@ -498,7 +561,7 @@ def h20_oss_suites():
                 data=["@remote_kv_cache_manager_server//:bin/kv_cache_manager_bin"],
                 kvcm_envs=["KVCM_LOG_LEVEL=DEBUG"],
                 sleep_time_qr=20,
-                smoke_args="--warm_up 0 --sp_type eagle --gen_num_per_cycle 4 --sp_model_type qwen_2-mtp --tp_size 2 --sp_checkpoint_path /mnt/nas1/mtp_reg/qwen2_14b_draft/ --act_type FP16 --reuse_cache 1 --seq_size_per_block 8 --max_seq_len 16384 --ft_disable_custom_ar 1 --warm_up 0 --reserver_runtime_mem_mb 21954 --test_block_num 500 --enable_remote_cache true --enable_device_cache 0 --enable_memory_cache 0 --reco_put_timeout_ms 12000 --reco_get_timeout_ms 12000 --reco_get_broadcast_timeout 15000 --reco_put_broadcast_timeout 15000",
+                smoke_args="--warm_up 0 --sp_type eagle --gen_num_per_cycle 4 --sp_model_type qwen_2-mtp --tp_size 2 --sp_checkpoint_path /mnt/nas1/mtp_reg/qwen2_14b_draft/ --act_type FP16 --reuse_cache 1 --seq_size_per_block 8 --max_seq_len 16384 --ft_disable_custom_ar 1 --warm_up 0 --reserver_runtime_mem_mb 21954 --enable_remote_cache true --kvcm_put_timeout_ms 12000 --kvcm_get_timeout_ms 12000 --kvcm_get_broadcast_timeout 15000 --kvcm_put_broadcast_timeout 15000" + REMOTE_CACHE_DEVICE_STORE_ARGS,
                 gpu_type=["H20"],
             ),
         ],

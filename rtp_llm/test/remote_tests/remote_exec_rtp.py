@@ -617,6 +617,7 @@ def _collect_repo_runtime_files(
             "rtp_llm/libs/*.so.*",
             "rtp_llm/libs/**/*.so",
             "rtp_llm/libs/test/*",
+            "rtp_llm/libs/benchmark/*",
         ):
             files.extend(
                 str(p.relative_to(rootdir))
@@ -642,6 +643,9 @@ def _collect_repo_runtime_files(
         )
     for pattern in (
         "rtp_llm/test/perf_test/*.json",
+        "rtp_llm/telemetry/test/*.json",
+        "rtp_llm/cpp/cache/block_tree_cache/benchmark/profiles/*.json",
+        "rtp_llm/cpp/cache/block_tree_cache/benchmark/docs/*.md",
         "rtp_llm/**/testdata/**/*",
         "rtp_llm/**/test/testdata/**/*",
         "rtp_llm/**/test/data/**/*",

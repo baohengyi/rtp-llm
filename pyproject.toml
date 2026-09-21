@@ -91,6 +91,9 @@ rtp_llm = [
     "libs/*.so",
     "libs/*.so.*",
     "libs/kv_cache_manager_server/bin/*",
+    "libs/benchmark/*",
+    "cpp/cache/block_tree_cache/benchmark/profiles/*.json",
+    "cpp/cache/block_tree_cache/benchmark/docs/*.md",
     "tokenizer_data/*",
     "config/*.conf",
     "config/*.json",
@@ -99,6 +102,7 @@ rtp_llm = [
     "models_py/**/data/*.json",
     "models_py/kernels/cuda/fp8_kernel/cutlass_groupgemm/*.json",
     "cpp/model_rpc/proto/*.proto",
+    "telemetry/test/*.json",
     "test/**/*.proto",
     "test/**/*.json",
     "test/**/*.jsonl",
@@ -277,6 +281,7 @@ markers = [
     "SM100: (deprecated) use gpu(type='SM100')",
     "SM100_ARM: (deprecated) use gpu(type='SM100_ARM')",
     "RTX_5000_PRO: RTX 5000 Pro / SM120 smoke tests",
+    "RTX_5000_PRO_CU13: RTX 5000 Pro / SM120 CUDA 13 tests",
     "MI308X: (deprecated) use gpu(type='MI308X')",
     "MI308X_ROCM7: (deprecated) use gpu(type='MI308X_ROCM7')",
 
@@ -329,6 +334,11 @@ filterwarnings = [
 # =============================================================================
 [tool.rtp_llm.pytest_ci]
 cuda13_only_paths = [
+    "rtp_llm/cpp/cuda_graph/tests/cuda_graph_compiled_warmup_test.py",
+    "rtp_llm/models_py/modules/factory/linear/impl/cuda/test/fp8_deepgemm_linear_sm120_test.py",
+    "rtp_llm/models_py/modules/factory/fused_moe/impl/cuda/executors/test/deepgemm_masked_executor_sm120_test.py",
+    "rtp_llm/models_py/modules/factory/fused_moe/impl/cuda/executors/test/deepep_normal_executor_sm120_test.py",
+    "rtp_llm/models_py/modules/factory/fused_moe/impl/cuda/executors/test/triton_fp8_block_moe_sm120_test.py",
     "rtp_llm/models_py/modules/factory/fused_moe/impl/cuda/executors/test/local_loop_cuda_test.py",
     "rtp_llm/models_py/modules/factory/fused_moe/impl/cuda/executors/test/grouped_moe_equivalence_test.py",
     "rtp_llm/models_py/modules/factory/fused_moe/impl/cuda/executors/test/mega_moe_routed_only_execution_test.py",
@@ -540,6 +550,7 @@ minimum_count = 1
 expected_count = 2968
 forbid_skips = true
 paths = [
+    "rtp_llm/cpp/cache/block_tree_cache/benchmark/run_block_tree_cache_benchmark_test.py",
     "rtp_llm/access_logger/test",
     "rtp_llm/cpp/config",
     "rtp_llm/test",
@@ -599,6 +610,7 @@ minimum_count = 1
 expected_count = 2968
 forbid_skips = true
 paths = [
+    "rtp_llm/cpp/cache/block_tree_cache/benchmark/run_block_tree_cache_benchmark_test.py",
     "rtp_llm/access_logger/test",
     "rtp_llm/cpp/config",
     "rtp_llm/test",
@@ -694,9 +706,8 @@ markexpr = "SM100_ARM and not smoke and not perf and not manual"
 description = "Original SM120 UT on RTX 5000 Pro (ut-sm12x)"
 gpu_type = "RTX_5000_PRO"
 minimum_count = 1
-# Preserve all 108 methods, including the existing FP8 decode cases, and add
-# ten inherited FlashInfer decode topology/lifecycle regressions.
-expected_count = 118
+# Preserve the original attention cases and the upstream legacy-binding regressions.
+expected_count = 120
 forbid_skips = true
 isolate_all_paths = true
 require_isolated_tests = true
@@ -710,6 +721,32 @@ paths = [
     "rtp_llm/models_py/utils/test/arch_test.py",
 ]
 markexpr = "not manual and not smoke and not perf"
+
+[tool.rtp_llm.pytest_ci.profiles.py_ut_cuda13_sm120]
+description = "Mainline CUDA 13 SM120 UT, preserving original attention coverage"
+gpu_type = "RTX_5000_PRO_CU13"
+# Preserve the original attention cases and the upstream legacy-binding regressions.
+minimum_count = 1
+expected_count = 184
+forbid_skips = true
+isolate_all_paths = true
+require_isolated_tests = true
+paths = [
+    "rtp_llm/cpp/cuda_graph/tests/cuda_graph_compiled_warmup_test.py",
+    "rtp_llm/models_py/modules/factory/linear/impl/cuda/test/fp8_deepgemm_linear_sm120_test.py",
+    "rtp_llm/models_py/modules/factory/fused_moe/impl/cuda/executors/test/deepgemm_masked_executor_sm120_test.py",
+    "rtp_llm/models_py/modules/factory/fused_moe/impl/cuda/executors/test/deepep_normal_executor_sm120_test.py",
+    "rtp_llm/models_py/modules/factory/fused_moe/impl/cuda/executors/test/triton_fp8_block_moe_sm120_test.py",
+    "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_flashinfer_prefill/test_py_flashinfer_hybrid_mha_prefill.py",
+    "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_py_flashinfer_mha_decode.py",
+    "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_flashinfer_prefill/test_py_flashinfer_paged_mha_prefill.py",
+    "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_flashinfer_prefill/test_py_flashinfer_ragged_mha_prefill.py",
+    "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_trtllm_fmha_v2_paged_prefill.py::TestTRTLLMFMHAv2PagedPrefillOpBF16",
+    "rtp_llm/models_py/modules/factory/attention/cuda_impl/test/test_trtllm_fmha_v2_prefill.py::TestTRTLLMFMHAv2PrefillOpBF16",
+    "rtp_llm/models_py/utils/test/arch_test.py",
+]
+markexpr = "not manual and not smoke and not perf"
+
 
 [tool.rtp_llm.pytest_ci.profiles.py_ut_l20]
 description = "Original L20 FlashInfer, SiLU and quantization methods"
@@ -801,8 +838,8 @@ markexpr = "MI308X and not smoke and not perf and not manual"
 description = "Frontend Python UT (py-ut-frontend)"
 gpu_type = "A10"
 minimum_count = 1
-# Original 63 cases plus eight allocator-dump endpoint/guard cases from mainline.
-expected_count = 71
+# Original 63, eight allocator-dump cases, and two embedding-profile cases from mainline.
+expected_count = 73
 forbid_skips = true
 paths = [
     "rtp_llm/frontend/test",
@@ -816,14 +853,14 @@ markexpr = "not manual and not rocm and not cpu"
 description = "OSS smoke H20 light gate"
 paths = ["rtp_llm/test/smoke/suites/"]
 markexpr = "manual and smoke and H20 and light"
-expected_count = 16
+expected_count = 19
 forbid_skips = true
 
 [tool.rtp_llm.pytest_ci.profiles.smoke_h20_full_oss]
 description = "OSS smoke H20 full gate (excludes light cases)"
 paths = ["rtp_llm/test/smoke/suites/"]
 markexpr = "manual and smoke and H20 and not light"
-expected_count = 58
+expected_count = 61
 forbid_skips = true
 remote_env = { REMOTE_JIT_DIR = "/tmp/rtp-llm/.remote_jit_cache" }
 
@@ -888,7 +925,7 @@ forbid_skips = true
 description = "OSS smoke remote cache (smoke-remote-cache-oss)"
 paths = ["rtp_llm/test/smoke/suites/"]
 markexpr = "manual and smoke and remote_cache"
-expected_count = 11
+expected_count = 12
 forbid_skips = true
 
 # -------- Internal smoke profiles (drive suite files in internal_source/rtp_llm/test/smoke/suites/) --------
@@ -925,3 +962,28 @@ gpu_type = "H20"
 markexpr = "manual and perf and H20"
 expected_count = 3
 forbid_skips = true
+
+[tool.rtp_llm.pytest_ci.profiles.smoke_sm120_cuda13]
+description = "Mainline CUDA 13 SM120 dense, MoE, generation/API/cache coverage"
+gpu_type = "RTX_5000_PRO_CU13"
+paths = ["rtp_llm/test/smoke/suites/test_smoke_sm120_cuda13.py"]
+markexpr = "manual and smoke and cuda"
+expected_count = 6
+forbid_skips = true
+
+[tool.rtp_llm.pytest_ci.profiles.smoke_cache_benchmark_manual]
+description = "Mainline manual block-tree benchmark smoke with real native execution"
+gpu_type = "H20"
+paths = ["rtp_llm/cpp/cache/block_tree_cache/benchmark/run_block_tree_cache_benchmark_smoke_test.py"]
+markexpr = "manual and smoke"
+expected_count = 1
+forbid_skips = true
+
+[tool.rtp_llm.pytest_ci.profiles.smoke_cuda13_cache_tiers]
+description = "Upstream CUDA 13 block-tree DEVICE/HOST/DISK smoke"
+gpu_type = "L20D_TEST"
+paths = ["rtp_llm/test/smoke/suites/test_smoke_cuda13_cache_tiers.py"]
+markexpr = "manual and smoke"
+expected_count = 3
+forbid_skips = true
+remote_env = { RTP_BAZEL_CONFIG = "--config=cuda13", NVSHMEM_IB_GID_INDEX = "3" }

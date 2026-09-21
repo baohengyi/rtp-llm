@@ -86,7 +86,7 @@ def get_tests_for_platform(
 # (markexpr: `remote_cache`) still picks them up after the helpers move here.
 # Update this set when adding new remote-cache cases.
 _REMOTE_CACHE_SUITES = frozenset({"smoke_cuda_remote_cache"})
-_REMOTE_CACHE_TESTS = frozenset({"next_long_reuse_remote", "eagle_remote_cache_tp2"})
+_REMOTE_CACHE_TESTS = frozenset({"next_long_reuse_remote", "next_long_reuse_remote_device", "eagle_remote_cache_tp2"})
 
 
 def build_smoke_params(

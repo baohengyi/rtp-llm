@@ -254,20 +254,27 @@ def test_collect_repo_runtime_files_includes_source_contracts(tmp_path):
 
 
 def test_collect_repo_runtime_files_includes_nested_test_data(tmp_path):
-    fixture = (
-        tmp_path
-        / "rtp_llm"
-        / "dash_sc"
-        / "test"
-        / "data"
-        / "mrcr_deepseek_v4_think_leak_cases.json"
-    )
-    fixture.parent.mkdir(parents=True)
-    fixture.write_text("[]\n", encoding="utf-8")
+    resources = {
+        "rtp_llm/dash_sc/test/data/mrcr_deepseek_v4_think_leak_cases.json": "[]\n",
+        "rtp_llm/telemetry/test/trace_config_cases.json": "[]\n",
+        "rtp_llm/cpp/cache/block_tree_cache/benchmark/profiles/deepseek_v4_flash_fp8_tp1_cp1_tpb1024.json": "{}\n",
+        "rtp_llm/cpp/cache/block_tree_cache/benchmark/docs/benchmark_cases.md": "# Cases\n",
+    }
+    for relative, content in resources.items():
+        fixture = tmp_path / relative
+        fixture.parent.mkdir(parents=True, exist_ok=True)
+        fixture.write_text(content, encoding="utf-8")
+    binary = tmp_path / "rtp_llm/libs/benchmark/block_tree_cache_gpu_benchmark"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"native benchmark executable")
 
-    files = remote_exec_rtp._collect_repo_runtime_files(tmp_path, include_libs=False)
-
-    assert str(fixture.relative_to(tmp_path)) in files
+    session_files = remote_exec_rtp._collect_repo_runtime_files(tmp_path, include_libs=False)
+    per_test_files = remote_exec_rtp._collect_repo_runtime_files(tmp_path)
+    assert resources.keys() <= set(session_files)
+    assert resources.keys() <= set(per_test_files)
+    assert str(binary.relative_to(tmp_path)) not in session_files
+    assert str(binary.relative_to(tmp_path)) in per_test_files
+    assert binary in remote_exec_rtp._runtime_lib_files(tmp_path)
 
 
 def test_collect_repo_runtime_files_includes_perf_presets(tmp_path):

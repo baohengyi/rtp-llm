@@ -29,14 +29,16 @@ SMOKE_FRAMEWORK_DIR = REPO_ROOT / "rtp_llm" / "test" / "smoke_framework"
 
 
 EXPECTED_OSS_SUITE_COUNTS = {
+    "cuda13_cache_tiers": 3,
+    "sm120_cuda13": 6,
     "cuda_remote_cache": 9,
-    "h20_dense": 10,
-    "h20_eagle": 6,
+    "h20_dense": 12,
+    "h20_eagle": 7,
     "h20_grammar_heavy": 2,
-    "h20_kimi_linear": 6,
+    "h20_kimi_linear": 7,
     "h20_mla": 15,
     "h20_moe": 12,
-    "h20_next": 17,
+    "h20_next": 19,
     "h20_vl": 5,
     "h20_jit_cache": 1,
     "rocm_basic": 4,
@@ -60,18 +62,19 @@ EXPECTED_INTERNAL_SUITE_COUNTS = {
     "cuda13_x86": 2,
     "cuda13_flexlb": 2,
     "h20_dense_internal": 1,
-    "ppu_basic": 8,
-    "ppu_pd": 8,
+    "ppu_basic": 9,
+    "ppu_pd": 11,
     "ppu_qwen35": 6,
     "ppu_qwen35_w8a8_manual": 4,
     "rocm_embedding_internal": 2,
     "rocm_visionbert_internal": 1,
     "sm120_basic_internal": 1,
+    "sm120_cuda13_internal": 1,
 }
 
 EXPECTED_OSS_PROFILE_COUNTS = {
-    "smoke_h20_light_oss": 16,
-    "smoke_h20_full_oss": 58,
+    "smoke_h20_light_oss": 19,
+    "smoke_h20_full_oss": 61,
     "smoke_sm8x_light_oss": 9,
     "smoke_sm8x_full_oss": 9,
     "smoke_rocm_oss": 26,
@@ -79,6 +82,8 @@ EXPECTED_OSS_PROFILE_COUNTS = {
     "smoke_sm100_oss": 12,
     "smoke_sm100_eval_oss": 1,
     "smoke_sm120_oss": 8,
+    "smoke_sm120_cuda13": 6,
+    "smoke_cuda13_cache_tiers": 3,
 }
 
 LIGHT_SUITES = {
@@ -116,6 +121,10 @@ def _oss_profile_owners(
         )
     if "RTX_5000_PRO" in markers:
         owners.append("smoke_sm120_oss")
+    if "RTX_5000_PRO_CU13" in markers:
+        owners.append("smoke_sm120_cuda13")
+    if suite_name == "cuda13_cache_tiers" and "L20D_TEST" in markers:
+        owners.append("smoke_cuda13_cache_tiers")
     return owners
 
 

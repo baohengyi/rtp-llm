@@ -1,6 +1,10 @@
 package(default_visibility = ["//visibility:public"])
 
-exports_files(["release_version.py"])
+exports_files([
+    "release_version.py",
+    "ops/libth_transformer_config.pyi",
+    "ops/librtp_compute_ops/__init__.pyi",
+])
 
 # Compatibility shims: Python packages are managed by pip/pyproject.toml.
 # These empty targets keep unmigrated Bazel callers analyzable.
