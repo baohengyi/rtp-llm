@@ -301,8 +301,11 @@ markers = [
     "remote_cache: remote KV-cache / CAS smoke tests (smoke_remote_cache_oss profile)",
 ]
 
-# 日志配置
-log_cli = true
+# Live logging suspends/resumes capture and overwrites temporary sys.stdout /
+# sys.stderr replacements inside tests. Preserve their stream semantics while
+# retaining INFO logs in captured output and the original JUnit report.
+log_cli = false
+log_level = "INFO"
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"
@@ -607,7 +610,9 @@ markexpr = "not H20 and not MI308X and not SM100 and not SM100_ARM and not smoke
 description = "Open-source-only Python UT on SM8x after internal_source is stripped"
 gpu_type = "A10"
 minimum_count = 1
-expected_count = 2968
+# 74840019: all 2968 prior identities plus 85 source-verified additions.
+# Count real testcases only; the report-integrity error is not a test.
+expected_count = 3053
 forbid_skips = true
 paths = [
     "rtp_llm/cpp/cache/block_tree_cache/benchmark/run_block_tree_cache_benchmark_test.py",
@@ -661,6 +666,20 @@ isolated_paths = [
 ]
 # Preserve the original CPU-only Bazel environment for this isolated file.
 isolated_env = { "rtp_llm/model_loader/test/test_pure_tp_preshard.py" = { CUDA_VISIBLE_DEVICES = "" } }
+markexpr = "not H20 and not MI308X and not SM100 and not SM100_ARM and not smoke and not perf and not manual and not open_skip and not frontend"
+
+[tool.rtp_llm.pytest_ci.profiles.py_ut_oss_sm8x_repair]
+description = "Diagnostic only: complete packaging, server arguments and EP scatter modules; not full OSS acceptance"
+gpu_type = "A10"
+minimum_count = 1
+# 74840019 raw XML: 64 packaging + 44 server arguments + 10 EP scatter.
+expected_count = 118
+forbid_skips = true
+paths = [
+    "rtp_llm/test/test_build_packaging_contract.py",
+    "rtp_llm/server/server_args/test/server_args_test.py",
+    "rtp_llm/models_py/triton_kernels/moe/test/test_ep_scatter.py",
+]
 markexpr = "not H20 and not MI308X and not SM100 and not SM100_ARM and not smoke and not perf and not manual and not open_skip and not frontend"
 
 [tool.rtp_llm.pytest_ci.profiles.py_ut_sm9x]

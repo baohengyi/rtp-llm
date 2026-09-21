@@ -216,6 +216,10 @@ def test_collect_remote_files_includes_tipc_jit_sources(tmp_path):
 
 def test_collect_repo_runtime_files_includes_source_contracts(tmp_path):
     source_contracts = {
+        ".bazelrc",
+        "BUILD.pytorch",
+        "rtp_llm/cpp/cache/block_tree_cache/test/BUILD",
+        "rtp_llm/cpp/cache/block_tree_cache/storage_backend/kvcm/test/BUILD",
         "3rdparty/cub_compat.h",
         "3rdparty/flashinfer/flashinfer_cu13.BUILD",
         "arch_config/arch_select.bzl",
@@ -241,7 +245,13 @@ def test_collect_repo_runtime_files_includes_source_contracts(tmp_path):
         "rtp_llm/models_py/modules/dsv4/decode/test/BUILD",
         "rtp_llm/utils/test/BUILD",
     }
-    assert set(remote_exec_rtp._SOURCE_CONTRACT_FILES) == source_contracts
+    build_tree_contracts = {
+        "rtp_llm/cpp/cache/block_tree_cache/test/BUILD",
+        "rtp_llm/cpp/cache/block_tree_cache/storage_backend/kvcm/test/BUILD",
+    }
+    assert set(remote_exec_rtp._SOURCE_CONTRACT_FILES) == (
+        source_contracts - build_tree_contracts
+    ) | {"rtp_llm/cpp/cache/block_tree_cache/**/BUILD"}
 
     for relative_path in source_contracts:
         path = tmp_path / relative_path

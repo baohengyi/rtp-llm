@@ -105,18 +105,11 @@ cc_test(
     exec_properties = {'gpu':'A10'},
 )
 
-cc_test(
+# Keep the historical selector attached to all 7 migrated legacy cases.
+# Explicit suites expand to the existing runnable target without duplicate runs.
+test_suite(
     name = "disk_block_pool_test",
-    srcs = [
-        "DiskBlockPoolTest.cc",
-    ],
-    data = [],
-    copts = test_copts,
-    deps = test_deps + [
-        "//rtp_llm/cpp/cache/connector/memory:memory_connector",
-    ],
-    env = {},
-    exec_properties = {'gpu':'A10'},
+    tests = ["//rtp_llm/cpp/cache/block_tree_cache/block_pool/test:disk_block_pool_test"],
 )
 
 cc_test(

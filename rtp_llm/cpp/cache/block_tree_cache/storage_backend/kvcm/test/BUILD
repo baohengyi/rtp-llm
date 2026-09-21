@@ -54,13 +54,16 @@ kvcm_backend_test_deps = [
 
 cc_test_wrapper(
     name = "legacy_remote_connector_internal_test",
+    visibility = ["//rtp_llm/cpp/cache/connector/remote_connector/test:__pkg__"],
     exec_properties = {"gpu": "A10"},
     srcs = ["LegacyRemoteConnectorInternalTest.cc", "KVCMMockTestBase.h", "MockKVCMClient.h"],
     copts = ["-fno-access-control"] + copts(),
     tags = ["exclusive-if-local"],
+    # Preserve the platform selection of the historical test entry.
     target_compatible_with = select({
-        "//:using_remote_kv_cache": [],
-        "//conditions:default": ["@platforms//:incompatible"],
+        "//:using_cuda13_arm": ["@platforms//:incompatible"],
+        "//:using_cuda13_x86": ["@platforms//:incompatible"],
+        "//conditions:default": [],
     }),
     deps = kvcm_backend_test_deps + [
         "//rtp_llm/cpp/cache:kv_cache_specs",
@@ -179,12 +182,15 @@ cc_test_wrapper(
 
 cc_test_wrapper(
     name = "group_policy_compatibility_test",
+    visibility = ["//rtp_llm/cpp/cache/connector/remote_connector/test:__pkg__"],
     exec_properties = {"gpu": "A10"},
     srcs = ["GroupPolicyCompatibilityTest.cc"],
     copts = ["-fno-access-control"] + copts(),
+    # Preserve the platform selection of the historical test entry.
     target_compatible_with = select({
-        "//:using_remote_kv_cache": [],
-        "//conditions:default": ["@platforms//:incompatible"],
+        "//:using_cuda13_arm": ["@platforms//:incompatible"],
+        "//:using_cuda13_x86": ["@platforms//:incompatible"],
+        "//conditions:default": [],
     }),
     deps = [
         "//rtp_llm/cpp/cache:cache_types",
@@ -199,13 +205,16 @@ cc_test_wrapper(
 
 cc_test_wrapper(
     name = "client_wrapper_compatibility_test",
+    visibility = ["//rtp_llm/cpp/cache/connector/remote_connector/test:__pkg__"],
     testonly = True,
     exec_properties = {"gpu": "A10"},
     srcs = ["ClientWrapperCompatibilityTest.cc", "MockKVCMClient.h"],
     copts = ["-fno-access-control"] + copts(),
+    # Preserve the platform selection of the historical test entry.
     target_compatible_with = select({
-        "//:using_remote_kv_cache": [],
-        "//conditions:default": ["@platforms//:incompatible"],
+        "//:using_cuda13_arm": ["@platforms//:incompatible"],
+        "//:using_cuda13_x86": ["@platforms//:incompatible"],
+        "//conditions:default": [],
     }),
     deps = [
         "//rtp_llm/cpp/cache/block_tree_cache/storage_backend/kvcm:client",

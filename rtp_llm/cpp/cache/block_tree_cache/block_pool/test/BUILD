@@ -49,6 +49,7 @@ cc_test(
 
 cc_test(
     name = "disk_block_pool_test",
+    visibility = ["//rtp_llm/cpp/cache/connector/memory/test:__pkg__"],
     exec_properties = {"gpu": "A10"},
     srcs = ["DiskBlockPoolTest.cc", "DiskBlockPoolCompatibilityTest.cc"],
     copts = pool_test_copts,

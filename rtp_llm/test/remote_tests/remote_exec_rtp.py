@@ -44,6 +44,9 @@ _REMOTE_INPUT_DIR = Path(".pytest_cache") / "remote_inputs"
 # pytest sessions do not get Bazel runfiles, so these source contracts must be
 # explicit CAS inputs.
 _SOURCE_CONTRACT_FILES = (
+    ".bazelrc",
+    "BUILD.pytorch",
+    "rtp_llm/cpp/cache/block_tree_cache/**/BUILD",
     "3rdparty/cub_compat.h",
     "3rdparty/flashinfer/flashinfer_cu13.BUILD",
     "arch_config/arch_select.bzl",

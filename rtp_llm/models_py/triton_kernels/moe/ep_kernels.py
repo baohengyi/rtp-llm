@@ -53,8 +53,10 @@ def _fwd_kernel_ep_scatter_1(
         mask=offset_cumsum < num_experts,
         other=0,
     )
-    tokens_per_expert = ((tokens_per_expert + ALIGN_M - 1) // ALIGN_M) * ALIGN_M
-    cumsum = tl.cumsum(tokens_per_expert) - tokens_per_expert
+    # Alignment controls expert offsets, while only real tokens receive an
+    # expert id. Keep the unaligned counts for the write mask below.
+    aligned_tokens_per_expert = ((tokens_per_expert + ALIGN_M - 1) // ALIGN_M) * ALIGN_M
+    cumsum = tl.cumsum(aligned_tokens_per_expert) - aligned_tokens_per_expert
     tl.store(expert_start_loc + offset_cumsum, cumsum, mask=offset_cumsum < num_experts)
     expert_mask = offset_cumsum == cur_expert
     cur_expert_start = tl.sum(
@@ -214,6 +216,15 @@ def ep_scatter(
         BLOCK_EXPERT_NUM=triton.next_power_of_2(num_experts),
         ALIGN_M=align_m,
     )
+    # Ampere cannot lower Triton's e4m3fn conversion. For a mixed-dtype
+    # scatter, let PyTorch perform the same conversion to the destination
+    # dtype before the copy kernel; FP8-to-FP8 copies keep their original path.
+    if (
+        recv_x.dtype == torch.float8_e4m3fn
+        and recv_x.dtype != output_tensor.dtype
+        and torch.cuda.get_device_capability(recv_x.device) < (8, 9)
+    ):
+        recv_x = recv_x.to(output_tensor.dtype)
     grid = min(recv_topk.shape[0], 1024 * 8)
     _fwd_kernel_ep_scatter_2[(grid,)](
         recv_topk.shape[0],

@@ -38,32 +38,18 @@ cuda13_target_compatibility = select({
     "//conditions:default": [],
 })
 
-cc_test(
+# Keep the historical selector attached to all 23 migrated legacy cases.
+# Explicit suites expand to the existing runnable target without duplicate runs.
+test_suite(
     name = "group_policy_test",
-    srcs = [
-        "GroupPolicyTest.cc",
-    ],
-    copts = test_copts,
-    exec_properties = {"gpu": "A10"},
-    # tags = ["H20"],
-    target_compatible_with = cuda13_target_compatibility,
-    deps = test_deps + [
-        "//rtp_llm/cpp/cache/connector/remote_connector",
-    ],
+    tests = ["//rtp_llm/cpp/cache/block_tree_cache/storage_backend/kvcm/test:group_policy_compatibility_test"],
 )
 
-cc_test(
+# Keep the historical selector attached to all 8 migrated legacy cases.
+# Explicit suites expand to the existing runnable target without duplicate runs.
+test_suite(
     name = "remote_connector_internal_test",
-    srcs = [
-        "RemoteConnectorInternalTest.cc",
-    ],
-    copts = test_copts,
-    exec_properties = {"gpu": "A10"},
-    # tags = ["H20"],
-    target_compatible_with = cuda13_target_compatibility,
-    deps = test_deps + [
-        "//rtp_llm/cpp/cache/connector/remote_connector",
-    ],
+    tests = ["//rtp_llm/cpp/cache/block_tree_cache/storage_backend/kvcm/test:legacy_remote_connector_internal_test"],
 )
 
 cc_test(
@@ -94,18 +80,11 @@ cc_test(
     ],
 )
 
-cc_test(
+# Keep the historical selector attached to all 5 migrated legacy cases.
+# Explicit suites expand to the existing runnable target without duplicate runs.
+test_suite(
     name = "client_wrapper_test",
-    srcs = [
-        "ClientWrapperTest.cc",
-    ],
-    copts = test_copts,
-    exec_properties = {"gpu": "A10"},
-    # tags = ["H20"],
-    target_compatible_with = cuda13_target_compatibility,
-    deps = test_deps + [
-        ":mock",
-    ],
+    tests = ["//rtp_llm/cpp/cache/block_tree_cache/storage_backend/kvcm/test:client_wrapper_compatibility_test"],
 )
 
 cc_library(
