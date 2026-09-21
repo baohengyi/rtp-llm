@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import math
 import os
 import re
 import shlex
@@ -58,6 +60,51 @@ _GPU_COUNT_TIERS = [1, 2, 3, 4, 8]
 
 _PHASE_LINE_RE = re.compile(r"^>>>PHASE:\S+\s+\d+\s*$")
 _NODEID_PROPERTY = "nodeid"
+
+
+def _per_test_nodeid(item, rootdir: Path) -> str:
+    from .remote_exec_rtp import _safe_rel_to_rootdir
+
+    test_path = _safe_rel_to_rootdir(Path(str(item.fspath)).resolve(), rootdir)
+    _, separator, suffix = item.nodeid.partition("::")
+    return f"{test_path}::{suffix}" if separator else test_path
+
+
+def _per_test_junit(stdout: str, expected_nodeid: str):
+    """Read the worker's evidence; an exit code alone is not a test report."""
+    start, end = "<<<JUNIT_XML>>>", "<<<END_JUNIT_XML>>>"
+    if stdout.count(start) != 1 or stdout.count(end) != 1:
+        raise ValueError("missing or ambiguous remote JUnit report")
+    xml = stdout.split(start, 1)[1].split(end, 1)[0].strip()
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError as exc:
+        raise ValueError(f"invalid remote JUnit report: {exc}") from exc
+    cases = list(root.iter("testcase"))
+    if not cases or any(_testcase_nodeid(tc) != expected_nodeid for tc in cases):
+        raise ValueError(f"remote JUnit did not execute exactly {expected_nodeid}")
+    duration = 0.0
+    for tc in cases:
+        try:
+            value = float(tc.attrib["time"])
+        except (KeyError, ValueError) as exc:
+            raise ValueError("missing or invalid remote testcase duration") from exc
+        if not math.isfinite(value) or value < 0:
+            raise ValueError("invalid remote testcase duration")
+        duration += value
+    failures = [node for tc in cases for node in tc if node.tag in {"failure", "error"}]
+    skipped = any(
+        tc.find("skipped") is not None
+        or tc.get("status", "").lower() == "notrun"
+        or tc.get("result", "").lower() in {"suppressed", "skipped"}
+        for tc in cases
+    )
+    failure = "\n".join(
+        (node.get("message", "") + "\n" + (node.text or "")).strip()
+        for node in failures
+    )
+    return xml, duration, bool(failures), failure, skipped
+
 
 _GPU_MEMORY_PREFLIGHT_ENV = "RTP_REMOTE_GPU_MEMORY_PREFLIGHT"
 _GPU_MEMORY_LIMIT_ENV = "RTP_GPU_MAX_PREEXISTING_MEMORY_MB"
@@ -790,8 +837,6 @@ class RemoteREAPIPlugin:
         )
 
     def _build_command(self, item, runtime: RemoteRuntimeConfig) -> List[str]:
-        from .remote_exec_rtp import _safe_rel_to_rootdir
-
         gpu_req = resolve_item_gpu_request(item)
         gpu_count = str(gpu_req.gpu_count)
         gpu_env_exports = (
@@ -801,9 +846,7 @@ class RemoteREAPIPlugin:
         )
         # Use _safe_rel_to_rootdir so sibling internal_source suite files map
         # through the uploaded internal_source/ symlink on the worker.
-        test_path = _safe_rel_to_rootdir(Path(str(item.fspath)).resolve(), self.rootdir)
-        _, separator, nodeid_suffix = item.nodeid.partition("::")
-        worker_nodeid = f"{test_path}::{nodeid_suffix}" if separator else test_path
+        worker_nodeid = _per_test_nodeid(item, self.rootdir)
         ignore_args = quote_args(runtime.ignore_args)
         # Forward markexpr so conftest.py doesn't deselect manual tests
         markexpr = getattr(self.config.option, "markexpr", "") or ""
@@ -829,6 +872,18 @@ class RemoteREAPIPlugin:
         )
         run_cmd = (
             f"{_heartbeat_plugin_shell()}"
+            "cat > /tmp/rtp_remote_per_test_junit_plugin.py << '_PER_TEST_JUNIT_PY_'\n"
+            "from pathlib import Path\n"
+            "import pytest\n"
+            "from rtp_llm.test.remote_tests.plugin import _per_test_nodeid\n"
+            "@pytest.hookimpl(tryfirst=True, hookwrapper=True)\n"
+            "def pytest_runtest_makereport(item, call):\n"
+            "    outcome = yield\n"
+            "    report = outcome.get_result()\n"
+            "    report.user_properties.append(('nodeid', _per_test_nodeid(item, Path.cwd())))\n"
+            "_PER_TEST_JUNIT_PY_\n"
+            "mkdir -p bazel-testlogs/pytest; "
+            "rm -f bazel-testlogs/pytest/remote_per_test.xml; "
             f"{outputs_prefix}"
             f"{gpu_env_exports}"
             f"{skip_guard}"
@@ -839,6 +894,9 @@ class RemoteREAPIPlugin:
             'export PYTHONPATH="/tmp:$PWD:${PYTHONPATH:-}"; '
             f"python rtp_llm/test/utils/device_resource.py "
             f"python -m pytest -p rtp_remote_heartbeat_plugin -xvs --tb=long "
+            "-p rtp_remote_per_test_junit_plugin "
+            "--junitxml=bazel-testlogs/pytest/remote_per_test.xml "
+            "-o junit_duration_report=total "
             f"--timeout={self.timeout_policy.pytest_timeout_seconds} "
             f"--override-ini='addopts=' {ignore_args} "
             f"{mark_arg}"
@@ -846,6 +904,9 @@ class RemoteREAPIPlugin:
             "echo EXIT_CODE=$ec; "
             f"{_heartbeat_shell('per_test_pytest_end')}; "
             'echo ">>>PHASE:pytest_end $(date +%s)"; '
+            "echo '<<<JUNIT_XML>>>'; "
+            "cat bazel-testlogs/pytest/remote_per_test.xml 2>/dev/null; "
+            "echo '<<<END_JUNIT_XML>>>'; "
             f"{outputs_postscript}"
             "exit $ec"
         )
@@ -1350,59 +1411,54 @@ class RemoteREAPIPlugin:
                 if tw:
                     tw.line(meta_msg)
 
+        worker_nodeid = _per_test_nodeid(item, self.rootdir)
+        duration, skipped, report_error = 0.0, False, ""
+        try:
+            xml, duration, failed, failure, skipped = _per_test_junit(
+                stdout, worker_nodeid
+            )
+            report_dir = self.rootdir / "bazel-testlogs" / "pytest" / "remote_junit"
+            report_dir.mkdir(parents=True, exist_ok=True)
+            key = hashlib.sha256(worker_nodeid.encode()).hexdigest()
+            (report_dir / f"{key}.worker.xml").write_text(xml, encoding="utf-8")
+            if failed:
+                report_error = f"Remote JUnit reports failure: {failure}"
+            elif skipped and getattr(self.config, "_rtp_ci_forbid_skips", False):
+                report_error = "Selected CI case skipped on remote worker"
+        except ValueError as exc:
+            report_error = str(exc)
+
+        # Parse the shell's status outside JUnit/captured test output.
+        status_output = stdout.split("<<<JUNIT_XML>>>", 1)[0]
+        exits = re.findall(r"^EXIT_CODE=(-?\d+)\s*$", status_output, re.MULTILINE)
+        if result.exit_code != 0:
+            report_error = (
+                f"Remote execution failed (exit={result.exit_code})\n{report_error}"
+            )
+        elif not exits:
+            report_error = f"Missing remote EXIT_CODE marker\n{report_error}"
+        elif int(exits[-1]) != 0:
+            report_error = (
+                f"Remote execution failed (EXIT_CODE={exits[-1]}, REAPI exit=0)\n"
+                f"{report_error}"
+            )
+
+        properties = [
+            (_NODEID_PROPERTY, worker_nodeid),
+            ("remote_cached", str(cached or result.cached_result).lower()),
+            ("remote_worker", worker_ip or result.metadata_worker or ""),
+        ]
         setup_call = CallInfo.from_call(lambda: None, when="setup")
         setup_report = pytest.TestReport.from_item_and_call(item, setup_call)
+        setup_report.duration = 0.0
         item.ihook.pytest_runtest_logreport(report=setup_report)
 
-        if result.exit_code == 0:
-            real_exit = 0
-            if "EXIT_CODE=" in stdout:
-                try:
-                    real_exit = int(
-                        stdout.rsplit("EXIT_CODE=", 1)[1].strip().split()[0]
-                    )
-                except (ValueError, IndexError):
-                    pass
-            if real_exit == 0:
-                call = CallInfo.from_call(lambda: None, when="call")
-                report = pytest.TestReport.from_item_and_call(item, call)
-
-                # --- Store successful result in test cache ---
-                if (
-                    not cached
-                    and self._test_cache is not None
-                    and self._cache_manifest is not None
-                ):
-                    self._store_test_result_in_cache(item, result, worker_ip)
-            else:
-                log.warning(
-                    "[EXIT_CODE mismatch] %s: REAPI exit=0 but EXIT_CODE=%d",
-                    item.nodeid,
-                    real_exit,
-                )
-                stdout = _strip_phase_marker_lines(stdout)
-                stderr = _strip_phase_marker_lines(stderr)
-                msg = f"Remote execution failed (EXIT_CODE={real_exit}, REAPI exit=0)"
-                if stderr:
-                    msg += f"\n--- stderr ---\n{stderr[-8000:]}"
-                if stdout:
-                    msg += f"\n--- stdout ---\n{stdout[-8000:]}"
-                msg += (
-                    f"\n[remote] worker_host_ip={worker_ip or 'n/a'} | "
-                    f"{self.executor.reapi_targets_combined}"
-                )
-                call = CallInfo.from_call(
-                    lambda: pytest.fail(msg, pytrace=False), when="call"
-                )
-                report = pytest.TestReport.from_item_and_call(item, call)
-        else:
-            stdout = _strip_phase_marker_lines(stdout)
-            stderr = _strip_phase_marker_lines(stderr)
-            msg = f"Remote execution failed (exit={result.exit_code})"
+        if report_error:
+            msg = report_error
             if stderr:
-                msg += f"\n--- stderr ---\n{stderr[-8000:]}"
+                msg += f"\n--- stderr ---\n{_strip_phase_marker_lines(stderr)[-8000:]}"
             if stdout:
-                msg += f"\n--- stdout ---\n{stdout[-8000:]}"
+                msg += f"\n--- stdout ---\n{_strip_phase_marker_lines(stdout)[-8000:]}"
             msg += (
                 f"\n[remote] worker_host_ip={worker_ip or 'n/a'} | "
                 f"{self.executor.reapi_targets_combined}"
@@ -1411,12 +1467,30 @@ class RemoteREAPIPlugin:
             call = CallInfo.from_call(
                 lambda: pytest.fail(msg, pytrace=False), when="call"
             )
-            report = pytest.TestReport.from_item_and_call(item, call)
-
+        elif skipped:
+            call = CallInfo.from_call(
+                lambda: pytest.skip("Remote JUnit reports skipped testcase"),
+                when="call",
+            )
+        else:
+            call = CallInfo.from_call(lambda: None, when="call")
+            if (
+                not cached
+                and self._test_cache is not None
+                and self._cache_manifest is not None
+            ):
+                self._store_test_result_in_cache(item, result, worker_ip)
+        report = pytest.TestReport.from_item_and_call(item, call)
+        # Worker JUnit already includes setup, call and teardown. Never report
+        # the controller's no-op timing as remote test execution time.
+        report.duration = duration
+        report.user_properties.extend(properties)
         item.ihook.pytest_runtest_logreport(report=report)
 
         teardown_call = CallInfo.from_call(lambda: None, when="teardown")
         teardown_report = pytest.TestReport.from_item_and_call(item, teardown_call)
+        teardown_report.duration = 0.0
+        teardown_report.user_properties.extend(properties)
         item.ihook.pytest_runtest_logreport(report=teardown_report)
 
     def _store_test_result_in_cache(
