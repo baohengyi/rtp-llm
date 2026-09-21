@@ -26,6 +26,11 @@ struct ResourceContext {
     bool enable_remote_cache{false};
     bool ignore_request_cache_switches{false};
 
+    // Per-stream compatibility barrier for callers that require scheduler
+    // commit/resource release before reporting completion. Keep the upstream
+    // default of exposing pending GenerateDone for ordinary streams.
+    bool write_cache_sync{false};
+
     void initCacheConfig(const KVCacheConfig& kv_cache_config);
 };
 
