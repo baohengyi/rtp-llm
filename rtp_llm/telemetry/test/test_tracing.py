@@ -1541,4 +1541,3 @@ class TestScopeVersion(TracingTestCase):
         with mock.patch.object(tracing, "_scope_version_cache", "7.7.7-launcher"):
             tracing.resolve_region_env()
             assert os.environ.get("RTP_LLM_OTEL_SCOPE_VERSION") == "7.7.7-launcher"
-

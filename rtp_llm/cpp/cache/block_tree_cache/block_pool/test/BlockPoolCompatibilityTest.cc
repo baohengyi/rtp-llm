@@ -568,4 +568,3 @@ TEST_F(BlockPoolTest, MixedAllocFreeOperations) {
 
 }  // namespace test
 }  // namespace rtp_llm
-
