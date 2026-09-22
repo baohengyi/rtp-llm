@@ -479,6 +479,38 @@ protected:
         return freed;
     }
 
+    void putResident(CacheKeyType key, BlockIdxType block) {
+        const auto size_before = cache_->tree()->size();
+        GroupSetResource resource;
+        resource.host_block = block;
+        host_pool_->incTreeRef(block, BlockTreeRefType::CACHE);
+        const auto inserted = cache_->tree()->insertNode({key}, {{resource}}, false, true);
+        block_tree_cache_test::releaseLowerTierSeedRefs(cache_->groupSets(), {{resource}});
+        cache_->evictor_.onInserted(inserted);
+        ASSERT_EQ(inserted.accepted_resource_count, 1u);
+        EXPECT_EQ(cache_->tree()->size(), size_before + 1);
+    }
+
+    BlockIndicesType popHostBlocks(size_t count) {
+        BlockIndicesType allocated;
+        for (BlockIdxType block = 1; block <= 128; ++block) {
+            if (host_pool_->isAllocated(block)) {
+                allocated.push_back(block);
+            }
+        }
+        const auto freed = evict(count);
+        BlockIndicesType popped;
+        for (const auto block : allocated) {
+            if (!host_pool_->isAllocated(block)) {
+                popped.push_back(block);
+            }
+        }
+        // Observe actual production ownership release, including unexpected
+        // victims; do not synthesize a result from the requested count/keys.
+        EXPECT_EQ(popped.size(), static_cast<size_t>(freed));
+        return popped;
+    }
+
     std::shared_ptr<HostBlockPool> host_pool_;
     BlockTreeDiskBlockPoolPtr disk_pool_;
     std::unique_ptr<BlockTreeCache> cache_;
@@ -564,6 +596,73 @@ TEST_F(MemoryBlockCacheTest, put_ReturnTrue_WhenInsertNewItem) {
 TEST_F(MemoryBlockCacheTest, pop_ReturnEmpty_WhenCacheEmpty) {
     EXPECT_EQ(evict(1), 0);
     EXPECT_EQ(cache_->tree()->size(), 0u);
+}
+
+TEST_F(MemoryBlockCacheTest, pop_ReturnNonResidentBlocks_WhenSkipResident) {
+    // HostBlockPool is fixed-width. Repeat the unchanged resident/count
+    // scenario at every payload width from the old per-entry metadata.
+    // Neither the old pop predicate nor the new eligibility rule uses bytes.
+    for (size_t payload_bytes = 1000; payload_bytes < 1004; ++payload_bytes) {
+        SCOPED_TRACE(payload_bytes);
+        makeCache(payload_bytes);
+        for (int i = 0; i < 4; ++i) {
+            if (i == 1) {
+                putResident(300 + i, 20 + i);
+            } else {
+                put(300 + i, 20 + i);
+            }
+        }
+        EXPECT_EQ(cache_->tree()->size(), 4u);
+        EXPECT_TRUE(contains(301));
+        const auto popped = popHostBlocks(10);
+        EXPECT_EQ(popped.size(), 3u);
+        EXPECT_EQ(cache_->tree()->size(), 1u);
+        EXPECT_TRUE(contains(301));
+        for (const auto block : popped) {
+            EXPECT_NE(block, 21);
+        }
+        EXPECT_TRUE(host_pool_->isAllocated(21));
+    }
+}
+
+TEST_F(MemoryBlockCacheTest, pop_ReturnLimitedBlocks_WhenNumsLessThanSize) {
+    for (size_t payload_bytes = 2000; payload_bytes < 2005; ++payload_bytes) {
+        SCOPED_TRACE(payload_bytes);
+        makeCache(payload_bytes);
+        for (int i = 0; i < 5; ++i) {
+            put(400 + i, 30 + i);
+        }
+        EXPECT_EQ(cache_->tree()->size(), 5u);
+        const auto popped = popHostBlocks(2);
+        EXPECT_EQ(popped.size(), 2u);
+        EXPECT_EQ(cache_->tree()->size(), 3u);
+        for (const auto block : popped) {
+            bool found = false;
+            for (int i = 0; i < 5; ++i) {
+                if (block == 30 + i) {
+                    found = true;
+                    break;
+                }
+            }
+            EXPECT_TRUE(found);
+        }
+    }
+}
+
+TEST_F(MemoryBlockCacheTest, pop_ReturnEmpty_WhenAllResident) {
+    for (size_t payload_bytes = 4000; payload_bytes < 4002; ++payload_bytes) {
+        SCOPED_TRACE(payload_bytes);
+        makeCache(payload_bytes);
+        for (int i = 0; i < 2; ++i) {
+            putResident(600 + i, 50 + i);
+        }
+        EXPECT_EQ(cache_->tree()->size(), 2u);
+        const auto popped = popHostBlocks(3);
+        EXPECT_TRUE(popped.empty());
+        EXPECT_EQ(cache_->tree()->size(), 2u);
+        EXPECT_TRUE(host_pool_->isAllocated(50));
+        EXPECT_TRUE(host_pool_->isAllocated(51));
+    }
 }
 
 class PrefixTreeMemoryBlockCacheTest: public MemoryBlockCacheTest {
