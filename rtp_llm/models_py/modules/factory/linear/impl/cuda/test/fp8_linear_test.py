@@ -828,6 +828,9 @@ class CudaFp8LinearTestBase:
             * 0.01
             + 0.001
         )
+        # Match the production weight layout and packed scales on SM100/SM120,
+        # using the same preparation as the other FP8 linear test fixtures.
+        weight, weight_scales = self._apply_ue8m0_requant(weight, weight_scales)
         # Create FP8 per block linear layer
         cuda_fp8_linear = self.get_linear_cls()(weight, weight_scales)
         # Create trace file directory if not exists
