@@ -77,7 +77,9 @@ package-dir = {"" = "."}
 # tests would produce installed wheels whose pytest plugins fail at startup.
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rtp_llm", "rtp_llm.*"]
+# The installed remote-gpu entry point imports the shared REAPI retry policy.
+# Include its top-level namespace, without shipping the build test package.
+include = ["rtp_llm", "rtp_llm.*", "_build"]
 
 # ``dependencies`` is dynamic but no source is declared here: setuptools accepts
 # ``install_requires=`` from setup.py for any field marked dynamic in [project]
