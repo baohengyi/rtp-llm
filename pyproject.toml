@@ -551,7 +551,7 @@ minimum_count = 1
 # and add two coverage/staging plus 14 remote termination regressions.
 # Restore the original A10 CausalConv1D (5) and L2Norm (9) methods as well.
 # Every case must execute.
-expected_count = 2968
+expected_count = 3053
 forbid_skips = true
 paths = [
     "rtp_llm/cpp/cache/block_tree_cache/benchmark/run_block_tree_cache_benchmark_test.py",
@@ -773,7 +773,7 @@ description = "Original L20 FlashInfer, SiLU and quantization methods"
 gpu_type = "L20"
 minimum_count = 1
 # Preserve the original L20 route independently of H20 and SM120 coverage.
-expected_count = 86
+expected_count = 88
 forbid_skips = true
 isolate_all_paths = true
 require_isolated_tests = true

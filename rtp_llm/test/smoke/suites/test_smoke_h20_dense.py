@@ -122,38 +122,13 @@ SMOKE_CASES = {'dense_generation_prefill_cuda_graph': {'task_info': 'data/model/
                           'markers': ['smoke', 'cuda', 'H20'],
                           'timeout': 600},
  'dense_fp8_prequant_flashinfer_no_cudagraph': {'task_info': 'data/model/qwen3/q_r_block_fp8_flashinfer_decode.json',
-                                                'smoke_args': '--disable_flashinfer_native '
-                                                              '0 --act_type BF16 '
-                                                              '--reserver_runtime_mem_mb '
-                                                              '8192 --tp_size 1 '
-                                                              '--warm_up 0 '
-                                                              '--seq_size_per_block 64 '
-                                                              '--enable_xqa 0 '
-                                                              '--enable_flashinfer_trtllm_gen '
-                                                              '0 '
-                                                              '--enable_flashinfer_trt_fmha_v2 '
-                                                              '0 '
-                                                              '--enable_paged_flashinfer_trt_fmha_v2 '
-                                                              '0 --enable_cuda_graph 0',
+                                                'smoke_args': '--disable_flash_infer 0 --act_type BF16 --reserver_runtime_mem_mb 8192 --tp_size 1 --warm_up 0 --seq_size_per_block 64 --enable_xqa 0 --disable_attn_backends trtllm_gen,trtllm_spec,trt,trt_paged --enable_cuda_graph 0',
                                                 'gpu_type': 'H20',
                                                 'platform': 'cuda',
                                                 'markers': ['smoke', 'cuda', 'H20'],
                                                 'timeout': 600},
  'dense_fp8_prequant_flashinfer_cudagraph': {'task_info': 'data/model/qwen3/q_r_block_fp8_flashinfer_decode.json',
-                                             'smoke_args': '--disable_flashinfer_native '
-                                                           '0 --act_type BF16 '
-                                                           '--reserver_runtime_mem_mb '
-                                                           '8192 --tp_size 1 --warm_up '
-                                                           '0 --seq_size_per_block 64 '
-                                                           '--enable_xqa 0 '
-                                                           '--enable_flashinfer_trtllm_gen '
-                                                           '0 '
-                                                           '--enable_flashinfer_trt_fmha_v2 '
-                                                           '0 '
-                                                           '--enable_paged_flashinfer_trt_fmha_v2 '
-                                                           '0 --enable_cuda_graph 1 '
-                                                           '--decode_capture_config '
-                                                           "'2'",
+                                             'smoke_args': '--disable_flash_infer 0 --act_type BF16 --reserver_runtime_mem_mb 8192 --tp_size 1 --warm_up 0 --seq_size_per_block 64 --enable_xqa 0 --disable_attn_backends trtllm_gen,trtllm_spec,trt,trt_paged --enable_cuda_graph 1 --decode_capture_config 2',
                                              'gpu_type': 'H20',
                                              'platform': 'cuda',
                                              'markers': ['smoke', 'cuda', 'H20'],

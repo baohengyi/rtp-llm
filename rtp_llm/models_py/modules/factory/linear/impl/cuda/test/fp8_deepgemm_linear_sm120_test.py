@@ -387,6 +387,12 @@ class CudaFp8DeepGEMMLinearSM120Test(OnlineFp8LoaderTestBase, unittest.TestCase)
         self.assertTrue(has_deep_gemm())
         self.assertTrue(is_deep_gemm_e8m0_used())
 
+    def test_profile_cuda_fp8_deepgemm_linear(self):
+        # This hardware profile includes the original profiling scenario in its
+        # strict manifest. Collect it here without the shared manual/perf marks;
+        # execute the inherited scenario, including every shape and benchmark.
+        super().test_profile_cuda_fp8_deepgemm_linear()
+
 
 class OnlineLinearAttentionTPTest(unittest.TestCase):
     def test_tp2_linear_attention_shards_preserve_weights_scales_and_gemm(self):

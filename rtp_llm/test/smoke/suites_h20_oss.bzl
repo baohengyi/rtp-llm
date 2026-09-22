@@ -163,7 +163,7 @@ def h20_oss_suites():
 
 
     # H20 Dense (Qwen2.5/Qwen3 dense)
-    flashinfer_decode_base_args = "--disable_flashinfer_native 0 --act_type BF16 --reserver_runtime_mem_mb 8192 --tp_size 1 --warm_up 0 --seq_size_per_block 64 --enable_xqa 0 --enable_flashinfer_trtllm_gen 0 --enable_flashinfer_trt_fmha_v2 0 --enable_paged_flashinfer_trt_fmha_v2 0"
+    flashinfer_decode_base_args = "--disable_flash_infer 0 --act_type BF16 --reserver_runtime_mem_mb 8192 --tp_size 1 --warm_up 0 --seq_size_per_block 64 --enable_xqa 0 --disable_attn_backends trtllm_gen,trtllm_spec,trt,trt_paged"
     native.test_suite(
         name = "smoke_h20_dense",
         tests = [
