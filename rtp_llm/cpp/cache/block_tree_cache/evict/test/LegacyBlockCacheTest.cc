@@ -430,15 +430,15 @@ class MemoryBlockCacheTest: public ::testing::Test {
 protected:
     void SetUp() override { makeCache(1); }
 
-    void makeCache(size_t payload_bytes, bool enable_disk = false) {
+    void makeCache(size_t payload_bytes, bool enable_disk = false, size_t usable_count = 128) {
         cache_.reset();
         disk_pool_.reset();
-        host_pool_ = block_tree_cache_test::makeHostPool(payload_bytes, 128);
+        host_pool_ = block_tree_cache_test::makeHostPool(payload_bytes, usable_count);
         ASSERT_NE(host_pool_, nullptr);
-        const auto blocks = host_pool_->malloc(128);
+        const auto blocks = host_pool_->malloc(usable_count);
         ASSERT_TRUE(blocks.has_value());
         ASSERT_EQ(blocks->front(), 1);
-        ASSERT_EQ(blocks->back(), 128);
+        ASSERT_EQ(blocks->back(), usable_count);
         if (enable_disk) {
             disk_pool_ = block_tree_cache_test::makeDiskPool(
                 payload_bytes, 128, std::make_unique<block_tree_cache_test::MemoryDiskBlockIO>());
@@ -511,6 +511,29 @@ protected:
         return popped;
     }
 
+    CacheKeysType hostKeysInMRUOrder() const {
+        std::lock_guard<std::mutex> lock(cache_->mutex_);
+        const auto* heap = cache_->evictor_.heapFor(0, Tier::HOST);
+        EXPECT_NE(heap, nullptr);
+        if (heap == nullptr) {
+            return {};
+        }
+        const auto size_before = heap->size();
+        std::set<TreeNode*> observed;
+        CacheKeysType keys;
+        // Read the production LRU comparator through best(), excluding only
+        // already observed nodes. Do not sort copied timestamps or mutate the
+        // heap to manufacture an order. The legacy accessor returned MRU first.
+        while (const auto entry = heap->best([&](TreeNode* node) { return observed.count(node) == 0; })) {
+            keys.push_back(entry->cache_key);
+            observed.insert(entry->node);
+        }
+        EXPECT_EQ(heap->size(), size_before);
+        EXPECT_EQ(keys.size(), size_before);
+        std::reverse(keys.begin(), keys.end());
+        return keys;
+    }
+
     std::shared_ptr<HostBlockPool> host_pool_;
     BlockTreeDiskBlockPoolPtr disk_pool_;
     std::unique_ptr<BlockTreeCache> cache_;
@@ -542,10 +565,97 @@ TEST_F(MemoryBlockCacheTest, empty_ReturnTrue_WhenCacheEmpty) {
     EXPECT_TRUE(cache_->matchedBlocksForGroup(0, result.matched_device_resources).empty());
 }
 
+TEST_F(MemoryBlockCacheTest, match_ReturnHit_WhenKeyExistsAndUpdatesRecency) {
+    // The old per-entry widths do not affect LRU ordering. Exercise each one
+    // with the fixed-width host pool, preserving the original keys and IDs.
+    for (size_t payload_bytes = 3000; payload_bytes < 3003; ++payload_bytes) {
+        SCOPED_TRACE(payload_bytes);
+        makeCache(payload_bytes);
+        for (int i = 0; i < 3; ++i) {
+            put(500 + i, 40 + i);
+        }
+
+        auto result = cache_->match({500});
+        auto context = std::dynamic_pointer_cast<LoadAsyncContext>(result.async_context);
+        ASSERT_NE(context, nullptr);
+        ASSERT_EQ(context->matchedBlocks(), 1u);
+        ASSERT_EQ(context->loadDescs().size(), 1u);
+        ASSERT_EQ(context->loadDescs()[0].source_tier, Tier::HOST);
+        ASSERT_EQ(context->loadDescs()[0].source_blocks, (BlockIndicesType{40}));
+
+        // Release the real match's transient load ownership before testing
+        // recency. Otherwise the matched block could survive because it was
+        // still pinned, masking a broken LRU update.
+        ASSERT_TRUE(cache_->abortPendingLoad(context));
+        block_tree_cache_test::releaseRequestRefsForTest(*cache_, result.matched_device_resources);
+        result.async_context.reset();
+        context.reset();
+        block_tree_cache_test::BlockTreeCacheTestPeer::waitForTaskPoolIdleForTest(*cache_);
+        ASSERT_EQ(host_pool_->referencedBlocksNum(BlockTreeRefType::LOAD), 0u);
+        ASSERT_EQ(cache_->evictor_.candidateCount(0, Tier::HOST), 3u);
+        ASSERT_EQ(host_pool_->treeRefCount(40), 1u);
+
+        const auto popped = popHostBlocks(1);
+        ASSERT_EQ(popped.size(), 1u);
+        EXPECT_NE(popped[0], 40);
+        EXPECT_EQ(cache_->tree()->size(), 2u);
+    }
+}
+
 TEST_F(MemoryBlockCacheTest, contains_ReturnTrue_WhenKeyExists) {
     makeCache(9000);
     put(900, 90);
     EXPECT_TRUE(contains(900));
+}
+
+TEST_F(MemoryBlockCacheTest, cacheKeys_ReturnsKeysInMRUOrder) {
+    makeCache(1);
+    for (int i = 1; i <= 3; ++i) {
+        put(i, 100 + i);
+    }
+    const auto keys = hostKeysInMRUOrder();
+    ASSERT_EQ(keys.size(), 3u);
+    EXPECT_EQ(keys[0], 3);
+    EXPECT_EQ(keys[1], 2);
+    EXPECT_EQ(keys[2], 1);
+    EXPECT_EQ(cache_->tree()->size(), 3u);
+}
+
+TEST_F(MemoryBlockCacheTest, cacheKeys_UpdatesOrderAfterMatch) {
+    // Keep the original physical block IDs 201..203; the old cache did not
+    // own a pool, so this fixture needs enough real host slots for those IDs.
+    makeCache(1, false, 256);
+    for (int i = 1; i <= 3; ++i) {
+        put(i, 200 + i);
+    }
+    {
+        const auto keys = hostKeysInMRUOrder();
+        ASSERT_EQ(keys.size(), 3u);
+        EXPECT_EQ(keys[0], 3);
+        EXPECT_EQ(keys[1], 2);
+        EXPECT_EQ(keys[2], 1);
+    }
+    auto result = cache_->match({1});
+    auto context = std::dynamic_pointer_cast<LoadAsyncContext>(result.async_context);
+    ASSERT_NE(context, nullptr);
+    ASSERT_EQ(context->matchedBlocks(), 1u);
+    ASSERT_EQ(context->loadDescs().size(), 1u);
+    ASSERT_EQ(context->loadDescs()[0].source_tier, Tier::HOST);
+    ASSERT_EQ(context->loadDescs()[0].source_blocks, (BlockIndicesType{201}));
+    ASSERT_TRUE(cache_->abortPendingLoad(context));
+    block_tree_cache_test::releaseRequestRefsForTest(*cache_, result.matched_device_resources);
+    result.async_context.reset();
+    context.reset();
+    block_tree_cache_test::BlockTreeCacheTestPeer::waitForTaskPoolIdleForTest(*cache_);
+    ASSERT_EQ(host_pool_->referencedBlocksNum(BlockTreeRefType::LOAD), 0u);
+    ASSERT_EQ(host_pool_->treeRefCount(201), 1u);
+    ASSERT_EQ(cache_->evictor_.candidateCount(0, Tier::HOST), 3u);
+    const auto keys2 = hostKeysInMRUOrder();
+    ASSERT_EQ(keys2.size(), 3u);
+    EXPECT_EQ(keys2[0], 1);
+    EXPECT_EQ(keys2[1], 3);
+    EXPECT_EQ(keys2[2], 2);
+    EXPECT_EQ(cache_->tree()->size(), 3u);
 }
 
 TEST_F(MemoryBlockCacheTest, contains_ReturnFalse_WhenKeyNotFoundAndCacheNonEmpty) {
