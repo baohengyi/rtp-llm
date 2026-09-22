@@ -8,6 +8,16 @@ config_setting(
     values = {"define": "using_rocm=true"},
 )
 
+# Torch 2.11's CUDA 13 dependencies are installed alongside torch by pip.
+# Declare their actual wheel paths as link inputs: host -L flags alone leave
+# remote executable links without CUPTI, cuFFT, cuBLASLt or the matching NCCL.
+_CUDA13_TORCH_RUNTIME_LIBRARIES = [
+    "nvidia/cu13/lib/libcublasLt.so.13",
+    "nvidia/cu13/lib/libcupti.so.13",
+    "nvidia/cu13/lib/libcufft.so.12",
+    "nvidia/nccl/lib/libnccl.so.2",
+]
+
 cc_library(
     name = "torch",
     srcs = [
@@ -40,7 +50,7 @@ cc_library(
         "@//:using_cuda13_x86": [
             "torch/lib/libtorch_nvshmem.so",
             "nvidia/nvshmem/lib/libnvshmem_host.so.3",
-        ],
+        ] + _CUDA13_TORCH_RUNTIME_LIBRARIES,
         "@//:using_cuda13_arm": [
             "torch/lib/libtorch_nvshmem.so",
             "nvidia/nvshmem/lib/libnvshmem_host.so.3",
@@ -53,7 +63,7 @@ cc_library(
             "torch/lib/libnvpl_blas_lp64_gomp.so.0",
             "torch/lib/libnvpl_lapack_core.so.0",
             "torch/lib/libnvpl_lapack_lp64_gomp.so.0",
-        ],
+        ] + _CUDA13_TORCH_RUNTIME_LIBRARIES,
         "//conditions:default": [],
     }),
     hdrs = glob([

@@ -676,14 +676,31 @@ def m_grouped_bf16_gemm_nt_masked(
     global _m_grouped_bf16_gemm_nt_masked_impl
     if _m_grouped_bf16_gemm_nt_masked_impl is None:
         return _missing_deep_gemm()
-    _m_grouped_bf16_gemm_nt_masked_impl(
-        a,
-        b,
-        output,
-        masked_m,
-        expected_m,
-        compiled_dims,
-    )
+    try:
+        _m_grouped_bf16_gemm_nt_masked_impl(
+            a,
+            b,
+            output,
+            masked_m,
+            expected_m,
+            compiled_dims,
+        )
+    except RuntimeError as error:
+        # Older DeepGEMM wheels expose this entry point but reject Blackwell
+        # before launching a kernel. New wheels keep their native fast path.
+        # Do not hide validation, compilation, or CUDA execution failures.
+        if "csrc/apis/gemm.hpp:" not in str(error) or not str(error).endswith(
+            ": Unsupported architecture"
+        ):
+            raise
+        products = torch.bmm(a, b.transpose(1, 2))
+        valid_rows = (
+            torch.arange(a.shape[1], device=a.device)[None, :]
+            < masked_m[:, None]
+        )[:, :, None]
+        # Keep padded rows untouched, matching the masked kernel's contract.
+        # All mask operations stay on device, including during graph capture.
+        output.copy_(torch.where(valid_rows, products, output))
 
 
 def _require_sm100_packed_scale_for_fp8_fp4(

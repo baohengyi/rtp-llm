@@ -356,6 +356,7 @@ class OnlineFp8LoaderTestBase(CudaFp8GEMMLinearTestBase):
                             maybe_rewrite_weight_by_key=lambda _, t, **kw: t
                         ),
                         use_swizzleA=False,
+                        force_legacy_fp8_ptpc=False,
                     )
                     actual = loader.load(tensor_source, 0, "cuda", config)
                     q = source["q"].chunk(tp, dim=0)[rank]
@@ -424,6 +425,7 @@ class OnlineLinearAttentionTPTest(unittest.TestCase):
                         merge_lora=False,
                         exported_device=device,
                         use_swizzleA=False,
+                        force_legacy_fp8_ptpc=False,
                     )
                     actual = loader.load(tensor_source, 0, "cuda", config)
                     if name == W.linear_attn_out_w:

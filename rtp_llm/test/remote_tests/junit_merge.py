@@ -4,6 +4,8 @@ import argparse
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+REPORT_DIAGNOSTIC_PROPERTY = "rtp_report_diagnostic"
+
 
 def merge_reports(paths, output, *, required=(), forbid_skips=False):
     required = {str(path) for path in required}
@@ -38,6 +40,10 @@ def merge_reports(paths, output, *, required=(), forbid_skips=False):
             root, "testsuite", name="report-integrity", tests="1", errors="1"
         )
         case = ET.SubElement(suite, "testcase", name="complete_execution_reports")
+        properties = ET.SubElement(case, "properties")
+        ET.SubElement(
+            properties, "property", name=REPORT_DIAGNOSTIC_PROPERTY, value="integrity"
+        )
         ET.SubElement(case, "error", message="incomplete remote execution").text = (
             "\n".join(problems)
         )

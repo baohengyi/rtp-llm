@@ -1023,7 +1023,7 @@ class BuildPackagingContractTest(TestCase):
             "py_ut_sm120": 120,
             "py_ut_cuda13_sm120": 184,
             "py_ut_l20": 86,
-            "py_ut_oss_l20": 84,
+            "py_ut_oss_l20": 86,
             "py_ut_sm100_arm": 104,
             "py_ut_amd": 405,
             "py_ut_frontend": 73,
@@ -1059,7 +1059,7 @@ class BuildPackagingContractTest(TestCase):
             ]
             self.assertEqual(internal_profiles["py_ut_gb200"].get("minimum_count"), 1)
             self.assertEqual(
-                internal_profiles["py_ut_gb200"].get("expected_count"), 104
+                internal_profiles["py_ut_gb200"].get("expected_count"), 120
             )
             self.assertTrue(internal_profiles["py_ut_gb200"].get("forbid_skips"))
             self.assertEqual(

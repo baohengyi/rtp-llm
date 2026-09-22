@@ -37,6 +37,7 @@ from .remote_exec_rtp import (
     should_dispatch_item_remotely,
 )
 from .remote_timeout_policy import RemoteTimeoutPolicy, select_remote_timeout_policy
+from .junit_merge import REPORT_DIAGNOSTIC_PROPERTY
 
 if TYPE_CHECKING:
     from .cas_client import CASClient, UploadProgress
@@ -343,6 +344,24 @@ def _count_junit(root: ET.Element) -> Tuple[int, int, int, int, float]:
         if testcase.find("skipped") is not None:
             skipped += 1
     return tests, failures, errors, skipped, total_time
+
+
+def _count_report_diagnostics(root: ET.Element) -> int:
+    """Identify generated errors without excluding any real pytest identity."""
+    return sum(
+        1
+        for suite in _iter_junit_suites(root)
+        if suite.get("name") == "report-integrity"
+        for case in suite.findall("testcase")
+        if case.get("name") == "complete_execution_reports"
+        and _testcase_nodeid(case) is None
+        and case.find("error") is not None
+        and any(
+            prop.get("name") == REPORT_DIAGNOSTIC_PROPERTY
+            and prop.get("value") == "integrity"
+            for prop in case.findall("./properties/property")
+        )
+    )
 
 
 def _validate_session_profile_result(
@@ -1016,10 +1035,15 @@ class RemoteREAPIPlugin:
             return True
 
     @pytest.hookimpl(trylast=True)
-    def pytest_collection_modifyitems(self, items, config=None, session=None):
+    def pytest_collection_modifyitems(self, items, config, session):
         if self.mode == RemoteDispatchMode.SESSION:
             self._session_collection_modifyitems(self.config, items)
         else:
+            # Pytest still calls this hook after collection errors, but it will
+            # not enter the test loop. Do not leave unobserved remote actions
+            # running when the controller exits with the original error.
+            if session.testsfailed or config.option.collectonly:
+                return
             self._per_test_collection_modifyitems(items)
 
     def _per_test_collection_modifyitems(self, items) -> None:
@@ -1772,7 +1796,10 @@ class RemoteREAPIPlugin:
         root.set("errors", str(errors))
         root.set("skipped", str(skipped))
         root.set("time", f"{total_time:.3f}")
-        return ET.tostring(root, encoding="unicode"), tests, len(cached_cases)
+        # JUnit still contains and counts every diagnostic error. Only the
+        # execution manifest excludes diagnostics that are not pytest cases.
+        profile_tests = tests - _count_report_diagnostics(root)
+        return ET.tostring(root, encoding="unicode"), profile_tests, len(cached_cases)
 
     def _replay_cached_outputs(self) -> None:
         if not self._collect_outputs or not self._session_cached_entries:
@@ -1897,14 +1924,14 @@ class RemoteREAPIPlugin:
         merged_xml, merged_tests, replayed_cached = self._merge_session_junit(
             xml_content
         )
-        merged_skipped = 0
+        merged_failures = merged_errors = merged_skipped = 0
         merged_nodeids = []
         if merged_xml:
             junit_path = self.rootdir / "bazel-testlogs" / "pytest" / "test.xml"
             junit_path.parent.mkdir(parents=True, exist_ok=True)
             junit_path.write_text(merged_xml)
             merged_root = ET.fromstring(merged_xml)
-            _, _, _, merged_skipped, _ = _count_junit(merged_root)
+            _, merged_failures, merged_errors, merged_skipped, _ = _count_junit(merged_root)
             merged_nodeids = [
                 nodeid
                 for testcase in merged_root.iter("testcase")
@@ -1963,6 +1990,13 @@ class RemoteREAPIPlugin:
                 replayed_cached,
             )
             exit_code = 0
+
+        if exit_code == 0 and (merged_failures or merged_errors):
+            log.error(
+                "Remote JUnit contains %d failed cases and %d errors despite zero worker exit",
+                merged_failures, merged_errors,
+            )
+            exit_code = int(pytest.ExitCode.TESTS_FAILED)
 
         if exit_code != 0:
             diag = (

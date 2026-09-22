@@ -277,6 +277,7 @@ markers = [
     "GeForce_RTX_4090: (deprecated) use gpu(type='GeForce_RTX_4090')",
     "Tesla_V100S_PCIE_32GB: (deprecated) use gpu(type='Tesla_V100S_PCIE_32GB')",
     "L20: (deprecated) use gpu(type='L20')",
+    "L20D_TEST: CUDA 13 aarch64 test worker",
     "H20: (deprecated) use gpu(type='H20')",
     "SM100: (deprecated) use gpu(type='SM100')",
     "SM100_ARM: (deprecated) use gpu(type='SM100_ARM')",
@@ -789,7 +790,7 @@ markexpr = "not manual and not smoke and not perf"
 description = "Original opensource L20 methods; quantization retains upstream open_skip"
 gpu_type = "L20"
 minimum_count = 1
-expected_count = 84
+expected_count = 86
 forbid_skips = true
 isolate_all_paths = true
 require_isolated_tests = true

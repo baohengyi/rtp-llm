@@ -810,12 +810,16 @@ class FlexlbServiceImplTest {
             when(lbStatusConsistencyService.isMaster()).thenReturn(false);
             when(grpcForwarder.forwardScheduleToMaster(any())).thenReturn(remote);
             when(routeService.route(any())).thenReturn(local);
+            CompletableFuture<Void> responseCompleted = new CompletableFuture<>();
             StreamObserver<FlexlbScheduleProtocol.FlexlbScheduleResponsePB> observer = new StreamObserver<>() {
                 public void onNext(FlexlbScheduleProtocol.FlexlbScheduleResponsePB value) {
                     org.flexlb.telemetry.FlexlbTrace.finishWithGrpcStatus(span, "OK", 0, true);
                 }
-                public void onError(Throwable error) { throw new AssertionError(error); }
-                public void onCompleted() { }
+                public void onError(Throwable error) {
+                    responseCompleted.completeExceptionally(error);
+                    throw new AssertionError(error);
+                }
+                public void onCompleted() { responseCompleted.complete(null); }
             };
             Context.current().withValue(org.flexlb.interceptor.GrpcTraceInterceptor.OTEL_CONTEXT_KEY, traceContext)
                     .run(() -> service.schedule(FlexlbScheduleProtocol.FlexlbScheduleRequestPB.newBuilder()
@@ -839,6 +843,7 @@ class FlexlbServiceImplTest {
                     local.complete(response);
                 }
             }).join();
+            responseCompleted.orTimeout(5, TimeUnit.SECONDS).join();
             assertEquals(1, exporter.spans.size());
             var data = exporter.spans.getFirst();
             assertEquals(success ? io.opentelemetry.api.trace.StatusCode.OK
