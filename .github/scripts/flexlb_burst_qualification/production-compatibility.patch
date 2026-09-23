@@ -1,0 +1,1316 @@
+diff --git a/rtp_llm/flexlb/flexlb-api/src/main/java/org/flexlb/httpserver/FlexlbServiceImpl.java b/rtp_llm/flexlb/flexlb-api/src/main/java/org/flexlb/httpserver/FlexlbServiceImpl.java
+index 1e103bd0b..51b8cf485 100644
+--- a/rtp_llm/flexlb/flexlb-api/src/main/java/org/flexlb/httpserver/FlexlbServiceImpl.java
++++ b/rtp_llm/flexlb/flexlb-api/src/main/java/org/flexlb/httpserver/FlexlbServiceImpl.java
+@@ -24,6 +24,7 @@ import org.flexlb.interceptor.GrpcTraceInterceptor;
+ import org.flexlb.schedule.grpc.FlexlbScheduleProtocol;
+ import org.flexlb.schedule.grpc.FlexlbServiceGrpc;
+ import org.flexlb.service.RouteService;
++import org.flexlb.service.grace.ActiveRequestCounter;
+ import org.flexlb.service.monitor.BatchSchedulerReporter;
+ import org.flexlb.service.monitor.EngineHealthReporter;
+ import org.flexlb.service.monitor.RequestSchedulerReporter;
+@@ -40,6 +41,8 @@ import java.net.UnknownHostException;
+ import java.nio.channels.UnresolvedAddressException;
+ import java.util.concurrent.CompletableFuture;
+ import java.util.concurrent.CompletionException;
++import java.util.concurrent.Executor;
++import java.util.concurrent.ForkJoinPool;
+ import java.util.concurrent.ExecutionException;
+ import java.util.concurrent.TimeoutException;
+ import java.util.concurrent.atomic.AtomicBoolean;
+@@ -53,13 +56,13 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
+     private final RouteService routeService;
+     private final MasterElectService masterElectService;
+     private final EngineHealthReporter engineHealthReporter;
++    private final ActiveRequestCounter activeRequestCounter;
+     private final FlexlbGrpcForwarder grpcForwarder;
+     private final ConfigService configService;
+     private final BatchSchedulerReporter batchSchedulerReporter;
+     private final ServerScheduleLatencyRecorder serverLatencyRecorder;
+     private final RequestSchedulerReporter requestSchedulerReporter;
+ 
+-    @Autowired
+     public FlexlbServiceImpl(RouteService routeService,
+                              LBStatusConsistencyService lbStatusConsistencyService,
+                              EngineHealthReporter engineHealthReporter,
+@@ -82,9 +85,40 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
+                       BatchSchedulerReporter batchSchedulerReporter,
+                       ServerScheduleLatencyRecorder serverLatencyRecorder,
+                       RequestSchedulerReporter requestSchedulerReporter) {
++        this(routeService, masterElectService, engineHealthReporter,
++                new ActiveRequestCounter(), grpcForwarder, configService,
++                batchSchedulerReporter, serverLatencyRecorder, requestSchedulerReporter);
++    }
++
++    @Autowired
++    public FlexlbServiceImpl(RouteService routeService,
++                             LBStatusConsistencyService lbStatusConsistencyService,
++                             EngineHealthReporter engineHealthReporter,
++                             ActiveRequestCounter activeRequestCounter,
++                             FlexlbGrpcForwarder grpcForwarder,
++                             ConfigService configService,
++                             BatchSchedulerReporter batchSchedulerReporter,
++                             ServerScheduleLatencyRecorder serverLatencyRecorder,
++                             RequestSchedulerReporter requestSchedulerReporter) {
++        this(routeService, (MasterElectService) lbStatusConsistencyService,
++                engineHealthReporter, activeRequestCounter, grpcForwarder,
++                configService, batchSchedulerReporter, serverLatencyRecorder,
++                requestSchedulerReporter);
++    }
++
++    FlexlbServiceImpl(RouteService routeService,
++                      MasterElectService masterElectService,
++                      EngineHealthReporter engineHealthReporter,
++                      ActiveRequestCounter activeRequestCounter,
++                      FlexlbGrpcForwarder grpcForwarder,
++                      ConfigService configService,
++                      BatchSchedulerReporter batchSchedulerReporter,
++                      ServerScheduleLatencyRecorder serverLatencyRecorder,
++                      RequestSchedulerReporter requestSchedulerReporter) {
+         this.routeService = routeService;
+         this.masterElectService = masterElectService;
+         this.engineHealthReporter = engineHealthReporter;
++        this.activeRequestCounter = activeRequestCounter;
+         this.grpcForwarder = grpcForwarder;
+         this.configService = configService;
+         this.batchSchedulerReporter = batchSchedulerReporter;
+@@ -98,7 +132,7 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
+         Long interceptedEntryNanos = GrpcServerTimingInterceptor.getNanos();
+         serverLatencyRecorder.recordArrival(
+                 interceptedEntryNanos != null ? interceptedEntryNanos : System.nanoTime());
+-        AtomicBoolean completionClaimed = new AtomicBoolean(false);
++        ScheduleCompletion completionClaimed = new ScheduleCompletion(activeRequestCounter.acquire());
+         BalanceContext context = null;
+         ScheduleOrigin errorOrigin = ScheduleOrigin.ENTRY_ERROR;
+ 
+@@ -158,7 +192,7 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
+             FlexlbScheduleProtocol.FlexlbScheduleRequestPB request,
+             BalanceContext context,
+             StreamObserver<FlexlbScheduleProtocol.FlexlbScheduleResponsePB> responseObserver,
+-            AtomicBoolean completionClaimed,
++            ScheduleCompletion completionClaimed,
+             FlexlbGrpcForwarder.MasterForwardResult forwardResult,
+             Throwable forwardError) {
+         // Normalize exceptional completion so the routing decision has one input.
+@@ -268,7 +302,7 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
+             FlexlbScheduleProtocol.FlexlbScheduleRequestPB request,
+             BalanceContext context,
+             StreamObserver<FlexlbScheduleProtocol.FlexlbScheduleResponsePB> responseObserver,
+-            AtomicBoolean completionClaimed,
++            ScheduleCompletion completionClaimed,
+             ScheduleOrigin origin) {
+         CompletableFuture<FlexlbScheduleProtocol.FlexlbScheduleResponsePB> routeFuture;
+         try {
+@@ -290,15 +324,21 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
+         }
+         Context inboundContext = Context.current();
+         Context.CancellationListener cancellationListener = ignored -> {
+-            if (!completionClaimed.compareAndSet(false, true)) {
++            if (!completionClaimed.claimCancellation()) {
+                 return;
+             }
+-            cancelUndeliveredRoute(request.getRequestId());
++            try {
++                cancelUndeliveredRoute(request.getRequestId());
++            } finally {
++                completionClaimed.finishCancellation();
++            }
+         };
+         inboundContext.addListener(cancellationListener, Runnable::run);
+         Runnable removeCancellationListener =
+                 () -> inboundContext.removeListener(cancellationListener);
+-        routeFuture.whenComplete((response, routeError) -> {
++        // Pending routes can complete under scheduler locks; deliver outside those locks.
++        Executor responseExecutor = routeFuture.isDone() ? Runnable::run : ForkJoinPool.commonPool();
++        routeFuture.whenCompleteAsync((response, routeError) -> {
+             if (routeError != null) {
+                 Logger.warn("FlexlbService.schedule async error, request_id={}",
+                         request.getRequestId(), routeError);
+@@ -311,7 +351,7 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
+                     origin,
+                     completionClaimed,
+                     removeCancellationListener);
+-        });
++        }, responseExecutor);
+     }
+ 
+     private void completeOnce(
+@@ -320,7 +360,7 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
+             FlexlbScheduleProtocol.FlexlbScheduleResponsePB response,
+             StreamObserver<FlexlbScheduleProtocol.FlexlbScheduleResponsePB> responseObserver,
+             ScheduleOrigin origin,
+-            AtomicBoolean completionClaimed) {
++            ScheduleCompletion completionClaimed) {
+         completeOnce(requestId, context, response, responseObserver, origin,
+                 completionClaimed, () -> { }, "");
+     }
+@@ -331,7 +371,7 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
+             FlexlbScheduleProtocol.FlexlbScheduleResponsePB response,
+             StreamObserver<FlexlbScheduleProtocol.FlexlbScheduleResponsePB> responseObserver,
+             ScheduleOrigin origin,
+-            AtomicBoolean completionClaimed,
++            ScheduleCompletion completionClaimed,
+             String masterHost) {
+         completeOnce(requestId, context, response, responseObserver, origin,
+                 completionClaimed, () -> { }, masterHost);
+@@ -343,7 +383,7 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
+             FlexlbScheduleProtocol.FlexlbScheduleResponsePB response,
+             StreamObserver<FlexlbScheduleProtocol.FlexlbScheduleResponsePB> responseObserver,
+             ScheduleOrigin origin,
+-            AtomicBoolean completionClaimed,
++            ScheduleCompletion completionClaimed,
+             Runnable completionCleanup) {
+         completeOnce(requestId, context, response, responseObserver, origin,
+                 completionClaimed, completionCleanup, "");
+@@ -355,20 +395,75 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
+             FlexlbScheduleProtocol.FlexlbScheduleResponsePB response,
+             StreamObserver<FlexlbScheduleProtocol.FlexlbScheduleResponsePB> responseObserver,
+             ScheduleOrigin origin,
+-            AtomicBoolean completionClaimed,
++            ScheduleCompletion completionClaimed,
+             Runnable completionCleanup,
+             String masterHost) {
+-        if (!completionClaimed.compareAndSet(false, true)) {
+-            completionCleanup.run();
+-            return;
+-        }
++        boolean ownsResponse = completionClaimed.claimResponse();
+         try {
++            if (!ownsResponse) {
++                return;
++            }
+             completeSchedule(context, response, responseObserver, origin, masterHost);
+         } catch (Exception error) {
+             Logger.warn("FlexlbService.schedule response completion error, request_id={}",
+                     requestId, error);
+         } finally {
+-            completionCleanup.run();
++            try {
++                completionCleanup.run();
++            } finally {
++                completionClaimed.finishResponse(ownsResponse);
++            }
++        }
++    }
++
++    /** Tracks service work only; transport shutdown remains owned by FlexlbGrpcServer.drain(). */
++    private static final class ScheduleCompletion {
++        private enum Owner { NONE, RESPONSE, CANCELLATION }
++
++        private final ActiveRequestCounter.RequestToken token;
++        private Owner owner = Owner.NONE;
++        private boolean responseFinished;
++        private boolean cancellationFinished;
++
++        private ScheduleCompletion(ActiveRequestCounter.RequestToken token) {
++            this.token = token;
++        }
++
++        synchronized boolean claimResponse() {
++            if (owner != Owner.NONE) {
++                return false;
++            }
++            owner = Owner.RESPONSE;
++            return true;
++        }
++
++        synchronized boolean claimCancellation() {
++            if (owner != Owner.NONE) {
++                return false;
++            }
++            owner = Owner.CANCELLATION;
++            return true;
++        }
++
++        synchronized void finishCancellation() {
++            cancellationFinished = true;
++            releaseIfFinished();
++        }
++
++        synchronized void finishResponse(boolean ownsResponse) {
++            // A duplicate callback must not release a response still inside its observer.
++            if (ownsResponse || owner == Owner.CANCELLATION) {
++                responseFinished = true;
++            }
++            releaseIfFinished();
++        }
++
++        private void releaseIfFinished() {
++            // Cancellation can synchronously complete the route on another thread.
++            // Retain the token until both that callback and cancellation cleanup finish.
++            if (responseFinished && (owner != Owner.CANCELLATION || cancellationFinished)) {
++                token.close();
++            }
+         }
+     }
+ 
+@@ -707,6 +802,9 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
+             return;
+         }
+         try {
++            if (ctx.isSuccess() ? !pvLogger.isInfoEnabled() : !pvLogger.isErrorEnabled()) {
++                return;
++            }
+             FlexlbScheduleProtocol.RequestLifecyclePB lifecycle = response.hasLifecycle()
+                     ? response.getLifecycle()
+                     : FlexlbScheduleProtocol.RequestLifecyclePB.getDefaultInstance();
+diff --git a/rtp_llm/flexlb/flexlb-api/src/main/java/org/flexlb/httpserver/ServerScheduleLatencyRecorder.java b/rtp_llm/flexlb/flexlb-api/src/main/java/org/flexlb/httpserver/ServerScheduleLatencyRecorder.java
+index 10f7d9f38..9a3ffdf58 100644
+--- a/rtp_llm/flexlb/flexlb-api/src/main/java/org/flexlb/httpserver/ServerScheduleLatencyRecorder.java
++++ b/rtp_llm/flexlb/flexlb-api/src/main/java/org/flexlb/httpserver/ServerScheduleLatencyRecorder.java
+@@ -170,18 +170,29 @@ public class ServerScheduleLatencyRecorder {
+     }
+ 
+     private static final class LatencyHistogram {
+-        private final AtomicLongArray buckets = new AtomicLongArray(MAX_TRACKED_MS + 1);
++        private static final int BUCKET_SHIFT = 13;
++        private static final int BUCKET_MASK = (1 << BUCKET_SHIFT) - 1;
++        private final AtomicLongArray[] buckets =
++                new AtomicLongArray[(MAX_TRACKED_MS >>> BUCKET_SHIFT) + 1];
+         private final LongAdder count = new LongAdder();
+         private final LongAdder sumMs = new LongAdder();
+         private final AtomicLong maxMs = new AtomicLong();
+ 
++        private LatencyHistogram() {
++            for (int index = 0; index < buckets.length; index++) {
++                int length = Math.min(1 << BUCKET_SHIFT,
++                        MAX_TRACKED_MS + 1 - (index << BUCKET_SHIFT));
++                buckets[index] = new AtomicLongArray(length);
++            }
++        }
++
+         private void recordBetween(long startNanos, long endNanos) {
+             if (startNanos <= 0 || endNanos < startNanos) {
+                 return;
+             }
+             long valueMs = TimeUnit.NANOSECONDS.toMillis(endNanos - startNanos);
+             int bucket = (int) Math.min(valueMs, MAX_TRACKED_MS);
+-            buckets.incrementAndGet(bucket);
++            buckets[bucket >>> BUCKET_SHIFT].incrementAndGet(bucket & BUCKET_MASK);
+             count.increment();
+             sumMs.add(valueMs);
+             maxMs.accumulateAndGet(valueMs, Math::max);
+@@ -219,7 +230,7 @@ public class ServerScheduleLatencyRecorder {
+             long target = Math.max(1, (long) Math.ceil(samples * percentile));
+             long seen = 0;
+             for (int value = 0; value <= MAX_TRACKED_MS; value++) {
+-                seen += buckets.get(value);
++                seen += buckets[value >>> BUCKET_SHIFT].get(value & BUCKET_MASK);
+                 if (seen >= target) {
+                     return value;
+                 }
+diff --git a/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/balance/scheduler/RequestSchedulerTestRuntime.java b/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/balance/scheduler/RequestSchedulerTestRuntime.java
+index a67efbea6..5b0b14644 100644
+--- a/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/balance/scheduler/RequestSchedulerTestRuntime.java
++++ b/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/balance/scheduler/RequestSchedulerTestRuntime.java
+@@ -7,6 +7,7 @@ import org.flexlb.balance.delivery.DeliveryStrategy;
+ import org.flexlb.balance.endpoint.EndpointRegistry;
+ import org.flexlb.balance.endpoint.WorkerEndpoint;
+ import org.flexlb.balance.eviction.EvictionManager;
++import org.flexlb.balance.eviction.EngineCancelChannel;
+ import org.flexlb.balance.strategy.CostBasedPrefillStrategy;
+ import org.flexlb.balance.strategy.DecodeSelector;
+ import org.flexlb.balance.strategy.RandomStrategy;
+@@ -55,6 +56,19 @@ public final class RequestSchedulerTestRuntime implements AutoCloseable {
+                     prepareBatchSubmission,
+             BatchSchedulerReporter batchReporter,
+             RequestSchedulerReporter requestReporter) {
++        this(configService, prepareBatchSubmission, batchReporter,
++                requestReporter, org.mockito.Mockito.mock(EngineCancelChannel.class));
++    }
++
++    public RequestSchedulerTestRuntime(
++            ConfigService configService,
++            Supplier<CapacityBoundary.Attempt<
++                    BatchDeliveryStrategy.PreparedSubmission>>
++                    prepareBatchSubmission,
++            BatchSchedulerReporter batchReporter,
++            RequestSchedulerReporter requestReporter,
++            EngineCancelChannel cancelChannel) {
++        Objects.requireNonNull(cancelChannel, "cancelChannel");
+         this.lifecycle = new RequestRegistry(
+                 configService, batchReporter, requestReporter);
+         this.endpointEvents = new EndpointEventProjector(lifecycle);
+@@ -84,7 +98,6 @@ public final class RequestSchedulerTestRuntime implements AutoCloseable {
+                 deliveryStrategy,
+                 placementAvailability);
+         this.router = new BindingRouter(new org.flexlb.sync.status.WorkerDirectory(registry), configService, lifecycle);
+-        var cancelChannel = org.mockito.Mockito.mock(org.flexlb.balance.eviction.EngineCancelChannel.class);
+         var preemption = new org.flexlb.balance.eviction.DecodePreemptionCoordinator(cancelChannel, lifecycle);
+         this.scheduler = new RequestScheduler(
+                 configService,
+@@ -102,6 +115,17 @@ public final class RequestSchedulerTestRuntime implements AutoCloseable {
+         return lifecycle;
+     }
+ 
++    /** Observe the real slot's current generation under its production monitor. */
++    public boolean ownsRequestGeneration(long requestId) {
++        RequestSlot slot = lifecycle.requestSlot(requestId);
++        if (slot == null) {
++            return false;
++        }
++        synchronized (slot) {
++            return lifecycle.isCurrentSlot(slot) && slot.isLiveGeneration();
++        }
++    }
++
+     public RequestScheduler scheduler() {
+         return scheduler;
+     }
+diff --git a/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/mock/FlexLBMockTestBase.java b/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/mock/FlexLBMockTestBase.java
+index 9a815b190..822e33ac7 100644
+--- a/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/mock/FlexLBMockTestBase.java
++++ b/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/mock/FlexLBMockTestBase.java
+@@ -7,6 +7,8 @@ import org.flexlb.balance.endpoint.DecodeEndpoint;
+ import org.flexlb.balance.endpoint.EndpointRegistry;
+ import org.flexlb.balance.endpoint.PrefillEndpoint;
+ import org.flexlb.balance.endpoint.WorkerEndpoint;
++import org.flexlb.balance.eviction.EngineCancelChannel;
++import org.flexlb.balance.preemption.CancelTarget;
+ import org.flexlb.balance.scheduler.DefaultBatchDispatcher;
+ import org.flexlb.balance.scheduler.DefaultRouter;
+ import org.flexlb.balance.scheduler.PlacementKey;
+@@ -173,7 +175,8 @@ public abstract class FlexLBMockTestBase {
+                 configService,
+                 dispatcher::tryPrepareSubmission,
+                 reporter,
+-                createRequestSchedulerReporter());
++                createRequestSchedulerReporter(),
++                createEngineCancelChannel());
+         endpointRegistry = schedulerRuntime.endpointRegistry();
+         scheduler = schedulerRuntime.scheduler();
+ 
+@@ -311,6 +314,10 @@ public abstract class FlexLBMockTestBase {
+         return schedulerRuntime.requestRegistry();
+     }
+ 
++    protected boolean ownsRequestGeneration(long requestId) {
++        return schedulerRuntime.ownsRequestGeneration(requestId);
++    }
++
+     protected long enqueueTimeoutMillis() {
+         return 5_000L;
+     }
+@@ -577,6 +584,26 @@ public abstract class FlexLBMockTestBase {
+         return response;
+     }
+ 
++    protected EngineCancelChannel createEngineCancelChannel() {
++        return new UnsupportedCancelStub();
++    }
++
++    /** Test-local fail-closed cancel transport for fixtures without preemption. */
++    private static final class UnsupportedCancelStub
++            implements EngineCancelChannel {
++        @Override
++        public boolean isSupported(DecodeEndpoint endpoint) {
++            return false;
++        }
++
++        @Override
++        public CompletableFuture<CancelAck> cancel(
++                CancelTarget target, long requestId, long timeoutMs) {
++            return CompletableFuture.completedFuture(
++                    CancelAck.UNSUPPORTED);
++        }
++    }
++
+     private Response successRoute(long requestId) {
+         Response response = new Response();
+         response.setSuccess(true);
+diff --git a/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/mock/MockRpcService.java b/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/mock/MockRpcService.java
+index d46e39e05..9ce5e2e6f 100644
+--- a/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/mock/MockRpcService.java
++++ b/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/mock/MockRpcService.java
+@@ -8,6 +8,8 @@ import org.slf4j.LoggerFactory;
+ 
+ import java.util.ArrayList;
+ import java.util.List;
++import java.util.Set;
++import java.util.concurrent.ConcurrentHashMap;
+ import java.util.concurrent.CopyOnWriteArrayList;
+ import java.util.concurrent.atomic.AtomicLong;
+ import java.util.function.Consumer;
+@@ -77,6 +79,8 @@ public class MockRpcService extends RpcServiceGrpc.RpcServiceImplBase {
+     /** Counter for CheckHealth calls. */
+     final AtomicLong healthCheckCount = new AtomicLong(0);
+ 
++    private final Set<Long> cancelledRequests = ConcurrentHashMap.newKeySet();
++
+     // ==================== Behavior (volatile, hot-swappable) ====================
+ 
+     private volatile MockWorkerBehavior behavior = MockWorkerBehavior.builder().build();
+@@ -114,6 +118,10 @@ public class MockRpcService extends RpcServiceGrpc.RpcServiceImplBase {
+         return healthCheckCount.get();
+     }
+ 
++    public boolean isCancelled(long requestId) {
++        return cancelledRequests.contains(requestId);
++    }
++
+     /** Clear all call records (useful between test cases sharing a worker). */
+     public void resetRecords() {
+         enqueuedRequests.clear();
+@@ -124,6 +132,16 @@ public class MockRpcService extends RpcServiceGrpc.RpcServiceImplBase {
+ 
+     // ==================== RPC implementations ====================
+ 
++    @Override
++    public void cancel(EngineRpcService.CancelRequestPB request,
++                       StreamObserver<EngineRpcService.CancelResponsePB> responseObserver) {
++        cancelledRequests.add(request.getRequestId());
++        responseObserver.onNext(EngineRpcService.CancelResponsePB.newBuilder()
++                .setStatus(EngineRpcService.CancelStatusPB.CANCEL_STATUS_TOMBSTONED)
++                .build());
++        responseObserver.onCompleted();
++    }
++
+     @Override
+     public void enqueueBatch(EngineRpcService.EnqueueBatchRequestPB request,
+                             StreamObserver<EngineRpcService.EnqueueBatchResponsePB> responseObserver) {
+@@ -161,6 +179,14 @@ public class MockRpcService extends RpcServiceGrpc.RpcServiceImplBase {
+             for (EngineRpcService.EnqueueBatchDpSlotPB slot : request.getDpSlotsList()) {
+                 for (EngineRpcService.EnqueueBatchExternalInputPB ext : slot.getRequestsList()) {
+                     long reqId = ext.getInput().getRequestId();
++                    if (cancelledRequests.contains(reqId)) {
++                        responseBuilder.addErrors(EngineRpcService.EnqueueBatchErrorPB.newBuilder()
++                                .setRequestId(reqId)
++                                .setErrorInfo(EngineRpcService.ErrorDetailsPB.newBuilder()
++                                        .setErrorCode(EngineRpcService.ErrorCodePB.CANCELLED.getNumber())
++                                        .setErrorMessage("request cancelled")));
++                        continue;
++                    }
+                     responseBuilder.addSuccesses(EngineRpcService.EnqueueBatchSuccessPB.newBuilder()
+                             .setRequestId(reqId)
+                             .build());
+diff --git a/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/mock/MockWorker.java b/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/mock/MockWorker.java
+index d8c9f210e..b3fee51c5 100644
+--- a/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/mock/MockWorker.java
++++ b/rtp_llm/flexlb/flexlb-api/src/test/java/org/flexlb/mock/MockWorker.java
+@@ -85,6 +85,13 @@ public abstract class MockWorker {
+         }
+     }
+ 
++    /** Drop active transports immediately, after a test has proved request receipt. */
++    public void stopNow() {
++        if (server != null) {
++            server.shutdownNow();
++        }
++    }
++
+     /**
+      * @return the actual gRPC port the server is listening on, or -1 if not started.
+      */
+diff --git a/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/config/FlexlbConfigMigration.java b/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/config/FlexlbConfigMigration.java
+new file mode 100644
+index 000000000..22ce682ec
+--- /dev/null
++++ b/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/config/FlexlbConfigMigration.java
+@@ -0,0 +1,179 @@
++package org.flexlb.config;
++
++import com.fasterxml.jackson.databind.JsonNode;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.fasterxml.jackson.databind.node.ObjectNode;
++
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.util.ArrayList;
++import java.util.List;
++
++/** Explicit offline migration. The online configuration loader accepts only v2. */
++public final class FlexlbConfigMigration {
++    private static final ObjectMapper JSON = new ObjectMapper();
++
++    private FlexlbConfigMigration() { }
++
++    public record Result(String document, List<String> behaviorChanges) {
++        public Result {
++            behaviorChanges = List.copyOf(behaviorChanges);
++        }
++    }
++
++    public static Result fromV1(String document) throws IOException {
++        JsonNode parsed = JSON.readTree(document);
++        if (!(parsed instanceof ObjectNode root)
++                || integer(root, "schemaVersion", "schemaVersion", 1L) != 1L) {
++            throw new ConfigValidationException("schemaVersion", "offline migration requires v1");
++        }
++        List<String> changes = new ArrayList<>();
++        ObjectNode scheduler = object(root, "scheduler");
++        String schedulerType = scheduler.path("type").asText("QUEUE");
++        ObjectNode dispatcher = object(root, "dispatcher");
++        String delivery = dispatcher.path("type").asText("BATCH");
++        if (schedulerType.equals("QUEUE")) {
++            if (scheduler.has("decision")) {
++                throw new ConfigValidationException("scheduler.decision", "is not a v1 field");
++            }
++            ObjectNode decision = object(scheduler, "decision");
++            decision.put("type", delivery.equals("NON_BATCH") ? "SINGLE" : "FIXED_WINDOW");
++            if (delivery.equals("BATCH")) {
++                move(dispatcher, "maxRequests", decision, "maxRequests");
++                move(dispatcher, "maxCollectionWaitMs", decision, "maxCollectionWaitMs");
++                move(dispatcher, "earlyDispatchPredictedExecutionMs", decision, "maxPredictedExecutionMs");
++                move(dispatcher, "maxWaitingRequestsPerPrefillWorker",
++                        object(scheduler, "capacity"), "maxWaitingRequestsPerPrefillWorker");
++            }
++        }
++
++        ObjectNode router = object(root, "router");
++        long hysteresis = integer(router, "availabilityHysteresisPercent",
++                "router.availabilityHysteresisPercent", 15L);
++        if (hysteresis < 0L || hysteresis > 100L) {
++            throw new ConfigValidationException("router.availabilityHysteresisPercent", "must be in [0, 100]");
++        }
++        router.remove("availabilityHysteresisPercent");
++        if (hysteresis != 0L) {
++            changes.add("Availability hysteresis " + hysteresis
++                    + "% has no v2 equivalent; admission recovers when exact capacity is released.");
++        }
++        ObjectNode roles = object(router, "roles");
++        ObjectNode prefill = object(roles, "prefill");
++        JsonNode availability = prefill.remove("availability");
++        if (availability != null) {
++            requireOnly(availability, "router.roles.prefill.availability", "maxPendingRequests");
++        }
++        long pendingLimit = availability == null ? 64L : integer(availability, "maxPendingRequests",
++                "router.roles.prefill.availability.maxPendingRequests", 64L);
++        if (pendingLimit <= 0 || pendingLimit > Integer.MAX_VALUE) {
++            throw new ConfigValidationException("router.roles.prefill.availability.maxPendingRequests",
++                    "must be a positive integer");
++        }
++        if (delivery.equals("NON_BATCH")) {
++            long configured = integer(dispatcher, "maxInflightRequestsPerPrefillWorker",
++                    "dispatcher.maxInflightRequestsPerPrefillWorker", pendingLimit);
++            if (configured <= 0 || configured > Integer.MAX_VALUE) {
++                throw new ConfigValidationException("dispatcher.maxInflightRequestsPerPrefillWorker",
++                        "must be a positive integer");
++            }
++            dispatcher.put("maxInflightRequestsPerPrefillWorker", Math.min(configured, pendingLimit));
++            changes.add("NON_BATCH capacity counts canonical outstanding requests plus unowned Engine work;"
++                    + " the old pending limit is mapped to maxInflightRequestsPerPrefillWorker.");
++        } else {
++            changes.add("The old Prefill pending limit " + pendingLimit
++                    + " is not equivalent to a BATCH queue or batch-inflight limit; size those capacities explicitly.");
++        }
++        JsonNode prefillSelector = prefill.remove("selector");
++        if (prefillSelector != null) {
++            requireOnly(prefillSelector, "router.roles.prefill.selector", "type", "candidateChoice");
++            requireSelector(prefillSelector, "ESTIMATED_TTFT", "router.roles.prefill.selector.type");
++            if (prefillSelector.has("candidateChoice")) {
++                move((ObjectNode) prefillSelector, "candidateChoice", prefill, "candidateChoice");
++            }
++        }
++        JsonNode outliers = prefill.path("candidateChoice").path("outlierRejection");
++        if (outliers instanceof ObjectNode object) {
++            move(object, "maxWaitVsAverageMultiplier", object, "maxProjectedDrainVsAverageMultiplier");
++        }
++        ObjectNode decode = object(roles, "decode");
++        JsonNode decodeSelector = decode.remove("selector");
++        if (decodeSelector != null) {
++            requireOnly(decodeSelector, "router.roles.decode.selector", "type", "decayPerToken", "outlierRejection");
++            requireSelector(decodeSelector, "KV_USAGE_WEIGHTED_RANDOM", "router.roles.decode.selector.type");
++            move((ObjectNode) decodeSelector, "decayPerToken", decode, "decayPerToken");
++            move((ObjectNode) decodeSelector, "outlierRejection", decode, "outlierRejection");
++        }
++        JsonNode vit = roles.remove("vit");
++        if (vit != null) {
++            requireOnly(vit, "router.roles.vit", "selector");
++            if (vit.has("selector")) {
++                requireOnly(vit.get("selector"), "router.roles.vit.selector", "type");
++                requireSelector(vit.get("selector"), "RANDOM", "router.roles.vit.selector.type");
++            }
++        }
++        root.put("schemaVersion", 2);
++        String migrated = JSON.writerWithDefaultPrettyPrinter().writeValueAsString(root);
++        ConfigService.parse(migrated);
++        changes.add("QUEUE Decode acceptance capacity is shared across FIFO/PRIORITY and charged at delivery preparation.");
++        return new Result(migrated, changes);
++    }
++
++    private static ObjectNode object(ObjectNode parent, String field) {
++        JsonNode existing = parent.get(field);
++        if (existing == null) {
++            return parent.putObject(field);
++        }
++        if (existing instanceof ObjectNode object) {
++            return object;
++        }
++        throw new ConfigValidationException(field, "must be an object");
++    }
++
++    private static long integer(JsonNode object, String field, String path, long defaultValue) {
++        JsonNode value = object.get(field);
++        if (value == null) {
++            return defaultValue;
++        }
++        if (!value.isIntegralNumber() || !value.canConvertToLong()) {
++            throw new ConfigValidationException(path, "must be an integer");
++        }
++        return value.longValue();
++    }
++
++    private static void move(ObjectNode source, String from, ObjectNode target, String to) {
++        JsonNode value = source.remove(from);
++        if (value != null) {
++            if (target.has(to)) {
++                throw new ConfigValidationException(to, "conflicts with migrated field " + from);
++            }
++            target.set(to, value);
++        }
++    }
++
++    private static void requireOnly(JsonNode object, String path, String... allowed) {
++        if (!object.isObject()) {
++            throw new ConfigValidationException(path, "must be an object");
++        }
++        var names = java.util.Set.of(allowed);
++        object.fieldNames().forEachRemaining(field -> {
++            if (!names.contains(field)) {
++                throw new ConfigValidationException(path + "." + field, "cannot be migrated");
++            }
++        });
++    }
++
++    private static void requireSelector(JsonNode selector, String supported, String path) {
++        if (!selector.path("type").asText().equals(supported)) {
++            throw new ConfigValidationException(path,
++                    "has no equivalent v2 policy: " + selector.path("type").asText());
++        }
++    }
++
++    /** Read v1 from stdin; write v2 to stdout and behavioral differences to stderr. */
++    public static void main(String[] args) throws IOException {
++        Result result = fromV1(new String(System.in.readAllBytes(), StandardCharsets.UTF_8));
++        result.behaviorChanges().forEach(System.err::println);
++        System.out.println(result.document());
++    }
++}
+diff --git a/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/config/FlexlbConfigValidator.java b/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/config/FlexlbConfigValidator.java
+index bcc4e60d1..670acf89a 100644
+--- a/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/config/FlexlbConfigValidator.java
++++ b/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/config/FlexlbConfigValidator.java
+@@ -277,13 +277,16 @@ final class FlexlbConfigValidator {
+                 "workerRegistry.health.statusPollIntervalMs");
+         positive(workers.getHealth().getStatusRpcTimeoutMs(),
+                 "workerRegistry.health.statusRpcTimeoutMs");
++        positive(workers.getHealth().getVitStatusRpcTimeoutMs(),
++                "workerRegistry.health.vitStatusRpcTimeoutMs");
+         positive(workers.getHealth().getCleanupIntervalMs(),
+                 "workerRegistry.health.cleanupIntervalMs");
+-        require(workers.getHealth().getStatusRpcTimeoutMs()
++        require(Math.max(workers.getHealth().getStatusRpcTimeoutMs(),
++                        workers.getHealth().getVitStatusRpcTimeoutMs())
+                         <= workers.getHealth().getStatusStaleAfterMs()
+                                 / MIN_STALE_TIMEOUT_TO_RPC_TIMEOUT_RATIO,
+                 "workerRegistry.health.statusStaleAfterMs",
+-                "must be at least twice statusRpcTimeoutMs");
++                "must be at least twice both statusRpcTimeoutMs and vitStatusRpcTimeoutMs");
+         require(workers.getCacheStatus() != null,
+                 "workerRegistry.cacheStatus", "is required");
+         positive(workers.getCacheStatus().getTargetDiffSize(),
+diff --git a/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/config/WorkerRegistryConfig.java b/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/config/WorkerRegistryConfig.java
+index 261f1787e..79396e979 100644
+--- a/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/config/WorkerRegistryConfig.java
++++ b/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/config/WorkerRegistryConfig.java
+@@ -13,9 +13,14 @@ public final class WorkerRegistryConfig {
+     @Getter
+     @Setter
+     public static final class HealthConfig {
++        public static final long DEFAULT_VIT_STATUS_RPC_TIMEOUT_MS = 2000;
++        public static final boolean DEFAULT_RETAIN_VIT_ALIVE_ON_TIMEOUT = true;
++
+         private long statusPollIntervalMs = 20;
+         private long statusRpcTimeoutMs = 5000;
+         private long statusStaleAfterMs = 10_000;
++        private long vitStatusRpcTimeoutMs = DEFAULT_VIT_STATUS_RPC_TIMEOUT_MS;
++        private boolean retainVitAliveOnTimeout = DEFAULT_RETAIN_VIT_ALIVE_ON_TIMEOUT;
+         private long cleanupIntervalMs = 3000;
+     }
+ 
+diff --git a/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/dao/loadbalance/StrategyErrorType.java b/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/dao/loadbalance/StrategyErrorType.java
+index a1674ebbf..a2b55d50d 100644
+--- a/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/dao/loadbalance/StrategyErrorType.java
++++ b/rtp_llm/flexlb/flexlb-common/src/main/java/org/flexlb/dao/loadbalance/StrategyErrorType.java
+@@ -2,6 +2,9 @@ package org.flexlb.dao.loadbalance;
+ 
+ import lombok.Getter;
+ 
++import java.util.HashMap;
++import java.util.Map;
++
+ @Getter
+ public enum StrategyErrorType {
+ 
+@@ -59,6 +62,15 @@ public enum StrategyErrorType {
+     private final boolean canRetry;
+     private final String statusName; // DashScope-compatible status_name (null = not set)
+ 
++    // Cache for O(1) lookup by error code
++    private static final Map<Integer, StrategyErrorType> ERROR_CODE_MAP = new HashMap<>();
++
++    static {
++        for (StrategyErrorType type : values()) {
++            ERROR_CODE_MAP.put(type.errorCode, type);
++        }
++    }
++
+     StrategyErrorType(int errorCode, boolean shouldRetry) {
+         this(errorCode, shouldRetry, null);
+     }
+@@ -91,6 +103,16 @@ public enum StrategyErrorType {
+                 + "\",\"detail\":\"" + escaped + "\"}";
+     }
+ 
++    /**
++     * Find StrategyErrorType by error code
++     *
++     * @param errorCode Error code to search for
++     * @return StrategyErrorType if found, null otherwise
++     */
++    public static StrategyErrorType fromErrorCode(int errorCode) {
++        return ERROR_CODE_MAP.get(errorCode);
++    }
++
+     public boolean acceptsAdmissionRejectReason(AdmissionRejectReason reason) {
+         return switch (this) {
+             case PRIORITY_ADMISSION_REJECTED -> reason == AdmissionRejectReason.HIGHER_PRIORITY_AHEAD
+diff --git a/rtp_llm/flexlb/flexlb-grpc/src/main/java/org/flexlb/engine/grpc/EngineGrpcClient.java b/rtp_llm/flexlb/flexlb-grpc/src/main/java/org/flexlb/engine/grpc/EngineGrpcClient.java
+index a8d31b405..2fe197484 100644
+--- a/rtp_llm/flexlb/flexlb-grpc/src/main/java/org/flexlb/engine/grpc/EngineGrpcClient.java
++++ b/rtp_llm/flexlb/flexlb-grpc/src/main/java/org/flexlb/engine/grpc/EngineGrpcClient.java
+@@ -4,10 +4,15 @@ import com.google.common.util.concurrent.FutureCallback;
+ import com.google.common.util.concurrent.Futures;
+ import com.google.common.util.concurrent.ListenableFuture;
+ import com.google.protobuf.MessageLite;
++import io.grpc.Attributes;
++import io.grpc.ClientStreamTracer;
+ import io.grpc.ManagedChannel;
++import io.grpc.Metadata;
++import io.grpc.Status;
+ import io.grpc.StatusRuntimeException;
+ import io.grpc.internal.GrpcUtil;
+ import io.grpc.netty.NettyChannelBuilder;
++import io.grpc.stub.ClientCalls;
+ import io.netty.buffer.PooledByteBufAllocator;
+ import io.netty.channel.ChannelOption;
+ import io.netty.channel.EventLoopGroup;
+@@ -23,9 +28,11 @@ import org.springframework.beans.factory.annotation.Value;
+ import org.springframework.stereotype.Component;
+ 
+ import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.CompletionException;
+ import java.util.concurrent.Executor;
+ import java.util.concurrent.ThreadPoolExecutor;
+ import java.util.concurrent.TimeUnit;
++import java.util.concurrent.atomic.AtomicBoolean;
+ import java.util.function.Function;
+ 
+ /**
+@@ -260,8 +267,57 @@ public class EngineGrpcClient extends AbstractGrpcClient {
+         // though its ACK was lost. Reconciliation is owned by the scheduler's
+         // request-id cancel fence, so this client must expose the ambiguity
+         // instead of issuing a second EnqueueBatch automatically.
+-        return executeGrpcCallAsync(ip, port, stub -> stub.getRpcServiceFutureStub().enqueueBatch(request),
+-                requestTimeoutMs, ServiceType.BATCH_ENQUEUE);
++        BatchDeliveryTracker delivery = new BatchDeliveryTracker();
++        return executeGrpcCallAsync(ip, port, wrapper -> {
++            RpcServiceGrpc.RpcServiceFutureStub stub = wrapper.getRpcServiceFutureStub();
++            return ClientCalls.futureUnaryCall(stub.getChannel().newCall(
++                    RpcServiceGrpc.getEnqueueBatchMethod(),
++                    stub.getCallOptions().withStreamTracerFactory(delivery)), request);
++        }, requestTimeoutMs, ServiceType.BATCH_ENQUEUE).handle((response, failure) -> {
++            if (failure != null) {
++                if (delivery.failedBeforeTransport(failure)) {
++                    throw new CompletionException(new BatchNotSentException(failure));
++                }
++                throw new CompletionException(failure);
++            }
++            return response;
++        });
++    }
++
++    /** An enqueue rejected before gRPC assigned any transport to the call. */
++    public static final class BatchNotSentException extends RuntimeException {
++        public BatchNotSentException(Throwable cause) {
++            super("EnqueueBatch failed before transport creation: " + cause.getMessage(), cause);
++        }
++    }
++
++    private static final class BatchDeliveryTracker extends ClientStreamTracer.Factory {
++        private final AtomicBoolean transportCreated = new AtomicBoolean();
++        private final AtomicBoolean unavailableBeforeTransport = new AtomicBoolean();
++
++        @Override
++        public ClientStreamTracer newClientStreamTracer(ClientStreamTracer.StreamInfo info, Metadata headers) {
++            return new ClientStreamTracer() {
++                @Override
++                public void streamCreated(Attributes transportAttrs, Metadata streamHeaders) {
++                    // This precedes writes. Once a transport exists, even an
++                    // unsuccessful write can be ambiguous, so retain the fence.
++                    transportCreated.set(true);
++                }
++
++                @Override
++                public void streamClosed(Status status) {
++                    if (status.getCode() == Status.Code.UNAVAILABLE && !transportCreated.get()) {
++                        unavailableBeforeTransport.set(true);
++                    }
++                }
++            };
++        }
++
++        private boolean failedBeforeTransport(Throwable failure) {
++            return Status.fromThrowable(failure).getCode() == Status.Code.UNAVAILABLE
++                    && unavailableBeforeTransport.get() && !transportCreated.get();
++        }
+     }
+ 
+     /**
+diff --git a/rtp_llm/flexlb/flexlb-mock-engine/src/main/java/org/flexlb/mockengine/JavaLoadClient.java b/rtp_llm/flexlb/flexlb-mock-engine/src/main/java/org/flexlb/mockengine/JavaLoadClient.java
+index 69cc8d1c8..86eb41bfa 100644
+--- a/rtp_llm/flexlb/flexlb-mock-engine/src/main/java/org/flexlb/mockengine/JavaLoadClient.java
++++ b/rtp_llm/flexlb/flexlb-mock-engine/src/main/java/org/flexlb/mockengine/JavaLoadClient.java
+@@ -987,9 +987,23 @@ public final class JavaLoadClient {
+         return addrs.get(idx);
+     }
+ 
+-    /** Loads fallback gRPC addresses from the mock cluster's endpoint records. */
++    /** Loads current endpoint records and the legacy DOMAIN_ADDRESS file format. */
+     void loadFallbackEndpoints(String path) throws IOException {
+         JsonNode data = MAPPER.readTree(Path.of(path).toFile());
++        JsonNode env = data.path("env");
++        // Old saved endpoint files used HTTP DOMAIN_ADDRESS entries. Current
++        // cluster files carry MODEL_SERVICE_CONFIG and authoritative engine
++        // records; stale legacy entries must not override those records.
++        if (!env.has("MODEL_SERVICE_CONFIG")) {
++            if (fallbackPrefillAddrs.isEmpty()) {
++                parseDomainAddrs(env, "DOMAIN_ADDRESS:" + data.path("prefill_domain").asText(""),
++                        fallbackPrefillAddrs);
++            }
++            if (fallbackDecodeAddrs.isEmpty()) {
++                parseDomainAddrs(env, "DOMAIN_ADDRESS:" + data.path("decode_domain").asText(""),
++                        fallbackDecodeAddrs);
++            }
++        }
+         if (fallbackPrefillAddrs.isEmpty()) {
+             for (JsonNode e : data.path("engines")) {
+                 if ("prefill".equals(e.path("role").asText())
+@@ -1015,6 +1029,32 @@ public final class JavaLoadClient {
+         }
+     }
+ 
++    private static void parseDomainAddrs(JsonNode env, String key, List<String> out) {
++        JsonNode node = env.path(key);
++        if (node.isMissingNode() || node.asText("").isEmpty()) {
++            return;
++        }
++        for (String part : node.asText().split(",")) {
++            String addr = part.trim();
++            if (addr.isEmpty()) {
++                continue;
++            }
++            try {
++                int colon = addr.lastIndexOf(':');
++                if (colon <= 0 || colon == addr.length() - 1) {
++                    throw new IllegalArgumentException("expected host:port");
++                }
++                // DOMAIN_ADDRESS holds the HTTP port; gRPC port = HTTP port + 1.
++                out.add(addr.substring(0, colon) + ":"
++                        + (Integer.parseInt(addr.substring(colon + 1)) + 1));
++            } catch (RuntimeException e) {
++                // One malformed entry must not abort the whole replay.
++                System.err.println("WARNING: skipping malformed DOMAIN_ADDRESS entry '"
++                        + addr + "' for " + key + ": " + e);
++            }
++        }
++    }
++
+     private EngineRpcService.GenerateInputPB buildGenerateInput(TraceRecord record) throws IOException {
+         ObjectNode meta = MAPPER.createObjectNode();
+         meta.put("rid", record.sourceRid);
+diff --git a/rtp_llm/flexlb/flexlb-mock-engine/src/main/java/org/flexlb/mockengine/JavaMockEngineCluster.java b/rtp_llm/flexlb/flexlb-mock-engine/src/main/java/org/flexlb/mockengine/JavaMockEngineCluster.java
+index 873fdc748..81ed5a666 100644
+--- a/rtp_llm/flexlb/flexlb-mock-engine/src/main/java/org/flexlb/mockengine/JavaMockEngineCluster.java
++++ b/rtp_llm/flexlb/flexlb-mock-engine/src/main/java/org/flexlb/mockengine/JavaMockEngineCluster.java
+@@ -38,6 +38,7 @@ import java.util.concurrent.CountDownLatch;
+ import java.util.concurrent.ExecutorService;
+ import java.util.concurrent.Executors;
+ import java.util.concurrent.LinkedBlockingQueue;
++import java.util.concurrent.RejectedExecutionException;
+ import java.util.concurrent.ScheduledExecutorService;
+ import java.util.concurrent.ThreadLocalRandom;
+ import java.util.concurrent.TimeUnit;
+@@ -2314,7 +2315,22 @@ public final class JavaMockEngineCluster {
+                 if (context.isCancelled()) {
+                     handleClientGone(requestId);
+                 }
+-            }, responseExecutor);
++            }, this::executeClientGoneListener);
++        }
++
++        private void executeClientGoneListener(Runnable listener) {
++            try {
++                responseExecutor.execute(listener);
++            } catch (RejectedExecutionException rejected) {
++                if (!responseExecutor.isShutdown()) {
++                    throw rejected;
++                }
++                // Transport close can arrive after the response pumps stop.
++                // Deliver the real cancellation callback on that closing thread
++                // so it still releases request ownership and KV leases. After
++                // drainAndShutdown the same callback is already an idempotent no-op.
++                listener.run();
++            }
+         }
+ 
+         /**
+diff --git a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/DefaultBatchDispatcher.java b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/DefaultBatchDispatcher.java
+index ccf812821..e7e0ca477 100644
+--- a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/DefaultBatchDispatcher.java
++++ b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/DefaultBatchDispatcher.java
+@@ -449,11 +449,12 @@ public class DefaultBatchDispatcher {
+                                 Throwable cause = unwrapCompletionFailure(ex);
+                                 Logger.debug("EnqueueBatch failed batchId: {}, entrypoint: {}:{}, err: {}",
+                                         batchId, prefillIp, prefillGrpcPort, cause.getMessage());
+-                                // Once the asynchronous RPC is invoked, no
+-                                // transport status proves the server did not
+-                                // accept the request. Reconcile every transport
+-                                // failure through the Engine-side request-id fence.
+-                                markUncertain(items, batchId, cause, observer);
++                                if (cause instanceof EngineGrpcClient.BatchNotSentException) {
++                                    failItems(items, batchId, cause, observer);
++                                } else {
++                                    // A status alone cannot prove non-delivery.
++                                    markUncertain(items, batchId, cause, observer);
++                                }
+                             } else if (response == null) {
+                                 markUncertain(items, batchId, new RuntimeException(
+                                         "EnqueueBatch returned null response"), observer);
+diff --git a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/RequestSlot.java b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/RequestSlot.java
+index a317c217f..a6a35cb14 100644
+--- a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/RequestSlot.java
++++ b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/RequestSlot.java
+@@ -708,9 +708,14 @@ public final class RequestSlot {
+         }
+         if (failed) {
+             SelectedPublication response = failureResponse;
+-            Throwable failure = runStep(null,
+-                    response == null ? null : () -> completionPublisher.submit(response));
+-            failure = runStep(failure, () -> cleanUpRequest(claim.item, result.status()));
++            Runnable publish = response == null ? null : () -> completionPublisher.submit(response);
++            Runnable cleanup = () -> cleanUpRequest(claim.item, result.status());
++            // A proven unsent invocation can roll back local accounting before its
++            // failure becomes observable. Prefill rejection still publishes before
++            // settlement, which may require later Engine evidence or retirement.
++            boolean unsent = result.status() == DeliveryResult.Status.NOT_SENT;
++            Throwable failure = runStep(null, unsent ? cleanup : publish);
++            failure = runStep(failure, unsent ? publish : cleanup);
+             rethrowCleanup(failure);
+         } else {
+             execute(acknowledgement);
+diff --git a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/service/grace/ActiveRequestCounter.java b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/service/grace/ActiveRequestCounter.java
+new file mode 100644
+index 000000000..05332ab93
+--- /dev/null
++++ b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/service/grace/ActiveRequestCounter.java
+@@ -0,0 +1,49 @@
++package org.flexlb.service.grace;
++
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.stereotype.Component;
++
++import java.util.concurrent.atomic.AtomicBoolean;
++import java.util.concurrent.atomic.AtomicLong;
++
++@Component
++public class ActiveRequestCounter {
++
++    private static final Logger log = LoggerFactory.getLogger(ActiveRequestCounter.class);
++    private final AtomicLong activeRequestCount = new AtomicLong(0);
++
++    public RequestToken acquire() {
++        activeRequestCount.incrementAndGet();
++        return new RequestToken(this);
++    }
++
++    long release() {
++        long previous = activeRequestCount.getAndUpdate(current -> current > 0 ? current - 1 : 0);
++        if (previous == 0) {
++            log.error("ActiveRequestCounter released below zero");
++            return 0;
++        }
++        return previous - 1;
++    }
++
++    public long getCount() {
++        return activeRequestCount.get();
++    }
++
++    public static final class RequestToken implements AutoCloseable {
++        private final ActiveRequestCounter counter;
++        private final AtomicBoolean closed = new AtomicBoolean(false);
++
++        private RequestToken(ActiveRequestCounter counter) {
++            this.counter = counter;
++        }
++
++        @Override
++        public void close() {
++            if (closed.compareAndSet(false, true)) {
++                counter.release();
++            }
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/runner/EngineSyncRunner.java b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/runner/EngineSyncRunner.java
+index 9fb74d361..ff5e739f2 100644
+--- a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/runner/EngineSyncRunner.java
++++ b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/runner/EngineSyncRunner.java
+@@ -4,6 +4,7 @@ import org.flexlb.balance.endpoint.EndpointRegistry;
+ import org.flexlb.balance.endpoint.WorkerEndpoint;
+ import org.flexlb.cache.service.CacheAwareService;
+ import org.flexlb.cache.service.DynamicCacheIntervalService;
++import org.flexlb.config.WorkerRegistryConfig.HealthConfig;
+ import org.flexlb.dao.master.WorkerHost;
+ import org.flexlb.dao.master.WorkerStatus;
+ import org.flexlb.dao.route.RoleType;
+@@ -59,6 +60,8 @@ public class EngineSyncRunner implements Runnable {
+     private final boolean cacheFullSnapshotDebugMode;
+ 
+     private final long statusStaleAfterUs;
++    private final long vitStatusRpcTimeoutMs;
++    private final boolean retainVitAliveOnTimeout;
+ 
+     public EngineSyncRunner(String modelName,
+                             WorkerDirectory workerDirectory,
+@@ -74,7 +77,30 @@ public class EngineSyncRunner implements Runnable {
+                             Long syncEngineStatusInterval,
+                             boolean cacheFullSnapshotDebugMode,
+                             long statusStaleAfterUs) {
++        this(modelName, workerDirectory, workerAddressService, statusCheckExecutor,
++                engineHealthReporter, engineGrpcService, roleType, cacheAwareService,
++                cacheIntervalService, syncRequestTimeoutMs, syncCount,
++                syncEngineStatusInterval, cacheFullSnapshotDebugMode, statusStaleAfterUs,
++                HealthConfig.DEFAULT_VIT_STATUS_RPC_TIMEOUT_MS,
++                HealthConfig.DEFAULT_RETAIN_VIT_ALIVE_ON_TIMEOUT);
++    }
+ 
++    public EngineSyncRunner(String modelName,
++                            WorkerDirectory workerDirectory,
++                            WorkerAddressService workerAddressService,
++                            ExecutorService statusCheckExecutor,
++                            EngineHealthReporter engineHealthReporter,
++                            EngineGrpcService engineGrpcService,
++                            RoleType roleType,
++                            CacheAwareService cacheAwareService,
++                            DynamicCacheIntervalService cacheIntervalService,
++                            long syncRequestTimeoutMs,
++                            LongAdder syncCount,
++                            Long syncEngineStatusInterval,
++                            boolean cacheFullSnapshotDebugMode,
++                            long statusStaleAfterUs,
++                            long vitStatusRpcTimeoutMs,
++                            boolean retainVitAliveOnTimeout) {
+         this.modelName = modelName;
+         this.workerAddressService = workerAddressService;
+         this.workerDirectory = Objects.requireNonNull(
+@@ -96,6 +122,8 @@ public class EngineSyncRunner implements Runnable {
+                     "statusStaleAfterUs must be positive");
+         }
+         this.statusStaleAfterUs = statusStaleAfterUs;
++        this.vitStatusRpcTimeoutMs = vitStatusRpcTimeoutMs;
++        this.retainVitAliveOnTimeout = retainVitAliveOnTimeout;
+     }
+ 
+     @Override
+@@ -163,7 +191,8 @@ public class EngineSyncRunner implements Runnable {
+                                 workerStatus, statusPollLease, workerDirectory,
+                                 engineHealthReporter, engineGrpcService,
+                                 syncRequestTimeoutMs,
+-                                cacheAwareService, statusCheckExecutor);
++                                cacheAwareService, statusCheckExecutor,
++                                vitStatusRpcTimeoutMs, retainVitAliveOnTimeout);
+                         statusCheckExecutor.submit(grpcWorkerStatusRunner);
+                         handedOff = true;
+                     } catch (RejectedExecutionException e) {
+@@ -177,6 +206,10 @@ public class EngineSyncRunner implements Runnable {
+                     logger.debug("Skip status check for worker: {}, previous request in progress", workerIpPort);
+                 }
+ 
++                if (roleType == RoleType.VIT) {
++                    continue;
++                }
++
+                 WorkerStatus.PollLease cachePollLease =
+                         workerStatus.tryBeginCachePoll();
+                 if (cachePollLease != null) {
+diff --git a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/runner/GrpcCacheStatusCheckRunner.java b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/runner/GrpcCacheStatusCheckRunner.java
+index 1882cd7e2..f5eda8ea8 100644
+--- a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/runner/GrpcCacheStatusCheckRunner.java
++++ b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/runner/GrpcCacheStatusCheckRunner.java
+@@ -1,5 +1,7 @@
+ package org.flexlb.sync.runner;
+ 
++import io.grpc.Status;
++
+ import org.flexlb.cache.domain.WorkerCacheUpdateResult;
+ import org.flexlb.cache.service.CacheAwareService;
+ import org.flexlb.cache.service.DynamicCacheIntervalService;
+@@ -20,8 +22,6 @@ import java.util.concurrent.CompletionException;
+ import java.util.concurrent.Executor;
+ import java.util.concurrent.atomic.LongAdder;
+ 
+-import static org.flexlb.constant.CommonConstants.DEADLINE_EXCEEDED_MESSAGE;
+-
+ public class GrpcCacheStatusCheckRunner implements Runnable {
+ 
+     private static final Logger logger = LoggerFactory.getLogger("syncLogger");
+@@ -92,6 +92,11 @@ public class GrpcCacheStatusCheckRunner implements Runnable {
+     public void run() {
+         boolean asyncInitiated = false;
+         try {
++            // VIT workers do not own KV cache. Keep the guard for direct
++            // callers as well as the EngineSyncRunner scheduling path.
++            if (roleType == RoleType.VIT) {
++                return;
++            }
+             logger.debug("GrpcCacheStatusCheckRunner run for {}", ipPort);
+             long prefillCacheStatusCheckInterval =
+                     cacheIntervalService.getCurrentIntervalMs();
+@@ -314,7 +319,7 @@ public class GrpcCacheStatusCheckRunner implements Runnable {
+     private void handleException(Throwable ex) {
+         log("gRPC cache status check failed:ipPort:" + ipPort + ", with exception: " + ex.getMessage());
+         // Report specific error based on exception type
+-        if (ex.getMessage() != null && ex.getMessage().toLowerCase().contains(DEADLINE_EXCEEDED_MESSAGE.toLowerCase())) {
++        if (Status.fromThrowable(ex).getCode() == Status.Code.DEADLINE_EXCEEDED) {
+             engineHealthReporter.reportCacheStatusCheckerFail(
+                     modelName, BalanceStatusEnum.CACHE_GRPC_TIMEOUT, roleType);
+         } else {
+diff --git a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/runner/GrpcWorkerStatusRunner.java b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/runner/GrpcWorkerStatusRunner.java
+index 2f583bae2..7cfd2265a 100644
+--- a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/runner/GrpcWorkerStatusRunner.java
++++ b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/runner/GrpcWorkerStatusRunner.java
+@@ -1,8 +1,11 @@
+ package org.flexlb.sync.runner;
+ 
++import io.grpc.Status;
++
+ import org.flexlb.balance.endpoint.EndpointRegistry;
+ import org.flexlb.balance.endpoint.WorkerEndpoint;
+ import org.flexlb.cache.service.CacheAwareService;
++import org.flexlb.config.WorkerRegistryConfig.HealthConfig;
+ import org.flexlb.dao.master.WorkerStatus;
+ import org.flexlb.dao.route.RoleType;
+ import org.flexlb.enums.BalanceStatusEnum;
+@@ -20,8 +23,6 @@ import java.util.Objects;
+ import java.util.concurrent.CompletionException;
+ import java.util.concurrent.Executor;
+ 
+-import static org.flexlb.constant.CommonConstants.DEADLINE_EXCEEDED_MESSAGE;
+-
+ public class GrpcWorkerStatusRunner implements Runnable {
+ 
+     private static final Logger logger = LoggerFactory.getLogger("syncLogger");
+@@ -41,6 +42,7 @@ public class GrpcWorkerStatusRunner implements Runnable {
+     private final long createTimeUs = System.nanoTime() / 1000;
+     private final String id = IdUtils.fastUuid();
+     private final long syncRequestTimeoutMs;
++    private final boolean retainVitAliveOnTimeout;
+     private static final int MAX_CONSECUTIVE_FAILURES = 3;
+     private final CacheAwareService cacheAwareService;
+     private final Executor callbackExecutor;
+@@ -55,6 +57,25 @@ public class GrpcWorkerStatusRunner implements Runnable {
+                                   long syncRequestTimeoutMs,
+                                   CacheAwareService cacheAwareService,
+                                   Executor callbackExecutor) {
++        this(modelName, ipPort, site, roleType, ignoredGroup, workerStatus,
++                pollLease, workerDirectory, engineHealthReporter, engineGrpcService,
++                syncRequestTimeoutMs, cacheAwareService, callbackExecutor,
++                HealthConfig.DEFAULT_VIT_STATUS_RPC_TIMEOUT_MS,
++                HealthConfig.DEFAULT_RETAIN_VIT_ALIVE_ON_TIMEOUT);
++    }
++
++    public GrpcWorkerStatusRunner(String modelName, String ipPort, String site,
++                                  RoleType roleType, String ignoredGroup,
++                                  WorkerStatus workerStatus,
++                                  WorkerStatus.PollLease pollLease,
++                                  WorkerDirectory workerDirectory,
++                                  EngineHealthReporter engineHealthReporter,
++                                  EngineGrpcService engineGrpcService,
++                                  long syncRequestTimeoutMs,
++                                  CacheAwareService cacheAwareService,
++                                  Executor callbackExecutor,
++                                  long vitStatusRpcTimeoutMs,
++                                  boolean retainVitAliveOnTimeout) {
+         this.ipPort = ipPort;
+         String[] split = ipPort.split(":");
+         this.ip = split[0];
+@@ -69,7 +90,10 @@ public class GrpcWorkerStatusRunner implements Runnable {
+         this.roleType = roleType;
+         this.engineHealthReporter = engineHealthReporter;
+         this.engineGrpcService = engineGrpcService;
+-        this.syncRequestTimeoutMs = syncRequestTimeoutMs;
++        this.syncRequestTimeoutMs = roleType == RoleType.VIT
++                ? Math.max(syncRequestTimeoutMs, vitStatusRpcTimeoutMs)
++                : syncRequestTimeoutMs;
++        this.retainVitAliveOnTimeout = retainVitAliveOnTimeout;
+         this.cacheAwareService = Objects.requireNonNull(
+                 cacheAwareService, "cacheAwareService");
+         this.callbackExecutor = callbackExecutor;
+@@ -326,7 +350,13 @@ public class GrpcWorkerStatusRunner implements Runnable {
+             long failures = health.consecutiveTransportFailures();
+             logger.debug("gRPC status check failed, consecutiveFailures={}/{}, msg={}",
+                     failures, MAX_CONSECUTIVE_FAILURES, failure.getMessage());
+-            if (failures < MAX_CONSECUTIVE_FAILURES) {
++            // The VIT proxy reports child health. A transport deadline alone
++            // must not discard its last live endpoint before stale expiration.
++            // recordTransportFailure does not refresh the successful-poll clock.
++            boolean retainLastVitState = roleType == RoleType.VIT
++                    && retainVitAliveOnTimeout
++                    && Status.fromThrowable(failure).getCode() == Status.Code.DEADLINE_EXCEEDED;
++            if (failures < MAX_CONSECUTIVE_FAILURES || retainLastVitState) {
+                 return;
+             }
+             endpointToRetire = workerDirectory.beginRetirement(
+@@ -409,7 +439,7 @@ public class GrpcWorkerStatusRunner implements Runnable {
+     private void handleException(Throwable ex) {
+         log("gRPC worker status check failed, msg=" + ex.getMessage());
+         // Report specific error based on exception type
+-        if (ex.getMessage() != null && ex.getMessage().toLowerCase().contains(DEADLINE_EXCEEDED_MESSAGE.toLowerCase())) {
++        if (Status.fromThrowable(ex).getCode() == Status.Code.DEADLINE_EXCEEDED) {
+             logger.debug("gRPC worker status check timeout, msg={}, ipPort: {}, rt: {}", ex.getMessage(), ipPort, System.nanoTime() / 1000 - createTimeUs);
+             engineHealthReporter.reportStatusCheckerFail(
+                     modelName, BalanceStatusEnum.WORKER_STATUS_GRPC_TIMEOUT, roleType);
+diff --git a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/synchronizer/MasterEngineSynchronizer.java b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/synchronizer/MasterEngineSynchronizer.java
+index 879e5c090..6e7c8ffef 100644
+--- a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/synchronizer/MasterEngineSynchronizer.java
++++ b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/sync/synchronizer/MasterEngineSynchronizer.java
+@@ -128,7 +128,11 @@ public final class MasterEngineSynchronizer {
+                         syncRequestTimeoutMs, syncCount, syncEngineStatusInterval,
+                         flexlbConfig.getWorkerRegistry().getCacheStatus()
+                                 .isFullSnapshotDebugMode(),
+-                        statusStaleAfterUs
++                        statusStaleAfterUs,
++                        flexlbConfig.getWorkerRegistry().getHealth()
++                                .getVitStatusRpcTimeoutMs(),
++                        flexlbConfig.getWorkerRegistry().getHealth()
++                                .isRetainVitAliveOnTimeout()
+                 ));
+             }
+         } catch (Exception e) {
+diff --git a/rtp_llm/flexlb/pom.xml b/rtp_llm/flexlb/pom.xml
+index 58b4eaddb..1bb2bfe30 100644
+--- a/rtp_llm/flexlb/pom.xml
++++ b/rtp_llm/flexlb/pom.xml
+@@ -377,6 +377,7 @@
+                                 <configuration combine.self="override">
+                                     <includes>
+                                         <include>**/WorkerBatcherPerformanceTest.java</include>
++                                        <include>**/CostBasedPrefillRoutingPerformanceTest.java</include>
+                                     </includes>
+                                     <groups>performance-regression</groups>
+                                     <forkCount>1</forkCount>
