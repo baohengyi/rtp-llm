@@ -1,0 +1,414 @@
+--- /dev/null
++++ b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/diagnostic/RouteStageProbe.java
+@@ -0,0 +1,37 @@
++package org.flexlb.balance.diagnostic;
++import java.util.*;
++import java.util.concurrent.ConcurrentLinkedQueue;
++import java.nio.file.*;
++public final class RouteStageProbe {
++    private static final java.lang.management.ThreadMXBean CPU = java.lang.management.ManagementFactory.getThreadMXBean();
++    public static long cpu() { return CPU.getCurrentThreadCpuTime(); }
++    private static final ConcurrentLinkedQueue<Map<String, Values>> ALL = new ConcurrentLinkedQueue<>();
++    private static final ThreadLocal<Map<String, Values>> LOCAL = ThreadLocal.withInitial(() -> {
++        Map<String, Values> m = new HashMap<>(); ALL.add(m); return m;
++    });
++    static { Runtime.getRuntime().addShutdownHook(new Thread(RouteStageProbe::dump)); }
++    private static final class Values {
++        long[] values = new long[128]; int size;
++        void add(long n) { if (size == values.length) values = Arrays.copyOf(values, size * 2); values[size++] = n; }
++    }
++    public static void add(String name, long value) { LOCAL.get().computeIfAbsent(name, k -> new Values()).add(value); }
++    private static void dump() {
++        try {
++            Map<String, Values> merged = new TreeMap<>();
++            for (var thread : ALL) for (var entry : thread.entrySet()) {
++                var dest = merged.computeIfAbsent(entry.getKey(), k -> new Values()); var from = entry.getValue();
++                for (int i = 0; i < from.size; i++) dest.add(from.values[i]);
++            }
++            StringJoiner json = new StringJoiner(",\n", "{\n", "\n}\n");
++            for (var e : merged.entrySet()) {
++                var v = e.getValue(); long[] a = Arrays.copyOf(v.values, v.size); Arrays.sort(a);
++                long sum = 0; for (long n : a) sum += n;
++                json.add("\"" + e.getKey() + "\":{\"count\":" + a.length + ",\"sum\":" + sum
++                    + ",\"min\":" + a[0] + ",\"p50\":" + a[(a.length - 1) / 2]
++                    + ",\"p90\":" + a[(int)Math.ceil(a.length * .90) - 1]
++                    + ",\"p99\":" + a[(int)Math.ceil(a.length * .99) - 1] + ",\"max\":" + a[a.length - 1] + "}");
++            }
++            Files.writeString(Path.of(System.getProperty("route.stage.probe.output")), json.toString());
++        } catch (Exception e) { e.printStackTrace(); }
++    }
++}
+--- a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/projection/RouteTimelineProjector.java
++++ b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/projection/RouteTimelineProjector.java
+@@ -87,6 +87,7 @@
+             RouteProjection.DeliveryProjection deliveryProjection,
+             long projectionAtMs,
+             PredictionBoundary predictions) {
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("active_queue_depth", queue.activeItems().size());
+         if (containsCommittedRequest(committed, requestId)) {
+             return unavailable("INCOMING_ALREADY_COMMITTED");
+         }
+@@ -183,6 +184,7 @@
+         long decisionNowMs = projectionAtMs;
+ 
+         while (!ordered.isEmpty()) {
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("projected_group_iterations", 1);
+             ExpirationPrune expiration = ordered.pruneExpired(decisionNowMs);
+             if (expiration.initialHeadExpired()) {
+                 initialHeadDisposition =
+@@ -762,6 +764,7 @@
+ 
+         private static PrefillBatchFeatures batchFeatures(
+                 List<GroupPlanner.Item> items) {
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("materialized_prediction_items", items.size());
+             return PrefillBatchFeatures.from(
+                     items,
+                     GroupPlanner.Item::seqLen,
+--- a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/GlobalQueueCoordinator.java
++++ b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/GlobalQueueCoordinator.java
+@@ -111,6 +111,7 @@
+         this.plannerCount = Math.max(MIN_PLANNER_THREADS,
+                 checkedConfig.loadBalanceConfig().getInternalRuntime()
+                         .getQueuePlannerThreads());
++org.flexlb.balance.diagnostic.RouteStageProbe.add("configured_planners", this.plannerCount);
+         this.planners = Executors.newFixedThreadPool(this.plannerCount, plannerFactory);
+         this.decisionThread = new Thread(this::runDecisionLoop,
+                 "flexlb-global-decision");
+@@ -137,7 +138,10 @@
+         Objects.requireNonNull(future, "future");
+         GlobalQueueEntry entry = new GlobalQueueEntry(context, future, normalizePriority(priority),
+                 router.resolvePolicyGroup(context));
+-        lock.lock();
++        long cadenceLockStart = System.nanoTime();
++        lock.lock();
++        long cadenceLockHeld = System.nanoTime();
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("global_offer_wait_ns", cadenceLockHeld-cadenceLockStart);
+         try {
+             if (closed.get()) {
+                 return false;
+@@ -150,6 +154,7 @@
+             changed.signal();
+             return true;
+         } finally {
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("global_offer_held_ns", System.nanoTime()-cadenceLockHeld);
+             lock.unlock();
+         }
+     }
+@@ -183,11 +188,15 @@
+     }
+ 
+     private void completeRequest(GlobalQueueEntry entry) {
+-        lock.lock();
++        long cadenceLockStart = System.nanoTime();
++        lock.lock();
++        long cadenceLockHeld = System.nanoTime();
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("global_complete_wait_ns", cadenceLockHeld-cadenceLockStart);
+         try {
+             registered.remove(entry.future, entry);
+             removeRequestUnderLock(entry);
+         } finally {
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("global_complete_held_ns", System.nanoTime()-cadenceLockHeld);
+             lock.unlock();
+         }
+     }
+@@ -195,13 +204,21 @@
+     private void runDecisionLoop() {
+         try {
+             while (!closed.get()) {
++                long cadenceCycleStart = System.nanoTime();
++                long cadenceCycleCpu = org.flexlb.balance.diagnostic.RouteStageProbe.cpu();
+                 Plan completed = pollCompletedPlan();
+                 if (completed != null) {
+                     processCompletedPlan(completed);
+                 }
++                long cadenceRefillStart = System.nanoTime();
+                 // Reuse released slots even when other completed plans are buffered.
+                 claimPlanningSlots().forEach(this::submitPlan);
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("decision_refill_ns", System.nanoTime()-cadenceRefillStart);
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("decision_active_cycle_ns", System.nanoTime()-cadenceCycleStart);
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("decision_active_cycle_cpu_ns", org.flexlb.balance.diagnostic.RouteStageProbe.cpu()-cadenceCycleCpu);
++                long cadenceAwaitStart = System.nanoTime();
+                 awaitIfNoWork();
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("decision_await_total_ns", System.nanoTime()-cadenceAwaitStart);
+             }
+         } finally {
+             closed.set(true);
+@@ -212,25 +229,38 @@
+     }
+ 
+     private Plan pollCompletedPlan() {
+-        lock.lock();
+-        try {
++        long cadenceLockStart = System.nanoTime();
++        lock.lock();
++        long cadenceLockHeld = System.nanoTime();
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("global_poll_wait_ns", cadenceLockHeld-cadenceLockStart);
++        try {
++org.flexlb.balance.diagnostic.RouteStageProbe.add("poll_buffered_completed", completedPlans.size());
+             return completedPlans.pollFirst();
+         } finally {
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("global_poll_held_ns", System.nanoTime()-cadenceLockHeld);
+             lock.unlock();
+         }
+     }
+ 
+     private List<GlobalQueueEntry> claimPlanningSlots() {
+-        lock.lock();
++        long cadenceLockStart = System.nanoTime();
++        lock.lock();
++        long cadenceLockHeld = System.nanoTime();
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("global_claim_wait_ns", cadenceLockHeld-cadenceLockStart);
+         try {
+             int slots = plannerCount - inFlight.size();
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("claim_available_slots", slots);
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("claim_completed_remaining", completedPlans.size());
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("claim_backlog", orderedQueue.size());
+             if (closed.get() || slots == 0) {
+                 return List.of();
+             }
+             List<GlobalQueueEntry> candidates = planningCandidates(slots);
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("claim_count", candidates.size());
+             inFlight.addAll(candidates);
+             return candidates;
+         } finally {
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("global_claim_held_ns", System.nanoTime()-cadenceLockHeld);
+             lock.unlock();
+         }
+     }
+@@ -253,22 +283,33 @@
+ 
+     private void submitPlan(GlobalQueueEntry entry) {
+         try {
++            long cadenceSubmitStart = System.nanoTime();
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("service_to_executor_submit_ns", cadenceSubmitStart-entry.context.getServiceStartNanos());
+             planners.execute(() -> {
++                long probeStart = System.nanoTime();
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("executor_dispatch_ns", probeStart-cadenceSubmitStart);
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("service_to_plan_ns", probeStart - entry.context.getServiceStartNanos());
+                 Plan result;
+                 try {
+                     result = plan(entry);
+                 } catch (Throwable failure) {
+                     result = Plan.failure(entry, failure, availability.sequence());
+                 }
++                result.probeFinishedAt = System.nanoTime();
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("plan_execution_ns", result.probeFinishedAt - probeStart);
+                 publishPlan(result);
+             });
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("executor_submit_ns", System.nanoTime()-cadenceSubmitStart);
+         } catch (Throwable failure) {
+             publishPlan(Plan.failure(entry, failure, availability.sequence()));
+         }
+     }
+ 
+     private void publishPlan(Plan plan) {
+-        lock.lock();
++        long cadenceLockStart = System.nanoTime();
++        lock.lock();
++        long cadenceLockHeld = System.nanoTime();
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("global_publish_wait_ns", cadenceLockHeld-cadenceLockStart);
+         try {
+             if (!closed.get()) {
+                 completedPlans.addLast(plan);
+@@ -276,6 +317,7 @@
+                 return;
+             }
+         } finally {
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("global_publish_held_ns", System.nanoTime()-cadenceLockHeld);
+             lock.unlock();
+         }
+         // Shutdown may finish before a slow planner. The producer then owns cleanup.
+@@ -283,10 +325,16 @@
+     }
+ 
+     private void processCompletedPlan(Plan plan) {
++        long probeCommitCpu = org.flexlb.balance.diagnostic.RouteStageProbe.cpu();
++        long probeCommitStart = System.nanoTime();
++        if (plan.probeFinishedAt > 0) org.flexlb.balance.diagnostic.RouteStageProbe.add("plan_completion_to_commit_ns", probeCommitStart - plan.probeFinishedAt);
+         boolean retry = false;
+         try {
+             if (!closed.get()) {
+                 Outcome outcome = commit(plan);
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("commit_ns", System.nanoTime() - probeCommitStart);
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("commit_cpu_ns", org.flexlb.balance.diagnostic.RouteStageProbe.cpu() - probeCommitCpu);
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("outcome_" + outcome, 1);
+                 retry = outcome == Outcome.REPLAN
+                         || (outcome == Outcome.BLOCKED && !park(plan));
+             }
+@@ -300,14 +348,18 @@
+         } finally {
+             // Release ownership before making this request eligible again.
+             closePlan(plan);
+-            lock.lock();
++            long cadenceLockStart = System.nanoTime();
++        lock.lock();
++        long cadenceLockHeld = System.nanoTime();
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("global_release_slot_wait_ns", cadenceLockHeld-cadenceLockStart);
+             try {
+                 inFlight.remove(plan.entry);
+                 if (retry && isQueued(plan.entry)) {
+                     orderedQueue.markRequestReadyForRetry(plan.entry);
+                 }
+             } finally {
+-                lock.unlock();
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("global_release_slot_held_ns", System.nanoTime()-cadenceLockHeld);
++            lock.unlock();
+             }
+         }
+     }
+@@ -401,11 +453,17 @@
+         }
+         RouteAdmission admission = plan.admission();
+         try {
++            long probeAdmission = System.nanoTime();
+             PlacementResult<ScheduledRequest, PlacementKey> publication =
+                     admission.tryEnqueue(entry.context, entry.future, lifecycle);
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("admission_ns", System.nanoTime() - probeAdmission);
+             if (publication.status() == PlacementResult.Status.SUCCESS) {
++                long probeCleanup = System.nanoTime();
+                 removeRequest(entry);
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("remove_ns", System.nanoTime() - probeCleanup);
++                long probeReporter = System.nanoTime();
+                 reportRouteSubmitted(entry.context, publication.value());
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("report_ns", System.nanoTime() - probeReporter);
+                 return Outcome.DONE;
+             }
+             if (publication.status() == PlacementResult.Status.REJECTED
+@@ -482,10 +540,14 @@
+         if (entry.removed) {
+             return;
+         }
+-        lock.lock();
++        long cadenceLockStart = System.nanoTime();
++        lock.lock();
++        long cadenceLockHeld = System.nanoTime();
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("global_remove_wait_ns", cadenceLockHeld-cadenceLockStart);
+         try {
+             removeRequestUnderLock(entry);
+         } finally {
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("global_remove_held_ns", System.nanoTime()-cadenceLockHeld);
+             lock.unlock();
+         }
+     }
+@@ -512,7 +574,12 @@
+ 
+     private void awaitChanged() {
+         try {
+-            changed.await();
++            long cadenceConditionStart = System.nanoTime();
++            try {
++                changed.await();
++            } finally {
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("decision_condition_await_ns", System.nanoTime()-cadenceConditionStart);
++            }
+         } catch (InterruptedException interruption) {
+             if (closed.get()) {
+                 Thread.currentThread().interrupt();
+@@ -530,13 +597,17 @@
+     }
+ 
+     private void onAvailabilityChanged(PlacementAvailability.Event event) {
+-        lock.lock();
++        long cadenceLockStart = System.nanoTime();
++        lock.lock();
++        long cadenceLockHeld = System.nanoTime();
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("global_availability_wait_ns", cadenceLockHeld-cadenceLockStart);
+         try {
+             waitingRequests.capacityChanged(event.key());
+             // Other planning work may progress even when no parked entry
+             // matches this exact edge.
+             changed.signal();
+         } finally {
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("global_availability_held_ns", System.nanoTime()-cadenceLockHeld);
+             lock.unlock();
+         }
+     }
+@@ -637,6 +708,7 @@
+     }
+ 
+     private static final class Plan implements AutoCloseable {
++        long probeFinishedAt;
+         private final GlobalQueueEntry entry;
+         private AdmissionHandle handle;
+         // A successful result owns its admission until transfer or close.
+--- a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/RouteAdmission.java
++++ b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/RouteAdmission.java
+@@ -149,17 +149,25 @@
+             BalanceContext context, CompletableFuture<Response> future, RequestRegistry lifecycle) {
+         requireProvisional();
+         blockedEndpoint = null;
++        long probeReserve = System.nanoTime();
+         if (!reserveDecode()) {
+             blockedEndpoint = decodeEndpoint();
+             return PlacementResult.blocked(decodePlacementKey());
+         }
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("decode_reserve_ns", System.nanoTime() - probeReserve);
++        long probeCreate = System.nanoTime();
+         ScheduledRequest item = createScheduledRequest(context, future, System.currentTimeMillis());
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("scheduled_item_create_ns", System.nanoTime() - probeCreate);
++        long probeLifecycle = System.nanoTime();
+         context.setRouteSubmittedNanos(System.nanoTime());
+         PlacementResult.Status result = lifecycle.commitRoute(item,
+                 () -> prefillEndpoint().offerPinned(prefillPin(), item));
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("lifecycle_commit_ns", System.nanoTime() - probeLifecycle);
+         return switch (result) {
+             case SUCCESS -> {
++                long probeMark = System.nanoTime();
+                 markCommitted();
++                org.flexlb.balance.diagnostic.RouteStageProbe.add("mark_committed_ns", System.nanoTime() - probeMark);
+                 yield PlacementResult.success(item);
+             }
+             case BLOCKED -> {
+--- a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/WorkerBatcher.java
++++ b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/WorkerBatcher.java
+@@ -397,7 +397,10 @@
+     private boolean enqueue(ScheduledRequest item) {
+         EnqueueAttempt attempt;
+         List<ScheduledRequest> victims = List.of();
++        long probeWait = System.nanoTime();
+         queueLock.lock();
++        long probeHeld = System.nanoTime();
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("enqueue_lock_wait_ns", probeHeld - probeWait);
+         try {
+             attempt = enqueueUnderLock(item);
+             if (!attempt.accepted() && attempt.failure() == null && !stopped
+@@ -410,6 +413,7 @@
+         } finally {
+             queueLock.unlock();
+         }
++        org.flexlb.balance.diagnostic.RouteStageProbe.add("enqueue_lock_held_ns", System.nanoTime() - probeHeld);
+         Throwable failure = attempt.failure();
+         if (attempt.rollback() != null) {
+             try {
+@@ -1083,7 +1087,9 @@
+             try {
+                 source = projectionSource;
+                 if (source == null || !isCurrentProjection(source.version)) {
++                    long probeSnapshot = System.nanoTime();
+                     source = captureProjectionSourceUnderLock();
++                    org.flexlb.balance.diagnostic.RouteStageProbe.add("snapshot_under_lock_ns", System.nanoTime() - probeSnapshot);
+                     projectionSource = source;
+                 }
+             } finally {
+--- a/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/strategy/CostBasedPrefillStrategy.java
++++ b/rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/strategy/CostBasedPrefillStrategy.java
+@@ -384,8 +384,11 @@
+                     calculateCacheMatch(ep, endpointAddress, cacheMatchResults, request);
+             long cacheHit = cacheMatch.effectiveHitTokens();
+             long routingCacheMatchTokens = cacheMatch.routingHitTokens();
++            long probeCaptureStart = System.nanoTime();
+             RouteProjection.Inputs projectionInputs =
+                     ep.captureRouteProjectionInputs();
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("capture_ns", System.nanoTime() - probeCaptureStart);
++            long probeProjectionStart = System.nanoTime();
+             PrefillTimePredictor predictor = ep.getPredictor();
+             RouteProjection.CandidateView projection =
+                     projectionSession.projectView(
+@@ -404,6 +407,7 @@
+                                     ? null : predictor.evaluator(),
+                             ep.deliveryProjection(),
+                             planningAtMs);
++            org.flexlb.balance.diagnostic.RouteStageProbe.add("projection_ns", System.nanoTime() - probeProjectionStart);
+             if (!projection.selectable() && !projection.engineWorkUnmodeled()) {
+                 RoleType blockerRole = projection.blockerRole();
+                 if (blockerRole != null) {

@@ -1,0 +1,50 @@
+name: FlexLB route-submit Linux diagnostics
+
+on:
+  push:
+    branches: [codex/python-native-main-diagnostic-v2-20260921]
+    paths:
+      - .github/scripts/flexlb_burst_diagnostics/**
+      - .github/workflows/flexlb-burst-linux-diagnostics.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-java21:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: qualification
+          sparse-checkout: |
+            .github/scripts/flexlb_burst_qualification
+            .github/scripts/flexlb_burst_diagnostics
+      - uses: actions/checkout@v4
+        with:
+          repository: alibaba/rtp-llm
+          ref: 017648a37d529ce56ce6d8feaba5354adaa11272
+          path: candidate
+          sparse-checkout: |
+            rtp_llm/flexlb
+            rtp_llm/cpp/model_rpc/proto
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Diagnose the original burst method with unchanged assertions
+        run: |
+          python3 qualification/.github/scripts/flexlb_burst_diagnostics/run.py candidate "$RUNNER_TEMP/burst-evidence"
+      - name: Preserve original reports and build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flexlb-route-diagnostics-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/burst-evidence/*.json
+            ${{ runner.temp }}/burst-evidence/*.log
+            ${{ runner.temp }}/burst-evidence/*.jfr
+            ${{ runner.temp }}/burst-evidence/junit/*.xml
+          if-no-files-found: error

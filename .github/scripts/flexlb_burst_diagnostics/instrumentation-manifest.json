@@ -1,0 +1,43 @@
+{
+  "scope": "DIAGNOSTIC_ONLY original W burst with additional timing and JFR; zero W/project acceptance credit",
+  "base_source_manifest": "../flexlb_burst_qualification/source-manifest.json",
+  "instrumentation_sha256": "eb9048d2c5aaee19401d0e844dda28b808be5d9122936c3d38de68e1438c7258",
+  "sources": [
+    {
+      "path": "rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/diagnostic/RouteStageProbe.java",
+      "baseline_sha256": null,
+      "sha256": "5bc0c754410f2e24ccff7af16b68df200ee83a0f146673610f2bd66b357d0eb1",
+      "size": 2270
+    },
+    {
+      "path": "rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/projection/RouteTimelineProjector.java",
+      "baseline_sha256": "8f37198bcb979911ca2cb47c0cad38e3c9628cf1ecf20e31d69f5e9a3fe71277",
+      "sha256": "0c381c210291be76dfcbce5e419b362c54a61c60c3bffc273a731784579cdca6",
+      "size": 32206
+    },
+    {
+      "path": "rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/GlobalQueueCoordinator.java",
+      "baseline_sha256": "44f5d8cff54d9bbac8e126bfd24d617a5196cac36ea4385de3f77774113360b2",
+      "sha256": "0777fb02035f6355cf1fe7c0b8b580a4cc368b0fd7b2e473bb9220c86b18fdc7",
+      "size": 34287
+    },
+    {
+      "path": "rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/RouteAdmission.java",
+      "baseline_sha256": "2fb1b25ad43155e3e49313502676738c8b5dd97a961adc383c6f6870f0ec6da6",
+      "sha256": "2e39d6d40c25e4f8cefce2e7bb38c7efb0ca64840510eb0e2b58276b9e68043e",
+      "size": 18863
+    },
+    {
+      "path": "rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/scheduler/WorkerBatcher.java",
+      "baseline_sha256": "f15688e81a544fa477d453ff16fb2881c34b9c15baf0e2fb81a2854e243f425d",
+      "sha256": "a4acafe905aae18d4dc8b6455fd91dc1dae74206182cc1bd8dd73671b5dd09de",
+      "size": 77123
+    },
+    {
+      "path": "rtp_llm/flexlb/flexlb-sync/src/main/java/org/flexlb/balance/strategy/CostBasedPrefillStrategy.java",
+      "baseline_sha256": "b9e27f210002fb25da989f652e5635078e008c5d7e65418ac301557717891984",
+      "sha256": "652f59c5753c5c62f85cc6280358fe9479f2389cff758f81d50b28414208ebba",
+      "size": 27455
+    }
+  ]
+}
