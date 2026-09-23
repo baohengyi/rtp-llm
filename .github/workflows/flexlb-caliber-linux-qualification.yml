@@ -1,0 +1,47 @@
+name: FlexLB decode caliber Linux qualification
+
+on:
+  push:
+    branches: [codex/python-native-main-diagnostic-v2-20260921]
+    paths:
+      - .github/scripts/flexlb_caliber_qualification/**
+      - .github/workflows/flexlb-caliber-linux-qualification.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-java21:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: qualification
+          sparse-checkout: .github/scripts/flexlb_caliber_qualification
+      - uses: actions/checkout@v4
+        with:
+          repository: alibaba/rtp-llm
+          ref: 2b2338ce9a86fbbee6b77203b1d57950dbea3346
+          path: candidate
+          sparse-checkout: |
+            rtp_llm/flexlb
+            rtp_llm/cpp/model_rpc/proto
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Run the complete original caliber class
+        run: |
+          python3 qualification/.github/scripts/flexlb_caliber_qualification/run.py candidate "$RUNNER_TEMP/caliber-evidence"
+      - name: Preserve original reports and build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flexlb-caliber-linux-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/caliber-evidence/*.json
+            ${{ runner.temp }}/caliber-evidence/*.log
+            ${{ runner.temp }}/caliber-evidence/junit/*.xml
+          if-no-files-found: error
