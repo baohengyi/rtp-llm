@@ -1,0 +1,51 @@
+name: Decord wheel qualification
+
+on:
+  push:
+    branches: [codex/python-native-main-diagnostic-v2-20260921]
+    paths:
+      - .github/scripts/dependency_qualification/**
+      - .github/workflows/decord-wheel-qualification.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-python310:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts/dependency_qualification
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install qualification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m venv "$RUNNER_TEMP/decord-builder"
+          "$RUNNER_TEMP/decord-builder/bin/python" -I -m pip install --no-cache-dir pyelftools packaging
+      - name: Qualify unchanged native payload in a fresh runtime
+        run: |
+          "$RUNNER_TEMP/decord-builder/bin/python" .github/scripts/dependency_qualification/run_decord_qualification.py "$RUNNER_TEMP/decord-evidence"
+      - name: Preserve original evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: decord-linux-python310-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/decord-evidence/*.json
+            ${{ runner.temp }}/decord-evidence/*.log
+            ${{ runner.temp }}/decord-evidence/*.xml
+            ${{ runner.temp }}/decord-evidence/candidate/*.whl
+            ${{ runner.temp }}/decord-evidence/candidate/*.json
+          if-no-files-found: error
+      - name: Show scoped result
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/decord-evidence/verification.json" ]; then
+            cat "$RUNNER_TEMP/decord-evidence/verification.json"
+          fi
