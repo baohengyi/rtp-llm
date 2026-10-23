@@ -1,5 +1,7 @@
 package org.flexlb.httpserver;
 
+import org.flexlb.diagnostics.BoundedPhaseObservation;
+
 import io.grpc.Context;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
@@ -95,6 +97,7 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
     @Override
     public void schedule(FlexlbScheduleProtocol.FlexlbScheduleRequestPB request,
                          StreamObserver<FlexlbScheduleProtocol.FlexlbScheduleResponsePB> responseObserver) {
+        BoundedPhaseObservation.Point diagnosticEntry = BoundedPhaseObservation.snapshot();
         Long interceptedEntryNanos = GrpcServerTimingInterceptor.getNanos();
         serverLatencyRecorder.recordArrival(
                 interceptedEntryNanos != null ? interceptedEntryNanos : System.nanoTime());
@@ -104,6 +107,9 @@ public class FlexlbServiceImpl extends FlexlbServiceGrpc.FlexlbServiceImplBase {
 
         try {
             context = buildContext(request);
+            if (diagnosticEntry != null) {
+                BoundedPhaseObservation.mark(context, BoundedPhaseObservation.Phase.SERVICE_START, diagnosticEntry, -1L);
+            }
             BalanceContext requestContext = context;
             boolean consistencyEnabled = masterElectService.isNeedConsistency();
             boolean masterAtEntry = consistencyEnabled

@@ -1,5 +1,7 @@
 package org.flexlb.balance.scheduler;
 
+import org.flexlb.diagnostics.BoundedPhaseObservation;
+
 import org.flexlb.balance.delivery.CapacityBoundary;
 import org.flexlb.balance.delivery.DeliveryMetrics;
 import org.flexlb.balance.delivery.DeliveryResult;
@@ -312,12 +314,26 @@ public final class BatchDeliveryStrategy implements DeliveryStrategy {
         }
 
         if (batch.transportOwned()) {
+            observePublished(claimed, batch.batchId());
             telemetry.batchDispatched(
                     batch.batchId(),
                     decisionReason,
                     remainingQueueDepth,
                     claimed.stream().map(ClaimedMember::item).toList(),
                     deliveredPredictionMs);
+        }
+    }
+
+    private static void observePublished(List<ClaimedMember> members, long batchId) {
+        if (!BoundedPhaseObservation.enabled()) { return; }
+        try {
+            BoundedPhaseObservation.Point point = BoundedPhaseObservation.snapshot();
+            for (ClaimedMember member : members) {
+                BoundedPhaseObservation.mark(member.item().ctx(),
+                        BoundedPhaseObservation.Phase.DELIVERY_PUBLISHED, point, batchId);
+            }
+        } catch (Throwable ignored) {
+            BoundedPhaseObservation.observationError();
         }
     }
 

@@ -1,5 +1,7 @@
 package org.flexlb.balance.scheduler;
 
+import org.flexlb.diagnostics.BoundedPhaseObservation;
+
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.micrometer.core.instrument.FunctionCounter;
@@ -332,6 +334,7 @@ public class DefaultBatchDispatcher {
             }
             try {
                 dispatchExecutor.execute(() -> {
+                    BoundedPhaseObservation.Point diagnosticExecutorStart = BoundedPhaseObservation.snapshot();
                     try {
                         // Completion ownership: doDispatch settles the permit
                         // on EVERY terminal path — either by transferring to
@@ -345,6 +348,7 @@ public class DefaultBatchDispatcher {
                         // handoff) also leaves no completion behind, so the
                         // permit must be settled after delivery.run returns.
                         delivery.run((items, batchId, predictedMs, reason, observer) -> {
+                            observeItems(items, batchId, BoundedPhaseObservation.Phase.EXECUTOR_START, diagnosticExecutorStart);
                             // Byte-budget admission: charge the frozen
                             // wire-size before any serialization. A rejection
                             // here is pre-send by construction: nothing was
@@ -529,6 +533,21 @@ public class DefaultBatchDispatcher {
 
     // ==================== Internal: dispatch pipeline (runs on executor thread) ====================
 
+    private static void observeItems(List<ScheduledRequest> items, long batchId,
+                                     BoundedPhaseObservation.Phase phase,
+                                     BoundedPhaseObservation.Point captured) {
+        if (!BoundedPhaseObservation.enabled()) { return; }
+        try {
+            BoundedPhaseObservation.Point point = captured == null
+                    ? BoundedPhaseObservation.snapshot() : captured;
+            for (ScheduledRequest item : items) {
+                BoundedPhaseObservation.mark(item.ctx(), phase, point, batchId);
+            }
+        } catch (Throwable ignored) {
+            BoundedPhaseObservation.observationError();
+        }
+    }
+
     private void doDispatch(DispatchTask task) {
         DispatchAttempt attempt = new DispatchAttempt();
         try {
@@ -562,7 +581,9 @@ public class DefaultBatchDispatcher {
         // 1. Build gRPC request
         EngineRpcService.EnqueueBatchRequestPB request;
         try {
+            observeItems(items, batchId, BoundedPhaseObservation.Phase.PROTO_START, null);
             request = buildBatchRequest(batchId, items);
+            observeItems(items, batchId, BoundedPhaseObservation.Phase.PROTO_END, null);
         } catch (Exception e) {
             Logger.error("Failed to build FlexLB batch request batchId: {}", batchId, e);
             failItems(items, batchId,
@@ -595,6 +616,7 @@ public class DefaultBatchDispatcher {
         int prefillGrpcPort = prefillEp.getGrpcPort();
         CompletableFuture<EngineRpcService.EnqueueBatchResponsePB> rpcFuture;
         try {
+            observeItems(items, batchId, BoundedPhaseObservation.Phase.RPC_START, null);
             long dispatchedNanos = System.nanoTime();
             for (ScheduledRequest item : items) {
                 item.ctx().setBatchDispatchedNanos(dispatchedNanos);

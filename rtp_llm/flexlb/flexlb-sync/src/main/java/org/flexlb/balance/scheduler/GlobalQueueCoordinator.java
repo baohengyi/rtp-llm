@@ -1,5 +1,7 @@
 package org.flexlb.balance.scheduler;
 
+import org.flexlb.diagnostics.BoundedPhaseObservation;
+
 import org.flexlb.balance.PlacementResult;
 import org.flexlb.balance.endpoint.WorkerEndpoint;
 import org.flexlb.balance.eviction.EvictionManager;
@@ -135,6 +137,7 @@ final class GlobalQueueCoordinator implements AutoCloseable {
             int priority) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(future, "future");
+        BoundedPhaseObservation.mark(context, BoundedPhaseObservation.Phase.GLOBAL_OFFER);
         GlobalQueueEntry entry = new GlobalQueueEntry(context, future, normalizePriority(priority),
                 router.resolvePolicyGroup(context));
         lock.lock();
@@ -254,12 +257,14 @@ final class GlobalQueueCoordinator implements AutoCloseable {
     private void submitPlan(GlobalQueueEntry entry) {
         try {
             planners.execute(() -> {
+                BoundedPhaseObservation.mark(entry.context, BoundedPhaseObservation.Phase.PLANNER_START);
                 Plan result;
                 try {
                     result = plan(entry);
                 } catch (Throwable failure) {
                     result = Plan.failure(entry, failure, availability.sequence());
                 }
+                BoundedPhaseObservation.mark(entry.context, BoundedPhaseObservation.Phase.PLANNER_END);
                 publishPlan(result);
             });
         } catch (Throwable failure) {
@@ -283,6 +288,7 @@ final class GlobalQueueCoordinator implements AutoCloseable {
     }
 
     private void processCompletedPlan(Plan plan) {
+        BoundedPhaseObservation.mark(plan.entry.context, BoundedPhaseObservation.Phase.DECISION_START);
         boolean retry = false;
         try {
             if (!closed.get()) {
@@ -298,6 +304,7 @@ final class GlobalQueueCoordinator implements AutoCloseable {
             Logger.error("Global queue commit failed: request_id={}",
                     plan.entry.context.getRequestId(), failure);
         } finally {
+            BoundedPhaseObservation.mark(plan.entry.context, BoundedPhaseObservation.Phase.DECISION_END);
             // Release ownership before making this request eligible again.
             closePlan(plan);
             lock.lock();

@@ -1,5 +1,7 @@
 package org.flexlb.httpserver;
 
+import org.flexlb.diagnostics.BoundedPhaseObservation;
+
 import ch.qos.logback.classic.Level;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -60,6 +62,7 @@ import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
+import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -346,6 +349,17 @@ class MasterBatchEndToEndPerformanceTest extends FlexLBMockTestBase {
     }
 
     @BeforeEach
+    void startPhaseObservation(TestInfo info) {
+        if (System.getProperty(BoundedPhaseObservation.DIRECTORY_PROPERTY, "").isBlank()) { return; }
+        try {
+            info.getTestMethod().ifPresent(method -> BoundedPhaseObservation.beginCase(
+                    method.getName(), info.getDisplayName()));
+        } catch (Throwable ignored) {
+            BoundedPhaseObservation.observationError();
+        }
+    }
+
+    @BeforeEach
     void startMasterGrpcServer() throws Exception {
         publishDecodeCapacity(1_000_000_000L, 2_000_000_000L);
         observeAcceptedBatches(mockPrefillWorker);
@@ -434,26 +448,30 @@ class MasterBatchEndToEndPerformanceTest extends FlexLBMockTestBase {
 
     @AfterEach
     void stopMasterGrpcServer() throws InterruptedException {
-        for (ManagedChannel channel : masterChannels) {
-            channel.shutdownNow();
-        }
-        for (ManagedChannel channel : masterChannels) {
-            channel.awaitTermination(5, TimeUnit.SECONDS);
-        }
-        masterChannels = List.of();
-        if (masterServer != null) {
-            masterServer.shutdown();
-        }
-        if (masterServerEventLoopGroup != null) {
-            assertTrue(masterServerEventLoopGroup.terminationFuture()
-                            .await(5, TimeUnit.SECONDS),
-                    "Master gRPC event-loop did not terminate");
-        }
-        if (simulatedStatusThread != null) {
-            simulatedStatusThread.interrupt();
-            simulatedStatusThread.join(TimeUnit.SECONDS.toMillis(5));
-            assertTrue(!simulatedStatusThread.isAlive(),
-                    "simulated Engine status worker did not terminate");
+        try {
+            for (ManagedChannel channel : masterChannels) {
+                channel.shutdownNow();
+            }
+            for (ManagedChannel channel : masterChannels) {
+                channel.awaitTermination(5, TimeUnit.SECONDS);
+            }
+            masterChannels = List.of();
+            if (masterServer != null) {
+                masterServer.shutdown();
+            }
+            if (masterServerEventLoopGroup != null) {
+                assertTrue(masterServerEventLoopGroup.terminationFuture()
+                                .await(5, TimeUnit.SECONDS),
+                        "Master gRPC event-loop did not terminate");
+            }
+            if (simulatedStatusThread != null) {
+                simulatedStatusThread.interrupt();
+                simulatedStatusThread.join(TimeUnit.SECONDS.toMillis(5));
+                assertTrue(!simulatedStatusThread.isAlive(),
+                        "simulated Engine status worker did not terminate");
+            }
+        } finally {
+            BoundedPhaseObservation.finishCase();
         }
     }
 

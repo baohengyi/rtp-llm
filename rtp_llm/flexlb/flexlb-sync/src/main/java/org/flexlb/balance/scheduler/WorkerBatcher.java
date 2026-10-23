@@ -1,5 +1,7 @@
 package org.flexlb.balance.scheduler;
 
+import org.flexlb.diagnostics.BoundedPhaseObservation;
+
 import org.flexlb.balance.delivery.CapacityBoundary;
 import org.flexlb.balance.delivery.DeliveryStrategy;
 import org.flexlb.balance.endpoint.DecodeEndpoint.DecodeRoutingView;
@@ -444,6 +446,7 @@ public final class WorkerBatcher {
                 throw new IllegalStateException("replacement request already owns a Prefill reservation: " + incoming.requestId());
             }
             queueVersion.incrementAndGet();
+            BoundedPhaseObservation.mark(incoming.ctx(), BoundedPhaseObservation.Phase.WORKER_ADMITTED);
             stateChanged.signal();
             return new EnqueueAttempt(true, null, null);
         } finally {
@@ -465,6 +468,7 @@ public final class WorkerBatcher {
             return new EnqueueAttempt(false, null, null);
         }
         if (!item.requiresRouteReservation()) {
+            BoundedPhaseObservation.mark(item.ctx(), BoundedPhaseObservation.Phase.WORKER_ADMITTED);
             stateChanged.signal();
             return new EnqueueAttempt(true, null, null);
         }
@@ -496,6 +500,7 @@ public final class WorkerBatcher {
                             "ACTIVE request already owns a route reservation: request_id="
                                     + item.requestId()));
         }
+        BoundedPhaseObservation.mark(item.ctx(), BoundedPhaseObservation.Phase.WORKER_ADMITTED);
         stateChanged.signal();
         return new EnqueueAttempt(true, null, null);
     }
@@ -1176,17 +1181,32 @@ public final class WorkerBatcher {
         }
     }
 
+    private static void observeHandoff(DeliveryStrategy.Transaction transaction,
+                                       BoundedPhaseObservation.Phase phase) {
+        if (!BoundedPhaseObservation.enabled()) { return; }
+        try {
+            BoundedPhaseObservation.Point point = BoundedPhaseObservation.snapshot();
+            for (ScheduledRequest item : transaction.items()) {
+                BoundedPhaseObservation.mark(item.ctx(), phase, point, -1L);
+            }
+        } catch (Throwable ignored) {
+            BoundedPhaseObservation.observationError();
+        }
+    }
+
     private void handoff(
             DeliveryStrategy.Transaction transaction,
             String decisionReason,
             int remainingQueueDepth,
             WorkSnapshot precedingWork) {
+        observeHandoff(transaction, BoundedPhaseObservation.Phase.HANDOFF_START);
         Throwable deliveryFailure = null;
         try {
             transaction.handoff(decisionReason, remainingQueueDepth, precedingWork);
         } catch (Throwable failure) {
             deliveryFailure = failure;
         }
+        observeHandoff(transaction, BoundedPhaseObservation.Phase.HANDOFF_END);
         Throwable unresolved = deliveryFailure != null
                 ? deliveryFailure
                 : new IllegalStateException(
@@ -1479,6 +1499,7 @@ public final class WorkerBatcher {
             return BatcherCycleResult.NO_ACTION;
         }
 
+        BoundedPhaseObservation.mark(head.ctx(), BoundedPhaseObservation.Phase.WORKER_CYCLE);
         long nowMs = now();
         if (head.requestExpired(nowMs)) {
             Logger.debug("flexlb_single_drop request_id={} "
@@ -1545,6 +1566,7 @@ public final class WorkerBatcher {
             return BatcherCycleResult.NO_ACTION;
         }
 
+        BoundedPhaseObservation.mark(observedHead.ctx(), BoundedPhaseObservation.Phase.WORKER_CYCLE);
         long nowMs = now();
         long fixedWaitMs = collectionWindowMs();
         BatchCapacitySnapshot capacity = batchCapacitySnapshot();
