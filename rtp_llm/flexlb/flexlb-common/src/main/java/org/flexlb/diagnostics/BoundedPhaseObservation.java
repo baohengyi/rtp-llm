@@ -50,6 +50,14 @@ public final class BoundedPhaseObservation {
         HANDOFF_START, HANDOFF_END, EXECUTOR_START, PROTO_START, PROTO_END, RPC_START, DELIVERY_PUBLISHED
     }
 
+    public enum SlotPhase { CLAIMED, SUBMITTED, OUTER_CLOSE_DONE, RELEASED }
+
+    /** Read only while the caller already owns the original queue lock. */
+    public record SlotState(int plannerCount, int inFlight, int completed,
+                            int queueDepth, boolean unscanned, boolean ready) { }
+
+    private record SlotPoint(Point point, int attempt, SlotState state) { }
+
     public record Point(long wallMillis, long nanos, long threadId, long cpuNanos, long batchId, int caseSequence) { }
 
     private BoundedPhaseObservation() { }
@@ -137,6 +145,40 @@ public final class BoundedPhaseObservation {
         }
     }
 
+    /** Sidechannel only: never creates a request trace or changes the queue. */
+    public static void markSlot(BalanceContext context, SlotPhase phase, SlotState state) {
+        Capture capture = current;
+        if (capture == null || context == null) { return; }
+        capture.writers.incrementAndGet();
+        try {
+            long requestId = context.getRequestId();
+            if ((requestId & 15L) != 0L || capture.closed) { return; }
+            Trace trace = capture.traces.get(requestId);
+            if (trace == null || trace.context.get() != context) { return; }
+            if (System.nanoTime() - capture.startedNanos >= CASE_NANOS) {
+                capture.expired.incrementAndGet();
+                return;
+            }
+            if (capture.points.getAndIncrement() >= MAX_POINTS) {
+                capture.pointOmissions.incrementAndGet();
+                return;
+            }
+            int attempt = phase == SlotPhase.CLAIMED
+                    ? trace.slotAttempt.incrementAndGet() : trace.slotAttempt.get();
+            Point point = capture.point(-1L);
+            if (point.cpuNanos() < 0L) { capture.cpuUnavailable.incrementAndGet(); }
+            SlotPoint value = new SlotPoint(point, attempt, state);
+            int index = phase.ordinal();
+            trace.slotCounts.incrementAndGet(index);
+            trace.slotFirst.compareAndSet(index, null, value);
+            trace.slotLast.set(index, value);
+        } catch (Throwable ignored) {
+            capture.errors.incrementAndGet();
+        } finally {
+            capture.writers.decrementAndGet();
+        }
+    }
+
     public static void observationError() {
         Capture capture = current;
         if (capture != null) { capture.errors.incrementAndGet(); }
@@ -167,6 +209,10 @@ public final class BoundedPhaseObservation {
         final AtomicReferenceArray<Point> first = new AtomicReferenceArray<>(Phase.values().length);
         final AtomicReferenceArray<Point> last = new AtomicReferenceArray<>(Phase.values().length);
         final AtomicIntegerArray counts = new AtomicIntegerArray(Phase.values().length);
+        final AtomicInteger slotAttempt = new AtomicInteger();
+        final AtomicReferenceArray<SlotPoint> slotFirst = new AtomicReferenceArray<>(SlotPhase.values().length);
+        final AtomicReferenceArray<SlotPoint> slotLast = new AtomicReferenceArray<>(SlotPhase.values().length);
+        final AtomicIntegerArray slotCounts = new AtomicIntegerArray(SlotPhase.values().length);
         Trace(long requestId, BalanceContext context) { this.requestId = requestId; this.context = new WeakReference<>(context); }
     }
 
@@ -210,6 +256,9 @@ public final class BoundedPhaseObservation {
             report.put("method", method);
             report.put("display_name", displayName);
             report.put("sequence", sequence);
+            report.put("schema_version", 2);
+            report.put("point_encoding", "last omitted only if count=1 and first.equals(last); reconstruct last=first exactly; repeated events retain both, not a full retry trace");
+            report.put("slot_rule", "CLAIMED increments per-request observer attempt_id; compare only same nonzero attempt, count1 points; state is instantaneous existing-lock snapshot, not whole wait occupancy; OUTER_CLOSE_DONE excludes prior commit-owned close");
             report.put("jvm_pid", ProcessHandle.current().pid());
             report.put("cpu_unavailable_points", cpuUnavailable.get());
             report.put("started_wall_millis", startedWallMillis);
@@ -236,10 +285,24 @@ public final class BoundedPhaseObservation {
                     Point first = trace.first.get(phase.ordinal());
                     if (first == null) { continue; }
                     Point last = trace.last.get(phase.ordinal());
-                    phases.put(phase.name(), Map.of("count", trace.counts.get(phase.ordinal()),
-                            "first", pointMap(first), "last", pointMap(last)));
+                    int count = trace.counts.get(phase.ordinal());
+                    phases.put(phase.name(), count == 1 && first.equals(last)
+                            ? Map.of("count", count, "first", pointMap(first))
+                            : Map.of("count", count, "first", pointMap(first), "last", pointMap(last)));
                 }
                 row.put("phases", phases);
+                Map<String, Object> slots = new LinkedHashMap<>();
+                for (SlotPhase phase : SlotPhase.values()) {
+                    SlotPoint first = trace.slotFirst.get(phase.ordinal());
+                    if (first == null) { continue; }
+                    int count = trace.slotCounts.get(phase.ordinal());
+                    SlotPoint last = trace.slotLast.get(phase.ordinal());
+                    slots.put(phase.name(), count == 1 && first.equals(last)
+                            ? Map.of("count", count, "first", slotMap(first))
+                            : Map.of("count", count, "first", slotMap(first),
+                                    "last", slotMap(trace.slotLast.get(phase.ordinal()))));
+                }
+                row.put("slot_lifecycle", slots);
                 rows.add(row);
             }
             report.put("serialization_omissions", ordered.size() - rows.size());
@@ -298,6 +361,19 @@ public final class BoundedPhaseObservation {
     private static Map<String, Long> pointMap(Point point) {
         return Map.of("wall_millis", point.wallMillis(), "nanos", point.nanos(),
                 "thread_id", point.threadId(), "cpu_nanos", point.cpuNanos(), "batch_id", point.batchId());
+    }
+
+    private static Map<String, Object> slotMap(SlotPoint value) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("point", pointMap(value.point()));
+        result.put("attempt_id", value.attempt());
+        SlotState state = value.state();
+        if (state != null) {
+            result.put("state", Map.of("planner_count", state.plannerCount(),
+                    "in_flight", state.inFlight(), "completed", state.completed(),
+                    "queue_depth", state.queueDepth(), "unscanned", state.unscanned(), "ready", state.ready()));
+        }
+        return result;
     }
 
     private static final class BoundedBytes extends ByteArrayOutputStream {

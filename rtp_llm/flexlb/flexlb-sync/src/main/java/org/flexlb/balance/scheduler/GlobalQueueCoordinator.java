@@ -232,9 +232,41 @@ final class GlobalQueueCoordinator implements AutoCloseable {
             }
             List<GlobalQueueEntry> candidates = planningCandidates(slots);
             inFlight.addAll(candidates);
+            observeClaimedUnderLock(candidates);
             return candidates;
         } finally {
             lock.unlock();
+        }
+    }
+
+    // Both helpers are called only inside the existing lock ownership. No
+    // extra acquisition, queue scan, capacity event or scheduler work is added.
+    private BoundedPhaseObservation.SlotState observedStateUnderLock() {
+        return new BoundedPhaseObservation.SlotState(plannerCount, inFlight.size(),
+                completedPlans.size(), orderedQueue.size(),
+                orderedQueue.hasUnscannedRequests(), waitingRequests.hasReadyRequests());
+    }
+
+    private void observeClaimedUnderLock(List<GlobalQueueEntry> entries) {
+        if (!BoundedPhaseObservation.enabled()) { return; }
+        try {
+            BoundedPhaseObservation.SlotState state = observedStateUnderLock();
+            for (GlobalQueueEntry entry : entries) {
+                BoundedPhaseObservation.markSlot(entry.context,
+                        BoundedPhaseObservation.SlotPhase.CLAIMED, state);
+            }
+        } catch (Throwable ignored) {
+            BoundedPhaseObservation.observationError();
+        }
+    }
+
+    private void observeReleasedUnderLock(GlobalQueueEntry entry) {
+        if (!BoundedPhaseObservation.enabled()) { return; }
+        try {
+            BoundedPhaseObservation.markSlot(entry.context,
+                    BoundedPhaseObservation.SlotPhase.RELEASED, observedStateUnderLock());
+        } catch (Throwable ignored) {
+            BoundedPhaseObservation.observationError();
         }
     }
 
@@ -256,6 +288,8 @@ final class GlobalQueueCoordinator implements AutoCloseable {
 
     private void submitPlan(GlobalQueueEntry entry) {
         try {
+            BoundedPhaseObservation.markSlot(entry.context,
+                    BoundedPhaseObservation.SlotPhase.SUBMITTED, null);
             planners.execute(() -> {
                 BoundedPhaseObservation.mark(entry.context, BoundedPhaseObservation.Phase.PLANNER_START);
                 Plan result;
@@ -307,12 +341,15 @@ final class GlobalQueueCoordinator implements AutoCloseable {
             BoundedPhaseObservation.mark(plan.entry.context, BoundedPhaseObservation.Phase.DECISION_END);
             // Release ownership before making this request eligible again.
             closePlan(plan);
+            BoundedPhaseObservation.markSlot(plan.entry.context,
+                    BoundedPhaseObservation.SlotPhase.OUTER_CLOSE_DONE, null);
             lock.lock();
             try {
                 inFlight.remove(plan.entry);
                 if (retry && isQueued(plan.entry)) {
                     orderedQueue.markRequestReadyForRetry(plan.entry);
                 }
+                observeReleasedUnderLock(plan.entry);
             } finally {
                 lock.unlock();
             }

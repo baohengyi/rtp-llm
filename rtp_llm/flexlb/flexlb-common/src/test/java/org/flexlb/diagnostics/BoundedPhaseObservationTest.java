@@ -77,6 +77,7 @@ class BoundedPhaseObservationTest {
         System.clearProperty(BoundedPhaseObservation.DIRECTORY_PROPERTY);
         start();
         BoundedPhaseObservation.mark(context(16L), BoundedPhaseObservation.Phase.SERVICE_START);
+        recordRound(context(16L));
         BoundedPhaseObservation.finishCase();
         assertFalse(BoundedPhaseObservation.enabled());
         try (var files = Files.list(output)) { assertEquals(0, files.count()); }
@@ -232,6 +233,7 @@ class BoundedPhaseObservationTest {
                     BoundedPhaseObservation.mark(context, phase);
                 }
             }
+            recordRound(context);
         }
         JsonNode report = finish(1);
         assertFalse(report.path("output_limit_or_serialization_error").asBoolean(), "complete original8192 request1/16 sample must fit the declared output bound");
@@ -239,8 +241,126 @@ class BoundedPhaseObservationTest {
         assertEquals(0, report.path("serialization_omissions").asInt());
         for (JsonNode request : report.path("requests")) {
             assertEquals(BoundedPhaseObservation.Phase.values().length, request.path("phases").size());
+            assertEquals(4, request.path("slot_lifecycle").size());
+            assertEquals(last(request.path("phases").path("SERVICE_START")),
+                    request.path("phases").path("SERVICE_START").path("first"));
         }
         assertEquals(512, references.size());
+    }
+
+    private static JsonNode last(JsonNode event) {
+        return event.has("last") ? event.path("last") : event.path("first");
+    }
+
+    private static void recordRound(BalanceContext context) {
+        BoundedPhaseObservation.markSlot(context, BoundedPhaseObservation.SlotPhase.CLAIMED,
+                new BoundedPhaseObservation.SlotState(8, 8, 0, 8192, true, false));
+        BoundedPhaseObservation.markSlot(context, BoundedPhaseObservation.SlotPhase.SUBMITTED, null);
+        BoundedPhaseObservation.markSlot(context, BoundedPhaseObservation.SlotPhase.OUTER_CLOSE_DONE, null);
+        BoundedPhaseObservation.markSlot(context, BoundedPhaseObservation.SlotPhase.RELEASED,
+                new BoundedPhaseObservation.SlotState(8, 7, 1, 8191, true, false));
+    }
+
+    @Test void slotStateAndAttemptBelongToActualRequestAndThread() throws Exception {
+        start();
+        BalanceContext context = context(16L);
+        BoundedPhaseObservation.mark(context, BoundedPhaseObservation.Phase.SERVICE_START);
+        recordRound(context);
+        JsonNode report = finish(1);
+        assertEquals(2, report.path("schema_version").asInt());
+        JsonNode slots = report.path("requests").get(0).path("slot_lifecycle");
+        assertEquals(4, slots.size());
+        assertEquals(8, slots.path("CLAIMED").path("first").path("state").path("in_flight").asInt());
+        assertEquals(7, slots.path("RELEASED").path("first").path("state").path("in_flight").asInt());
+        for (JsonNode event : slots) {
+            assertEquals(1, event.path("count").asInt());
+            assertEquals(1, event.path("first").path("attempt_id").asInt());
+            assertEquals(Thread.currentThread().threadId(), event.path("first").path("point").path("thread_id").asLong());
+            assertFalse(event.has("last"));
+            assertEquals(event.path("first"), last(event));
+        }
+    }
+
+    @Test void retryCountsRetainFirstAndLastDistinctAttemptIdentity() throws Exception {
+        start();
+        BalanceContext context = context(16L);
+        BoundedPhaseObservation.mark(context, BoundedPhaseObservation.Phase.SERVICE_START);
+        recordRound(context);
+        recordRound(context);
+        JsonNode slots = finish(1).path("requests").get(0).path("slot_lifecycle");
+        for (JsonNode event : slots) {
+            assertEquals(2, event.path("count").asInt());
+            assertTrue(event.has("last"));
+            assertEquals(1, event.path("first").path("attempt_id").asInt());
+            assertEquals(2, event.path("last").path("attempt_id").asInt());
+        }
+    }
+
+    @Test void slotEventsNeverCreateUnsampledOrForeignRequestTrace() throws Exception {
+        start();
+        BalanceContext owned = context(16L);
+        BoundedPhaseObservation.mark(owned, BoundedPhaseObservation.Phase.SERVICE_START);
+        recordRound(context(16L));
+        recordRound(context(17L));
+        JsonNode rows = finish(1).path("requests");
+        assertEquals(1, rows.size());
+        assertEquals(0, rows.get(0).path("slot_lifecycle").size());
+    }
+
+    @Test void slotAndOriginalPointsShareUnchangedOverallCap() throws Exception {
+        start();
+        BalanceContext context = context(16L);
+        BoundedPhaseObservation.mark(context, BoundedPhaseObservation.Phase.SERVICE_START);
+        for (int index = 0; index < BoundedPhaseObservation.MAX_POINTS + 20; index++) {
+            BoundedPhaseObservation.markSlot(context, BoundedPhaseObservation.SlotPhase.SUBMITTED, null);
+        }
+        JsonNode report = finish(1);
+        assertEquals(32768, report.path("point_cap").asInt());
+        assertTrue(report.path("point_omissions").asLong() > 0L);
+        assertTrue(report.path("requests").get(0).path("slot_lifecycle").path("SUBMITTED").path("count").asInt() < 32768);
+    }
+
+    @Test void unavailableVirtualThreadCpuRemainsUnknownAndPartialCounter() throws Exception {
+        start();
+        BalanceContext context = context(16L);
+        BoundedPhaseObservation.mark(context, BoundedPhaseObservation.Phase.SERVICE_START);
+        Thread thread = Thread.ofVirtual().start(() ->
+                BoundedPhaseObservation.markSlot(context, BoundedPhaseObservation.SlotPhase.SUBMITTED, null));
+        thread.join(5000);
+        assertFalse(thread.isAlive());
+        JsonNode report = finish(1);
+        assertTrue(report.path("cpu_unavailable_points").asLong() > 0);
+        assertEquals(-1L, report.path("requests").get(0).path("slot_lifecycle").path("SUBMITTED").path("first").path("point").path("cpu_nanos").asLong());
+    }
+
+    @Test void expiredSlotStopsOnlyObservationAndKeepsOriginalLimit() throws Exception {
+        start();
+        BalanceContext context = context(16L);
+        BoundedPhaseObservation.mark(context, BoundedPhaseObservation.Phase.SERVICE_START);
+        Field current = BoundedPhaseObservation.class.getDeclaredField("current");
+        current.setAccessible(true);
+        Object capture = current.get(null);
+        Field started = capture.getClass().getDeclaredField("startedNanos");
+        started.setAccessible(true);
+        started.setLong(capture, System.nanoTime() - BoundedPhaseObservation.CASE_NANOS - 1L);
+        recordRound(context);
+        JsonNode report = finish(1);
+        assertEquals(4, report.path("expired_marks").asInt());
+        assertEquals(0, report.path("requests").get(0).path("slot_lifecycle").size());
+        assertEquals(TimeUnit.SECONDS.toNanos(120), report.path("case_capture_nanos").asLong());
+    }
+
+    @Test void outputByteCapStillRejectsLargerWrite() throws Exception {
+        Class<?> type = Class.forName("org.flexlb.diagnostics.BoundedPhaseObservation$BoundedBytes");
+        var constructor = type.getDeclaredConstructor();
+        constructor.setAccessible(true);
+        Object bytes = constructor.newInstance();
+        Method write = type.getDeclaredMethod("write", byte[].class, int.class, int.class);
+        write.setAccessible(true);
+        var error = assertThrows(java.lang.reflect.InvocationTargetException.class,
+                () -> write.invoke(bytes, new byte[2097153], 0, 2097153));
+        assertEquals("OutputLimit", error.getCause().getClass().getSimpleName());
+        assertEquals(2097152, BoundedPhaseObservation.MAX_OUTPUT_BYTES);
     }
 
 }
