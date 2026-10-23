@@ -190,6 +190,12 @@ def _run_smoke_test(test_name: str, test_config: Mapping[str, Any]) -> None:
             x["query_result"] = [resolve_prompt_refs(qr) for qr in x["query_result"]]
     finally:
         common_def.REL_PATH = saved_rel_path
+    # Isolated observation only: preserve the original task and request values.
+    if os.environ.get("RTP_SMOKE_CAUSAL_OBSERVATION") == "1":
+        from rtp_llm.test.smoke.causal_observation import prepare_case
+
+        _env_keys_set.append(("RTP_SMOKE_CAUSAL_DIR", os.environ.get("RTP_SMOKE_CAUSAL_DIR")))
+        prepare_case(test_name, x, os.environ["TEST_UNDECLARED_OUTPUTS_DIR"])
     task_info = TaskInfo(**x, taskinfo_rel_path=os.path.join(local_rel_path, task_info_path))
 
     runner_class = get_runner_type(smoke_args, envs)

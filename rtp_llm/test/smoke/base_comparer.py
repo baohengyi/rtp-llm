@@ -191,6 +191,13 @@ class BaseComparer(object):
             self.request_endpoint,
             self.qr_info.get("expected_status_code", 200),
         )
+        if os.environ.get("RTP_SMOKE_CAUSAL_OBSERVATION") == "1":
+            try:
+                from rtp_llm.test.smoke.causal_observation import record_exchange
+
+                record_exchange(self.qr_info, request_info, res)
+            except Exception as error:
+                logging.exception("Diagnostic exchange collection failed: %s", error)
         if not ret:
             raise SmokeException(
                 QueryStatus.VISIT_FAILED,

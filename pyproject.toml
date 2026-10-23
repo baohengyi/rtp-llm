@@ -970,3 +970,13 @@ gpu_type = "H20"
 markexpr = "manual and perf and H20"
 expected_count = 3
 forbid_skips = true
+
+# PRIVATE DIAGNOSTIC ONLY. Do not merge this profile into development/candidate.
+[tool.rtp_llm.pytest_ci.profiles.smoke_diag_r16_two_complete]
+description = "Diagnostic observation of two unchanged complete original R14 failures"
+paths = ["rtp_llm/test/smoke/sm120_cuda13_test.py::test_smoke_sm120_cuda13[generation_prefill_cuda_graph_sm120]", "rtp_llm/test/smoke/sm120_cuda13_test.py::test_smoke_sm120_cuda13[dense_fp8pb_dynamic_sm120]"]
+gpu_type = "RTX_5000_PRO_CU13"
+markexpr = "manual and smoke and RTX_5000_PRO_CU13"
+expected_count = 2
+forbid_skips = true
+remote_env = { RTP_BAZEL_CONFIG = "--config=cuda13 --config=sm120", TEST_HIDDEN_STATES = "True", TEST_LOGITS = "True", REMOTE_JIT_DIR = "/tmp/rtp-llm/.remote_jit_cache", RTP_SMOKE_CAUSAL_OBSERVATION = "1" }

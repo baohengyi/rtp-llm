@@ -1,4 +1,5 @@
 #include "rtp_llm/cpp/normal_engine/NormalExecutor.h"
+#include "rtp_llm/cpp/normal_engine/SmokeObservation.h"
 #include "rtp_llm/cpp/normal_engine/HiddenStateCapturePolicy.h"
 #include "rtp_llm/cpp/cache/KVCacheManager.h"
 #include "rtp_llm/cpp/cuda_graph/cuda_graph_device_shims.h"
@@ -373,7 +374,20 @@ absl::Status NormalExecutor::process(const std::list<GenerateStreamPtr>& streams
         CHECK_AND_RETURN_REF(sampler_input,
                              batch_stream_processor_->gatherSamplerInput(stream_groups, model_input, model_output));
         holdSamplerInputHostBuffers(buffer_holder_, sampler_input);
+        std::optional<smoke_observation::Snapshot> smoke_snapshot;
+        try {
+            if (smoke_observation::enabled()) {
+                smoke_snapshot.emplace(smoke_observation::begin(sampler_input, stream_groups));
+            }
+        } catch (const std::exception& ex) {
+            smoke_observation::error("entry", ex.what());
+        } catch (...) {
+            smoke_observation::error("entry", "unknown exception");
+        }
         sampler_output = std::move(sampler_->forward(sampler_input));
+        if (smoke_snapshot) {
+            smoke_observation::finish(*smoke_snapshot, sampler_input, sampler_output);
+        }
         RTP_LLM_LOG_DEBUG("sampler forward done");
         executor_collector.sample_input_us = autil::TimeUtility::currentTimeInMicroSeconds() - start_time_us;
     }
